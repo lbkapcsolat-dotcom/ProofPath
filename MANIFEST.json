@@ -1,0 +1,38 @@
+{
+  "DEMO_SCRIPT.md": {
+    "bytes": 724,
+    "sha256": "76d514017c1f82ec7e0b494ca89dfd5d2b0affcc232204e125adb11081e2cfd5"
+  },
+  "MODEL_CARD.md": {
+    "bytes": 522,
+    "sha256": "ce4a27abf583905e08d211a40154bdbfc66fe902ad2b60e5e4ff2fa6d69100d0"
+  },
+  "README.md": {
+    "bytes": 1123,
+    "sha256": "ea48654708612598ba24bbf3335b03e7a298badd8b6e85146d14245796e558d5"
+  },
+  "SUBMISSION_COPY.md": {
+    "bytes": 1366,
+    "sha256": "722b7407e799d6a223b528d3ffb51c422e44347190b414b99671010ae281083c"
+  },
+  "app.js": {
+    "bytes": 2854,
+    "sha256": "f9ed4e593e2864df8efbb5695ff8b6315f864ea78da78b0217764d5dbb9674ea"
+  },
+  "index.html": {
+    "bytes": 3513,
+    "sha256": "cf0ad7b1fe90d85d60e0c350ccc0416c7f80da17829f9dc99f6d6e3742e9d44e"
+  },
+  "model.js": {
+    "bytes": 10402,
+    "sha256": "00d5231529d2c5e1e6dc2ebc1bcdf2d45433270bb43deb6ee152293cd0c9471f"
+  },
+  "test-ui.mjs": {
+    "bytes": 479,
+    "sha256": "a13d66c8558a7cdc4dae9047c7621f20b9585f9f1a6794e320efe7a2c35db7cb"
+  },
+  "tests.mjs": {
+    "bytes": 802,
+    "sha256": "4794e3c88da107ed517d6ad4c635babab47fba9e0782b4302e93498e0854bd0f"
+  }
+}
