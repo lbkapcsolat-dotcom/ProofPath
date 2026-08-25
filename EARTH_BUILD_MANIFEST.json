@@ -1,0 +1,22 @@
+{
+  "artifact": "Earth Evidence",
+  "competition": "NextStep Hacks 2026",
+  "theme": "Earth Forward",
+  "repository": "lbkapcsolat-dotcom/ProofPath",
+  "baseline_branch": "main",
+  "baseline_commit": "537e276724a75b9f5f45404c550712b84f56d046",
+  "development_branch": "nextstep-earth-evidence-v1",
+  "inherited_engine": "ProofPath three-class browser softmax/logistic regression",
+  "new_training_pairs": 32,
+  "new_holdout_pairs": 10,
+  "new_features": [
+    "Earth-specific corpus",
+    "environmental category detection",
+    "next evidence needed guidance",
+    "Earth Forward UI",
+    "before/during disclosure",
+    "Earth-specific benchmark and UI tests"
+  ],
+  "claim_ceiling": "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY",
+  "verification": "CI_PENDING"
+}
