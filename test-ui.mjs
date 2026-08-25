@@ -1,7 +1,10 @@
-
 import assert from "node:assert/strict";
 import fs from "node:fs";
 const html=fs.readFileSync("./index.html","utf8"), app=fs.readFileSync("./app.js","utf8");
-for(const s of ['id="claim"','id="evidence"','id="exampleSelect"','id="modelStatus"','EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY']) assert.match(html,new RegExp(s));
-assert.match(app,/trainSoftmax/);assert.match(app,/HOLDOUT_SET/);assert.match(app,/export function analyze/);
-console.log("PASS: submission UI static checks");
+for(const s of ['id="claim"','id="evidence"','id="exampleSelect"','id="modelStatus"','id="category"','id="nextEvidence"','EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY','Earth Evidence','Next evidence needed']) assert.match(html,new RegExp(s));
+assert.match(app,/EARTH_TRAINING_SET/);
+assert.match(app,/EARTH_HOLDOUT_SET/);
+assert.match(app,/detectEarthCategory/);
+assert.match(app,/nextEvidenceNeeded/);
+assert.match(app,/export function analyze/);
+console.log("PASS: Earth Evidence submission UI static checks");
