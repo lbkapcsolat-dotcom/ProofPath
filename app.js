@@ -1,5 +1,6 @@
 import { trainSoftmax, predict } from "./model.js";
 import { EARTH_TRAINING_SET, EARTH_HOLDOUT_SET } from "./earth-data.js";
+import { detectEarthCategory, nextEvidenceNeeded } from "./earth-logic.js";
 
 const CLAIM_CEILING = "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY";
 const model = trainSoftmax(EARTH_TRAINING_SET);
@@ -17,28 +18,10 @@ const nextEvidenceEl = document.querySelector("#nextEvidence");
 
 function pct(x){ return `${(x*100).toFixed(1)}%`; }
 
-function detectEarthCategory(claim,evidence){
-  const t = `${claim} ${evidence}`.toLowerCase();
-  if(/methane|carbon|emission|warming|climate/.test(t)) return "Climate";
-  if(/solar|wind|electric|energy|efficien/.test(t)) return "Energy";
-  if(/water|rain|drought|storm|flood/.test(t)) return "Water";
-  if(/waste|recycl|landfill|compost|plastic/.test(t)) return "Waste";
-  if(/wildlife|wetland|coral|ecosystem|biodiversity|marine/.test(t)) return "Biodiversity";
-  if(/transit|traffic|bike|transport|vehicle/.test(t)) return "Transport";
-  return "General";
-}
-
 function explain(label){
   if(label === "SUPPORTED") return "The supplied evidence contains enough matching support signals for this compact educational classifier to place the pair in the SUPPORTED class.";
   if(label === "CONTRADICTED") return "The supplied evidence contains strong conflict signals such as negation, opposite terms, or incompatible relationships.";
   return "The evidence does not clearly justify or refute the claim. Earth Evidence keeps the conclusion conservative instead of converting partial evidence into certainty.";
-}
-
-export function nextEvidenceNeeded(label, category){
-  const domain = category === "General" ? "environmental claim" : `${category.toLowerCase()} claim`;
-  if(label === "SUPPORTED") return `Seek an independent source, measurement, or dataset that tests the same ${domain} across another place, time period, or sample.`;
-  if(label === "CONTRADICTED") return `Identify the exact conflicting measurement or relationship, then verify its source, date, scale, and comparison baseline.`;
-  return `Specify the missing baseline, comparison group, time window, scale, or measured outcome that would make this ${domain} testable.`;
 }
 
 export function analyze(claim,evidence){
