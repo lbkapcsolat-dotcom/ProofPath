@@ -1,0 +1,63 @@
+name: Publish Earth Evidence Demo
+
+on:
+  push:
+    branches:
+      - nextstep-earth-evidence-v1
+    paths:
+      - scripts/build_nextstep_demo.py
+      - .github/workflows/publish-earth-evidence-demo.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install video dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak fonts-dejavu-core
+          python -m pip install --upgrade pip
+          python -m pip install pillow
+
+      - name: Build reproducible 3-5 minute demo
+        run: |
+          python scripts/build_nextstep_demo.py
+          ffprobe -v error -show_entries format=duration,size -of json dist/Earth_Evidence_NextStep_Demo_V1.mp4
+
+      - name: Hash demo
+        run: |
+          sha256sum dist/Earth_Evidence_NextStep_Demo_V1.mp4 | tee dist/Earth_Evidence_NextStep_Demo_V1.mp4.sha256
+
+      - name: Prepare release notes
+        run: |
+          cat > dist/release-notes.md <<'EOF'
+          # Earth Evidence — NextStep Demo V1
+
+          Reproducibly generated demo/pitch video for the NextStep Hacks 2026 Earth Forward submission.
+
+          - Live demo: https://turbo-light-fmf7q67.shipstatic.com
+          - Source branch: https://github.com/lbkapcsolat-dotcom/ProofPath/tree/nextstep-earth-evidence-v1
+          - Before/during disclosure: https://github.com/lbkapcsolat-dotcom/ProofPath/blob/nextstep-earth-evidence-v1/NEXTSTEP_CHANGELOG.md
+          - Claim ceiling: `EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY`
+
+          The attached `.sha256` file is generated from the exact MP4 release asset.
+          EOF
+
+      - name: Publish or refresh release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=earth-evidence-nextstep-demo-v1
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/Earth_Evidence_NextStep_Demo_V1.mp4 dist/Earth_Evidence_NextStep_Demo_V1.mp4.sha256 --clobber
+            gh release edit "$TAG" --title "Earth Evidence — NextStep Demo V1" --notes-file dist/release-notes.md --target "$GITHUB_SHA"
+          else
+            gh release create "$TAG" dist/Earth_Evidence_NextStep_Demo_V1.mp4 dist/Earth_Evidence_NextStep_Demo_V1.mp4.sha256 --title "Earth Evidence — NextStep Demo V1" --notes-file dist/release-notes.md --target "$GITHUB_SHA"
+          fi
