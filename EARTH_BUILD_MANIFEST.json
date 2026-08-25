@@ -17,6 +17,16 @@
     "before/during disclosure",
     "Earth-specific benchmark and UI tests"
   ],
-  "claim_ceiling": "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY",
-  "verification": "CI_PENDING"
+  "baseline_delta": {
+    "commits_ahead": 12,
+    "new_files": 5,
+    "modified_files": 5
+  },
+  "local_verification": {
+    "earth_holdout": "PASS_10_OF_10",
+    "ui_static_checks": "PASS",
+    "method": "Node execution against reconstructed branch modules using the unchanged ProofPath classifier engine"
+  },
+  "remote_ci_readback": "HOLD_NO_WORKFLOW_RUN_VISIBLE_IN_AVAILABLE_READBACK",
+  "claim_ceiling": "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY"
 }
