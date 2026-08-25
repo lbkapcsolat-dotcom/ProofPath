@@ -1,0 +1,22 @@
+name: Earth Evidence Tests
+
+on:
+  push:
+    branches:
+      - nextstep-earth-evidence-v1
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run Earth benchmark
+        run: node tests.mjs
+      - name: Run static UI checks
+        run: node test-ui.mjs
