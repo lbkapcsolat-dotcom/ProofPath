@@ -5,11 +5,22 @@ from typing import Any
 
 HEX64=re.compile(r'^[0-9a-f]{64}$')
 ENGINE_FAMILIES={'sage':'cas_sage','wolfram':'cas_wolfram','python':'python_runtime','python_exact':'python_runtime','precise':'precise_special_functions','arb':'flint_arb','lean':'lean_kernel','julia':'julia_runtime'}
+LIVE_EVIDENCE_SCHEMA='proofpath.live_engine_evidence.v1'
+LIVE_ADVERSARIAL_SCHEMA='proofpath.live_adversarial_evidence.v1'
 
 def _hash(x:Any)->str:
     return hashlib.sha256(json.dumps(x,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
 def _map(xs): return {str(x.get('id','')):x for x in xs}
 def _h(x): return isinstance(x,str) and HEX64.fullmatch(x) is not None
+
+def _verify_live_record(record):
+    if record.get('schema') not in {LIVE_EVIDENCE_SCHEMA,LIVE_ADVERSARIAL_SCHEMA}:return True
+    digest=record.get('evidence_sha256')
+    if not _h(digest):return False
+    body=deepcopy(record); body.pop('evidence_sha256',None)
+    if _hash(body)!=digest:return False
+    engine=str(record.get('engine',''))
+    return record.get('engine_family')==ENGINE_FAMILIES.get(engine)
 
 def build_verification_dag(route_report):
     out=[]
@@ -32,6 +43,7 @@ def _quorum(claim,route,evidence):
         if not xs:return {'status':'HOLD_INSUFFICIENT_EVIDENCE','missing_role':role}
         xs.sort(key=lambda e:(str(e.get('engine')),str(e.get('evidence_sha256')))); x=deepcopy(xs[0])
         if not _h(x.get('evidence_sha256')):return {'status':'HOLD_BAD_EVIDENCE_HASH','role':role}
+        if not _verify_live_record(x):return {'status':'HOLD_BAD_LIVE_EVIDENCE_HASH','role':role}
         fam=ENGINE_FAMILIES.get(str(x.get('engine')))
         if fam is None:return {'status':'HOLD_UNKNOWN_ENGINE_FAMILY','role':role}
         x.pop('family',None); x['family']=fam; selected.append(x)
@@ -43,6 +55,7 @@ def _adversarial(claim,records):
     xs=[x for x in records if x.get('claim_id')==claim['id']]
     for x in xs:
         if not _h(x.get('evidence_sha256')):return {'status':'HOLD_BAD_ADVERSARIAL_HASH','category':x.get('category')}
+        if not _verify_live_record(x):return {'status':'HOLD_BAD_LIVE_ADVERSARIAL_HASH','category':x.get('category')}
     hit=next((x for x in xs if x.get('status')=='COUNTEREXAMPLE_FOUND'),None)
     if hit:return {'status':'HOLD_COUNTEREXAMPLE_FOUND','category':hit.get('category'),'evidence_sha256':hit.get('evidence_sha256')}
     need={'boundary'}|({'counterexample_search'} if claim.get('risk') in {'high','critical'} else set()); passed={str(x.get('category')) for x in xs if x.get('status')=='PASS'}; missing=sorted(need-passed)
