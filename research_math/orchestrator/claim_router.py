@@ -14,7 +14,7 @@ ROUTING_POLICY: dict[str, dict[str, Any]] = {
         ],
         "engine_candidates": {
             "exact_computation": ["sage", "wolfram", "python_exact"],
-            "independent_exact_crosscheck": ["lean", "wolfram", "python_exact"],
+            "independent_exact_crosscheck": ["lean", "julia", "wolfram", "python_exact"],
         },
     },
     "numerical_approximation": {
