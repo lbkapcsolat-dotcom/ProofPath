@@ -1,33 +1,67 @@
-# ProofPath — Submission V1
+# EcoDrift
 
-ProofPath is an offline educational AI/ML prototype for learning evidence reasoning.
+**Environmental signals, with uncertainty attached.**
 
-A learner provides a claim and evidence. ProofPath classifies the relationship as:
-- SUPPORTED
-- CONTRADICTED
-- INSUFFICIENT
+EcoDrift is a browser-only environmental signal explorer built during the **GIBC V2** build window for **Track 03: Open (General Technical Invention)**. It turns a small, auditable public time series into an explainable workflow:
 
-## ML
-The app trains a three-class softmax-regression classifier from bundled labeled examples at startup.
-The verdict is learned from weighted text-pair features, not hard-coded per example.
+`PUBLIC DATA → SCHEMA/PROVENANCE → TREND → ANOMALY → CHANGE-POINT → UNCERTAINTY → VISUALIZATION`
 
-Feature families include lexical overlap, coverage, negation mismatch, numeric mismatch, antonym conflict, contradiction cues, uncertainty cues, overclaim cues, and evidence/claim length ratio.
+## Problem
+Environmental dashboards often show a line and leave the user to over-interpret it. A trend can be noisy, an extreme year can dominate intuition, and a possible structural break can look more certain than it is.
 
-No external API, CDN, account, paid credit, or model download is required.
+EcoDrift keeps those ideas separate. It shows a directional trend, a robust outlier layer, a CUSUM change-point candidate, and a bootstrap confidence interval — then explicitly labels unresolved evidence as uncertain.
 
-## Verified bundled benchmark
-10/10 on the fixed untouched holdout/demo set.
+## Default public dataset
+- Upstream source: **NASA POWER** precipitation.
+- Location: Budapest, Hungary — 47.4979 N, 19.0402 E.
+- Period: 2000–2024.
+- Derived SPI table retrieved through DMAP-AI production backend with `data_origin=real_dmap_ai_backend`, `data_source=nasa_power`, 12-month SPI, baseline 2000–2024, yearly method `jan_dec_totals`.
+- NASA POWER Daily API docs: https://power.larc.nasa.gov/docs/services/api/temporal/daily/
 
-This is a tiny curated educational benchmark, not evidence of general-world accuracy.
+The bundled file preserves the 25 yearly precipitation totals and SPI values used by the demo.
 
-## Run
-`python -m http.server 8000`
-then open `http://localhost:8000`
-
-## Test
-`node tests.mjs`
+## Analytics
+- OLS slope and R².
+- 95% pair-bootstrap slope interval with deterministic seed.
+- Median/MAD robust anomaly score, threshold `|z| >= 2.5`.
+- Mean-centered CUSUM maximum as a **candidate** change-point.
+- Fail-closed uncertainty label when the bootstrap interval includes zero.
 
 ## Claim ceiling
-EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY
+EcoDrift is descriptive and educational. It does **not** attribute climate change, forecast weather or drought, measure drought impact, or establish causality. DMAP-AI categories are SPI categories, not direct measurements of real-world impacts.
 
-Not a truth detector, scientific validator, medical/legal tool, or general automatic fact checker.
+## Run
+Any static web server works:
+
+```bash
+python -m http.server 8080
+```
+
+Open `http://localhost:8080`.
+
+## Test
+
+```bash
+node tests.mjs
+```
+
+## Custom data
+Upload CSV with:
+
+```csv
+year,value
+2010,123
+2011,118
+...
+```
+
+At least 8 valid rows are required.
+
+## Built with
+Vanilla HTML, CSS, JavaScript, Canvas 2D, NASA POWER public environmental data, and a DMAP-AI-derived SPI-12 table. No external AI API, cloud inference, CDN, paid model, or runtime dependency.
+
+## AI assistance disclosure
+ChatGPT was used as an AI coding assistant for implementation, documentation, test generation, and presentation preparation. The project owner is responsible for the submitted code, source disclosures, tests, and claims.
+
+## GIBC V2 originality statement
+EcoDrift was created during the GIBC V2 official build period. It is a separate project from the earlier ProofPath / Earth Evidence submissions: it uses a new environmental time-series architecture, new analytics modules, new public-data provenance flow, new visualization, and a different claim ceiling.
