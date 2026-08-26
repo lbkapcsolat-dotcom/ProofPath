@@ -2,10 +2,12 @@ using LinearAlgebra
 using Base.Threads
 
 @assert VERSION == v"1.12.7"
-@assert Threads.nthreads() >= 2
+@assert Threads.nthreads(:default) >= 2
 
 println("Julia version: ", VERSION)
-println("Julia threads: ", Threads.nthreads())
+println("Default threads: ", Threads.nthreads(:default))
+println("Interactive threads: ", Threads.nthreads(:interactive))
+println("Max thread id: ", Threads.maxthreadid())
 println("BLAS config: ", BLAS.get_config())
 println("BLAS threads: ", BLAS.get_num_threads())
 
@@ -17,17 +19,26 @@ residual = norm(A * x - b, Inf)
 println("linear solve residual_inf = ", residual)
 @assert residual < 1e-12
 
-# Matrix multiplication consistency canary.
+# Symmetric positive-semidefinite matrix consistency canary.
 M = reshape(Float64.(1:16), 4, 4)
 N = transpose(M) * M
 @assert issymmetric(N)
 @assert minimum(eigvals(Symmetric(N))) > -1e-10
 
 # Multi-threaded deterministic integer reduction.
+# Do not index storage by threadid(): Julia 1.12 has multiple thread pools,
+# and thread IDs are not guaranteed to fit 1:nthreads(:default).
 n = 1_000_000
-partials = zeros(Int128, Threads.nthreads())
-Threads.@threads :static for i in 1:n
-    partials[Threads.threadid()] += Int128(i)
+chunks = Threads.nthreads(:default)
+partials = zeros(Int128, chunks)
+Threads.@threads :static for k in 1:chunks
+    lo = fld((k - 1) * n, chunks) + 1
+    hi = fld(k * n, chunks)
+    acc = Int128(0)
+    for i in lo:hi
+        acc += Int128(i)
+    end
+    partials[k] = acc
 end
 threaded_sum = sum(partials)
 serial_sum = Int128(n) * (n + 1) ÷ 2
