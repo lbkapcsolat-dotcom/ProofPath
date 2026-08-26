@@ -1,4 +1,4 @@
-name: Research Math P3 Orchestration
+name: Research Math P3-P10 Assurance
 
 on:
   push:
@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  claim-authority-router:
-    name: P3 Claim Authority Router
+  math-assurance:
+    name: P3-P10 High-Assurance Math Gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact repository state
@@ -27,50 +27,96 @@ jobs:
           python3 --version
           echo "source_sha=$GITHUB_SHA"
 
-      - name: Run P3 routing contract
+      - name: P3 claim authority router contract
         run: |
           set -euo pipefail
           python3 research_math/orchestrator/test_claim_router.py
 
-      - name: Build deterministic routing report
+      - name: P4-P10 assurance contract
+        run: |
+          set -euo pipefail
+          python3 research_math/orchestrator/test_assurance_pipeline.py
+
+      - name: Build deterministic P3 report
         run: |
           set -euo pipefail
           mkdir -p out
           python3 research_math/orchestrator/claim_router.py \
             research_math/orchestrator/canary_claims.json \
             > out/math-p3-routing-report.json
-          cat out/math-p3-routing-report.json
 
-      - name: Seal P3 evidence
+      - name: Build deterministic P4-P10 assurance bundle
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research_math/orchestrator python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import assurance_pipeline as ap
+          import test_assurance_pipeline as canary
+          report = ap.build_bundle({
+              'claims': canary.CLAIMS,
+              'evidence': canary.EVIDENCE,
+              'adversarial': canary.ADVERSARIAL,
+          })
+          Path('out/math-p4-p10-assurance-report.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          got = {x['id']: x['status'] for x in report['gate']['claims']}
+          expected = {
+              'ALG-PASS': 'PASS',
+              'THM-PASS': 'PASS',
+              'SAME-FAMILY': 'HOLD_INSUFFICIENT_INDEPENDENCE',
+              'COUNTEREXAMPLE': 'HOLD_COUNTEREXAMPLE_FOUND',
+              'NUM-HIGH': 'HOLD_ESCALATION_REQUIRED',
+          }
+          if got != expected:
+              raise SystemExit(f'P10 gate mismatch: {got!r} != {expected!r}')
+          print('P10 EXPECTED PASS/HOLD MATRIX = PASS')
+          PY
+
+      - name: Seal orchestration evidence
         run: |
           set -euo pipefail
           sha256sum \
             research_math/orchestrator/canary_claims.json \
             research_math/orchestrator/test_claim_router.py \
             research_math/orchestrator/claim_router.py \
+            research_math/orchestrator/test_assurance_pipeline.py \
+            research_math/orchestrator/assurance_pipeline.py \
             out/math-p3-routing-report.json \
-            | tee out/math-p3-sha256.txt
+            out/math-p4-p10-assurance-report.json \
+            | tee out/math-assurance-sha256.txt
           {
-            echo '## P3 Claim Authority Router'
+            echo '## P3-P10 High-Assurance Mathematics'
             echo "- Source SHA: $GITHUB_SHA"
-            echo '- Unknown claim class: fail-closed'
-            echo '- Incomplete claim specification: fail-closed'
-            echo '- Router grants ROUTE_READY only; mathematical PASS is downstream'
+            echo '- P3 router: fail-closed; no premature mathematical PASS'
+            echo '- P4 verification DAG: deterministic'
+            echo '- P5 engine independence: policy-owned family map'
+            echo '- P6 adversarial counterexample gate: fail-closed'
+            echo '- P7 high-risk numerical escalation: rigorous enclosure required'
+            echo '- P8 theorem formalization: exact Lean target binding required'
+            echo '- P9 proof receipt: SHA-256 tamper detection'
+            echo '- P10 global gate: PASS only after every upstream gate'
+            echo '- Claim ceiling: structural canary validates gate behavior, not arbitrary future mathematics'
             echo '```'
-            cat out/math-p3-sha256.txt
+            cat out/math-assurance-sha256.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Preserve P3 evidence
+      - name: Preserve P3-P10 evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: math-p3-routing-${{ github.sha }}
+          name: math-assurance-${{ github.sha }}
           path: |
             out/math-p3-routing-report.json
-            out/math-p3-sha256.txt
+            out/math-p4-p10-assurance-report.json
+            out/math-assurance-sha256.txt
             research_math/orchestrator/canary_claims.json
             research_math/orchestrator/test_claim_router.py
             research_math/orchestrator/claim_router.py
+            research_math/orchestrator/test_assurance_pipeline.py
+            research_math/orchestrator/assurance_pipeline.py
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
