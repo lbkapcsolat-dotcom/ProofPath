@@ -1,0 +1,66 @@
+name: Research Math P0 Verification
+
+on:
+  push:
+    branches:
+      - research-math-p0-verifier
+    paths:
+      - "research_math/**"
+      - ".github/workflows/research-math-p0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lean-formal-proof:
+    name: P0-A Lean + Mathlib formal proof
+    runs-on: ubuntu-latest
+    env:
+      LEAN_NUM_THREADS: "1"
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Kernel build + axiom audit + independent Nanoda check
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
+        with:
+          lake-package-directory: research_math/lean
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+          use-github-cache: false
+          axiom-audit: true
+          axiom-audit-root: ResearchMathP0
+          nanoda: true
+          nanoda-allow-sorry: false
+
+      - name: Negative placeholder gate
+        working-directory: research_math/lean
+        run: |
+          if grep -R --line-number -E '\b(sorry|admit)\b' --include='*.lean' .; then
+            echo 'Forbidden proof placeholder found.' >&2
+            exit 1
+          fi
+          echo 'P0-A LEAN/MATHLIB = PASS'
+
+  flint-rigorous-numerics:
+    name: P0-B FLINT/Arb rigorous intervals
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Create isolated Python environment
+        run: |
+          python3 --version
+          python3 -m venv .venv
+          .venv/bin/python -m pip --version
+
+      - name: Install hash-pinned python-flint
+        run: |
+          .venv/bin/python -m pip install --require-hashes -r research_math/flint/requirements.txt
+
+      - name: Execute rigorous interval canary
+        run: |
+          .venv/bin/python research_math/flint/canary.py
