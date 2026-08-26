@@ -1,0 +1,59 @@
+name: ESS ATB1 H5 Exact Fault Execution V1
+on:
+  push:
+    branches: [ess-atb1-h5-exact-fault-execution-v1]
+    paths: [ess_atb1_h5/EXECUTE_H5]
+permissions:
+  contents: read
+jobs:
+  fault-cell:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - {window: W0_BEFORE_DISPATCH, executors: 1, cell: w0c1}
+          - {window: W0_BEFORE_DISPATCH, executors: 8, cell: w0c8}
+          - {window: W1_AFTER_DISPATCH_BEFORE_RESPONSE, executors: 1, cell: w1c1}
+          - {window: W1_AFTER_DISPATCH_BEFORE_RESPONSE, executors: 8, cell: w1c8}
+          - {window: W2_AFTER_RESPONSE_BEFORE_PERSIST, executors: 1, cell: w2c1}
+          - {window: W2_AFTER_RESPONSE_BEFORE_PERSIST, executors: 8, cell: w2c8}
+          - {window: W3_AFTER_CAS_BEFORE_RECEIPT, executors: 1, cell: w3c1}
+          - {window: W3_AFTER_CAS_BEFORE_RECEIPT, executors: 8, cell: w3c8}
+          - {window: W4_AFTER_RECEIPT_BEFORE_FINALIZATION, executors: 1, cell: w4c1}
+          - {window: W4_AFTER_RECEIPT_BEFORE_FINALIZATION, executors: 8, cell: w4c8}
+          - {window: W5_AFTER_FINALIZATION_BEFORE_CALLER_RESPONSE, executors: 1, cell: w5c1}
+          - {window: W5_AFTER_FINALIZATION_BEFORE_CALLER_RESPONSE, executors: 8, cell: w5c8}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Run exact frozen cell
+        run: python ess_atb1_h5/h5_runner.py --window '${{ matrix.window }}' --executors '${{ matrix.executors }}' --out 'cell_${{ matrix.cell }}.csv'
+      - name: Upload cell artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-atb1-h5-${{ matrix.cell }}
+          path: cell_${{ matrix.cell }}.csv
+          if-no-files-found: warn
+  merge-h5:
+    if: always()
+    needs: [fault-cell]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ess-atb1-h5-*
+          path: downloaded
+      - name: Merge and verify H5
+        run: python ess_atb1_h5/merge_h5.py
+      - name: Upload final H5 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESS_ATB_1_H5_FINAL_RESULT
+          path: merged/
+          if-no-files-found: warn
