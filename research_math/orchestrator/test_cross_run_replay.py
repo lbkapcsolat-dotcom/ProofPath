@@ -70,6 +70,8 @@ def binding(run_id: str, *, source_sha: str = "a" * 40, witness: str = "stable")
 
 
 def run() -> None:
+    assert hasattr(live, "build_n_run_registry"), "P13 N-run divergence registry is missing"
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         first_path = root / "first.json"
