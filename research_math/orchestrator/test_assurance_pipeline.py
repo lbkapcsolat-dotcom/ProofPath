@@ -42,6 +42,35 @@ ADVERSARIAL = [
 
 def by_id(items): return {x['id']:x for x in items}
 
+def run_live_hash_guard() -> None:
+    claim={'id':'LIVE-HASH-GUARD','text':'Live evidence hashes must be self-verifying','claim_class':'exact_algebraic','risk':'standard','domain':'integers','assumptions':[]}
+    route=claim_router.build_report({'schema':'proofpath.math_claims.v1','claims':[claim]})
+    dag=ap.build_verification_dag(route)
+    forged_live={
+        'schema':'proofpath.live_engine_evidence.v1',
+        'claim_id':'LIVE-HASH-GUARD',
+        'role':'exact_computation',
+        'engine':'sage',
+        'status':'PASS',
+        'source_sha':'a'*40,
+        'run_id':'1',
+        'job':'sage',
+        'engine_family':'cas_sage',
+        'engine_version':'10.9',
+        'raw_output_sha256':h('raw'),
+        'input_sha256':{'canary.py':h('input')},
+        'witness_marker':'fake marker',
+        'evidence_sha256':h('forged-not-body-hash'),
+    }
+    evidence=[
+        forged_live,
+        {'claim_id':'LIVE-HASH-GUARD','role':'independent_exact_crosscheck','engine':'python_exact','status':'PASS','evidence_sha256':h('guard-python')},
+    ]
+    adversarial=[{'claim_id':'LIVE-HASH-GUARD','category':'boundary','status':'PASS','evidence_sha256':h('guard-boundary')}]
+    assurance=ap.evaluate_assurance([claim],route,dag,evidence,adversarial)
+    assert assurance['claims'][0]['quorum']['status']=='HOLD_BAD_LIVE_EVIDENCE_HASH'
+
+
 def run():
     route=claim_router.build_report({'schema':'proofpath.math_claims.v1','claims':CLAIMS})
     dag=ap.build_verification_dag(route)
@@ -70,6 +99,7 @@ def run():
     bundle=ap.build_bundle({'claims':CLAIMS,'evidence':EVIDENCE,'adversarial':ADVERSARIAL})
     assert bundle['schema']=='proofpath.math_assurance_bundle.v1'
     assert by_id(bundle['gate']['claims'])['SAME-FAMILY']['status']=='HOLD_INSUFFICIENT_INDEPENDENCE'
-    print('P4 VERIFICATION DAG = PASS'); print('P5 INDEPENDENCE/QUORUM = PASS'); print('P6 ADVERSARIAL GATE = PASS'); print('P7 ESCALATION = PASS'); print('P8 FORMALIZATION BRIDGE = PASS'); print('P9 PROOF RECEIPTS = PASS'); print('P10 GLOBAL MATH GATE = PASS')
+    run_live_hash_guard()
+    print('P4 VERIFICATION DAG = PASS'); print('P5 INDEPENDENCE/QUORUM = PASS'); print('P5 LIVE EVIDENCE HASH GUARD = PASS'); print('P6 ADVERSARIAL GATE = PASS'); print('P7 ESCALATION = PASS'); print('P8 FORMALIZATION BRIDGE = PASS'); print('P9 PROOF RECEIPTS = PASS'); print('P10 GLOBAL MATH GATE = PASS')
 
 if __name__=='__main__': run()
