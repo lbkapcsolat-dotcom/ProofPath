@@ -92,6 +92,13 @@ jobs:
           python3 research_media/asr_compare.py research_media/voice_script.txt out/asr.txt
           echo 'M5-E TTS -> ASR CROSS-CHECK = PASS'
 
+      - name: Seal voice source snapshot
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > out/source-sha.txt
+          echo 'M5-S SOURCE SNAPSHOT = PASS'
+
       - name: Preserve voice/ASR evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -100,6 +107,7 @@ jobs:
             out/voice.wav
             out/voice16.wav
             out/asr.txt
+            out/source-sha.txt
             research_media/voice_script.txt
           if-no-files-found: error
           retention-days: 1
@@ -159,6 +167,13 @@ jobs:
           print('M6-B REMOTION RENDER QC = PASS')
           PY
 
+      - name: Seal Remotion source snapshot
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > out/source-sha.txt
+          echo 'M6-S SOURCE SNAPSHOT = PASS'
+
       - name: Preserve Remotion evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -166,6 +181,7 @@ jobs:
           path: |
             out/remotion.mp4
             out/remotion.ffprobe.json
+            out/source-sha.txt
             research_media/remotion/package-lock.json
           if-no-files-found: error
           retention-days: 1
@@ -191,6 +207,15 @@ jobs:
           name: media-remotion-${{ github.sha }}
           path: in/remotion
 
+      - name: Verify same-snapshot upstream evidence
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(cat in/voice/out/source-sha.txt)" = "$GITHUB_SHA"
+          test "$(cat in/remotion/out/source-sha.txt)" = "$GITHUB_SHA"
+          cmp -s in/voice/out/source-sha.txt in/remotion/out/source-sha.txt
+          echo 'M7-S SAME-SNAPSHOT CI = PASS'
+
       - name: Install exact FFmpeg foundation
         run: |
           set -euo pipefail
@@ -200,21 +225,27 @@ jobs:
           tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
           echo "/tmp/ffmpeg/bin" >> "$GITHUB_PATH"
 
-      - name: Mux verified narration into Remotion visual
+      - name: Normalize verified narration with two-pass EBU R128
         run: |
           set -euo pipefail
           mkdir -p out
           test -s in/voice/out/voice.wav
+          python3 research_media/normalize_narration.py in/voice/out/voice.wav out/narration-normalized.wav
+          test -s out/narration-normalized.wav
+          echo 'M7-N TWO-PASS EBU R128 WIRING = PASS'
+
+      - name: Mux normalized narration into Remotion visual
+        run: |
+          set -euo pipefail
           test -s in/remotion/out/remotion.mp4
           ffmpeg -hide_banner -loglevel error -y \
             -i in/remotion/out/remotion.mp4 \
-            -i in/voice/out/voice.wav \
-            -filter_complex "[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,pan=stereo|c0=c0|c1=c0,apad=pad_dur=6[a]" \
-            -map 0:v:0 -map '[a]' -t 6 \
-            -c:v copy -c:a aac -b:a 128k \
+            -i out/narration-normalized.wav \
+            -map 0:v:0 -map 1:a:0 -t 6 \
+            -c:v copy -c:a aac -b:a 128k -ar 48000 -ac 2 \
             out/narrated.mp4
           test -s out/narrated.mp4
-          echo 'M7-A REMOTION + VERIFIED VOICE = PASS'
+          echo 'M7-A REMOTION + NORMALIZED VERIFIED VOICE = PASS'
 
       - name: Burn and mux narration captions
         run: |
@@ -257,12 +288,15 @@ jobs:
         with:
           name: media-factory-${{ github.sha }}
           path: |
+            out/narration-normalized.wav
             out/final-factory.mp4
             out/final-factory.mp4.sha256
             out/final-factory.mp4.ffprobe.json
             out/factory-poster.jpg
             out/publication-package.json
             in/voice/out/asr.txt
+            in/voice/out/source-sha.txt
+            in/remotion/out/source-sha.txt
             research_media/voice_canary.srt
             research_media/publication_metadata.json
           if-no-files-found: error
