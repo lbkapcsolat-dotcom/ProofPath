@@ -1,0 +1,87 @@
+name: Research Scholarly Verification
+
+on:
+  push:
+    branches:
+      - research-scholarly-verifier
+    paths:
+      - 'research_scholarly/**'
+      - '.github/workflows/research-scholarly-verification.yml'
+  pull_request:
+    paths:
+      - 'research_scholarly/**'
+      - '.github/workflows/research-scholarly-verification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scholarly-router-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact action revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Record runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          git rev-parse HEAD
+
+      - name: Run deterministic router tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 research_scholarly/test_router.py
+
+      - name: Build normalized scholarly report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 research_scholarly/router.py research_scholarly/fixtures/canary_records.json > scholarly-report.json
+          cat scholarly-report.json
+
+      - name: Enforce expected PASS/HOLD verdicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('scholarly-report.json').read_text())
+          claims = {x['id']: x['status'] for x in report['claims']}
+          expected = {
+              'C1': 'PASS',
+              'C2': 'PASS',
+              'C3': 'HOLD_RETRACTED',
+              'C4': 'HOLD_INSUFFICIENT_INDEPENDENCE',
+          }
+          if claims != expected:
+              raise SystemExit(f'claim verdict mismatch: {claims!r} != {expected!r}')
+          if report['canonical_group_count'] != 4:
+              raise SystemExit(f"expected 4 canonical groups, got {report['canonical_group_count']}")
+          print('PASS expected scholarly verdict matrix')
+          PY
+
+      - name: Hash fixture and report
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum research_scholarly/fixtures/canary_records.json scholarly-report.json | tee scholarly-sha256.txt
+          cat scholarly-sha256.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish gate summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '## Scholarly verifier canary'
+            echo '- Router/dedupe: PASS'
+            echo '- Claim/evidence admission: PASS'
+            echo '- Retraction negative control: PASS (claim held)'
+            echo '- Zero-spend route guard: PASS'
+            echo '- Live connector execution: frozen fixture only; no CI connector impersonation'
+          } >> "$GITHUB_STEP_SUMMARY"
