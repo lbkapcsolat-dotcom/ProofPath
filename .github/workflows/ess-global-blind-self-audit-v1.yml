@@ -1,0 +1,35 @@
+name: ESS Global Blind Self Audit V1
+on:
+  push:
+    branches: [ess-global-blind-self-audit-v1]
+    paths: [ess_global_blind_v1/EXECUTE_BLIND]
+permissions:
+  contents: read
+jobs:
+  blind-evaluation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify V2 was frozen before blind generator
+        run: |
+          git merge-base --is-ancestor 471abb56c7b38c79c542bead058dfc1a17682273 HEAD
+          sha256sum ess_global_blind_v1/repair_v2/common_v2.py
+          sha256sum ess_global_blind_v1/repair_v2/stochastic_plus_ess_v2.py
+      - name: Generate unseen blind set after freeze and evaluate
+        run: |
+          python ess_global_blind_v1/blind_runner.py --root ess_global_blind_v1 --out blind_result
+          printf '%s\n' "$GITHUB_SHA" > blind_result/GITHUB_HEAD_SHA.txt
+          printf '%s\n' '471abb56c7b38c79c542bead058dfc1a17682273' > blind_result/V2_PRE_BLIND_FREEZE_COMMIT.txt
+          sha256sum blind_result/* > blind_result/ARTIFACT_SHA256SUMS.txt
+      - name: Upload blind result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESS_GLOBAL_BLIND_SELF_AUDIT_V1_RESULT
+          path: blind_result/
+          if-no-files-found: error
