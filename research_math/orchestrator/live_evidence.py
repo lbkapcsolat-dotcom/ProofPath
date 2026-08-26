@@ -163,6 +163,32 @@ def _verify_hashed_record(record: dict[str, Any], field: str) -> bool:
     return _sha_obj(body) == digest
 
 
+def _semantic_record(record: dict[str, Any], *, adversarial: bool) -> dict[str, Any]:
+    keys = ["claim_id", "status", "witness_marker"]
+    keys.append("category" if adversarial else "role")
+    if not adversarial and "formal_target" in record:
+        keys.append("formal_target")
+    return {key: deepcopy(record.get(key)) for key in keys}
+
+
+def _engine_identity(receipt: dict[str, Any]) -> dict[str, Any]:
+    evidence = sorted(
+        (_semantic_record(item, adversarial=False) for item in receipt.get("evidence", [])),
+        key=lambda item: (str(item.get("claim_id")), str(item.get("role"))),
+    )
+    adversarial = sorted(
+        (_semantic_record(item, adversarial=True) for item in receipt.get("adversarial", [])),
+        key=lambda item: (str(item.get("claim_id")), str(item.get("category"))),
+    )
+    return {
+        "engine_family": receipt["engine_family"],
+        "engine_version": receipt["engine_version"],
+        "input_sha256": deepcopy(receipt["input_sha256"]),
+        "evidence_semantic_sha256": _sha_obj(evidence),
+        "adversarial_semantic_sha256": _sha_obj(adversarial),
+    }
+
+
 def emit_receipt(
     profile_name: str,
     *,
@@ -335,11 +361,14 @@ def bind_receipts(
         raise ValueError(f"live assurance HOLD: {holds}")
 
     body = {
-        "schema": "proofpath.live_engine_binding.v1",
+        "schema": "proofpath.live_engine_binding.v2",
         "source_sha": expected_source_sha,
         "run_id": next(iter(run_ids)),
         "engine_receipt_sha256": {
             engine: by_engine[engine]["receipt_sha256"] for engine in sorted(by_engine)
+        },
+        "engine_identity": {
+            engine: _engine_identity(by_engine[engine]) for engine in sorted(by_engine)
         },
         "live_claims_sha256": _sha_file(claims_path),
         "assurance_bundle": assurance_bundle,
@@ -349,6 +378,72 @@ def bind_receipts(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(bound, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return bound
+
+
+def _claim_statuses(binding: dict[str, Any]) -> dict[str, str]:
+    try:
+        claims = binding["assurance_bundle"]["gate"]["claims"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError("binding missing claim gate") from exc
+    return {str(item.get("id")): str(item.get("status")) for item in claims}
+
+
+def _load_binding(path: Path, expected_source_sha: str) -> dict[str, Any]:
+    binding = json.loads(path.read_text(encoding="utf-8"))
+    if binding.get("schema") != "proofpath.live_engine_binding.v2":
+        raise ValueError(f"{path}: bad binding schema")
+    if not _verify_hashed_record(binding, "binding_sha256"):
+        raise ValueError(f"{path}: binding hash mismatch")
+    if binding.get("source_sha") != expected_source_sha:
+        raise ValueError(f"{path}: source SHA mismatch")
+    identities = binding.get("engine_identity")
+    if not isinstance(identities, dict) or set(identities) != set(PROFILES):
+        raise ValueError(f"{path}: engine identity set mismatch")
+    statuses = _claim_statuses(binding)
+    if not statuses or any(status != "PASS" for status in statuses.values()):
+        raise ValueError(f"{path}: non-PASS claim state")
+    return binding
+
+
+def compare_bindings(
+    *,
+    first_path: Path,
+    second_path: Path,
+    expected_source_sha: str,
+    output_path: Path,
+) -> dict[str, Any]:
+    first = _load_binding(first_path, expected_source_sha)
+    second = _load_binding(second_path, expected_source_sha)
+
+    first_run = str(first.get("run_id", ""))
+    second_run = str(second.get("run_id", ""))
+    if not first_run or not second_run or first_run == second_run:
+        raise ValueError("replay run IDs must differ")
+    if first.get("live_claims_sha256") != second.get("live_claims_sha256"):
+        raise ValueError("live claims hash drift")
+    if first.get("engine_identity") != second.get("engine_identity"):
+        raise ValueError("engine identity drift")
+
+    first_statuses = _claim_statuses(first)
+    second_statuses = _claim_statuses(second)
+    if first_statuses != second_statuses:
+        raise ValueError("claim status drift")
+
+    body = {
+        "schema": "proofpath.cross_run_receipt_chain.v1",
+        "status": "PASS",
+        "source_sha": expected_source_sha,
+        "run_ids": [first_run, second_run],
+        "binding_sha256": [first["binding_sha256"], second["binding_sha256"]],
+        "live_claims_sha256": first["live_claims_sha256"],
+        "engine_identity_sha256": _sha_obj(first["engine_identity"]),
+        "claim_statuses": first_statuses,
+        "claim_ceiling": "P12 proves cross-run consistency only for the same four live claims, source snapshot, engine inputs, versions, and witness semantics in these two isolated runs.",
+    }
+    chain = _with_hash(body, "chain_sha256")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(chain, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return chain
 
 
 def main() -> int:
@@ -371,6 +466,12 @@ def main() -> int:
     bind.add_argument("--source-sha", required=True)
     bind.add_argument("--output", required=True, type=Path)
 
+    compare = sub.add_parser("compare")
+    compare.add_argument("--first-binding", required=True, type=Path)
+    compare.add_argument("--second-binding", required=True, type=Path)
+    compare.add_argument("--source-sha", required=True)
+    compare.add_argument("--output", required=True, type=Path)
+
     args = parser.parse_args()
     if args.command == "emit":
         emit_receipt(
@@ -382,11 +483,18 @@ def main() -> int:
             repo_root=args.repo_root,
             output_path=args.output,
         )
-    else:
+    elif args.command == "bind":
         bind_receipts(
             receipts_root=args.receipts_root,
             repo_root=args.repo_root,
             claims_path=args.claims,
+            expected_source_sha=args.source_sha,
+            output_path=args.output,
+        )
+    else:
+        compare_bindings(
+            first_path=args.first_binding,
+            second_path=args.second_binding,
             expected_source_sha=args.source_sha,
             output_path=args.output,
         )
