@@ -42,7 +42,7 @@ jobs:
           "$HOME/.elan/bin/lake" update
           test -s lake-manifest.json
 
-      - name: Kernel build + independent Nanoda check
+      - name: Kernel build + independent leanchecker
         uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
         with:
           lake-package-directory: research_math/lean
@@ -50,12 +50,13 @@ jobs:
           build: true
           use-mathlib-cache: true
           use-github-cache: false
-          nanoda: true
-          nanoda-allow-sorry: false
+          leanchecker: true
+          nanoda: false
 
       - name: Negative placeholder gate
         working-directory: research_math/lean
         run: |
+          set -euo pipefail
           if grep -R --line-number -E '\b(sorry|admit)\b' --include='*.lean' .; then
             echo 'Forbidden proof placeholder found.' >&2
             exit 1
