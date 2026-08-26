@@ -8,6 +8,7 @@ on:
       - "research_math/**"
       - ".github/workflows/research-math-p0.yml"
       - ".github/workflows/research-math-p3.yml"
+      - ".github/workflows/research-math-p12-replay.yml"
   workflow_dispatch:
 
 permissions:
