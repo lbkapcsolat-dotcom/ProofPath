@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "render": "remotion render src/index.jsx Main ../../out/remotion.mp4 --codec h264 --crf 23"
+    "render": "remotion render src/index.jsx Main ../../out/remotion.mp4 --codec h264 --crf 23 --pixel-format yuv420p --browser-executable=$CHROME_PATH"
   },
   "dependencies": {
     "@remotion/cli": "4.0.506",
