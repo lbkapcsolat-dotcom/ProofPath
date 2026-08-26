@@ -108,26 +108,26 @@ jobs:
   sagemath-independent-cas:
     name: P2-D SageMath independent CAS
     runs-on: ubuntu-latest
+    env:
+      SAGE_IMAGE: sagemath/sagemath@sha256:e068670ae5863b54b2550e72437ec637b0283acb0dc712c8584c124dbf44e667
     steps:
       - name: Checkout exact repository state
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Discover official SageMath 10.9 image digest
+      - name: Pull exact SageMath 10.9 image digest
         run: |
           set -euo pipefail
-          docker pull sagemath/sagemath:10.9
-          resolved="$(docker image inspect --format='{{index .RepoDigests 0}}' sagemath/sagemath:10.9)"
+          docker pull "$SAGE_IMAGE"
+          resolved="$(docker image inspect --format='{{index .RepoDigests 0}}' "$SAGE_IMAGE")"
           echo "Resolved SageMath image: $resolved"
-          case "$resolved" in
-            sagemath/sagemath@sha256:2401ffa8e9fc*) ;;
-            *) echo "Unexpected SageMath 10.9 digest prefix: $resolved" >&2; exit 1 ;;
-          esac
+          test "$resolved" = "$SAGE_IMAGE"
 
       - name: Execute exact CAS canary
         run: |
           set -euo pipefail
+          docker run --rm "$SAGE_IMAGE" sage --version
           docker run --rm \
             -v "$PWD:/work:ro" \
             -w /work \
-            sagemath/sagemath:10.9 \
+            "$SAGE_IMAGE" \
             sage -python research_math/sage/canary.py
