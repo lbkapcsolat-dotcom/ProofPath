@@ -7,6 +7,7 @@ on:
     paths:
       - "research_math/**"
       - ".github/workflows/research-math-p0.yml"
+      - ".github/workflows/research-math-p3.yml"
   workflow_dispatch:
 
 permissions:
