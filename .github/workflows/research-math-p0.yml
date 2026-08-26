@@ -104,3 +104,30 @@ jobs:
           set -euo pipefail
           julia --version
           julia research_math/julia/canary.jl
+
+  sagemath-independent-cas:
+    name: P2-D SageMath independent CAS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Discover official SageMath 10.9 image digest
+        run: |
+          set -euo pipefail
+          docker pull sagemath/sagemath:10.9
+          resolved="$(docker image inspect --format='{{index .RepoDigests 0}}' sagemath/sagemath:10.9)"
+          echo "Resolved SageMath image: $resolved"
+          case "$resolved" in
+            sagemath/sagemath@sha256:2401ffa8e9fc*) ;;
+            *) echo "Unexpected SageMath 10.9 digest prefix: $resolved" >&2; exit 1 ;;
+          esac
+
+      - name: Execute exact CAS canary
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/work:ro" \
+            -w /work \
+            sagemath/sagemath:10.9 \
+            sage -python research_math/sage/canary.py
