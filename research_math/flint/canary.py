@@ -1,3 +1,5 @@
+import importlib.metadata as metadata
+
 from flint import arb, ctx
 
 ctx.dps = 80
@@ -7,6 +9,8 @@ def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
 
+
+print("python-flint version:", metadata.version("python-flint"))
 
 # P0-B canary 1: sqrt(2) is computed as an Arb ball; squaring it must
 # rigorously enclose the exact value 2, hence the residual must contain 0.
@@ -33,3 +37,5 @@ print("sqrt(2) ball:", sqrt2)
 print("sqrt(2)^2 - 2 enclosure:", residual)
 print("(1/3)*3 enclosure:", roundtrip)
 print("zeta(3) enclosure:", zeta3)
+print("PROOFPATH_EVIDENCE RIG-LIVE rigorous_enclosure residual_contains_zero=true")
+print("PROOFPATH_ADVERSARIAL RIG-LIVE boundary roundtrip_contains_one=true")
