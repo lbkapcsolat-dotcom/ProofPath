@@ -1,4 +1,4 @@
-name: Research Math P0 Verification
+name: Research Math Verification
 
 on:
   push:
@@ -83,3 +83,24 @@ jobs:
       - name: Execute rigorous interval canary
         run: |
           .venv/bin/python research_math/flint/canary.py
+
+  julia-hpc:
+    name: P1-C Julia scientific computing + HPC
+    runs-on: ubuntu-latest
+    env:
+      JULIA_NUM_THREADS: "4"
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install exact Julia 1.12.7
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: '1.12.7'
+          arch: 'x64'
+
+      - name: Verify Julia scientific/HPC canary
+        run: |
+          set -euo pipefail
+          julia --version
+          julia research_math/julia/canary.jl
