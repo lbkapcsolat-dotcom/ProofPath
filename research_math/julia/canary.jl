@@ -25,6 +25,11 @@ N = transpose(M) * M
 @assert issymmetric(N)
 @assert minimum(eigvals(Symmetric(N))) > -1e-10
 
+# Independent exact-integer crosscheck for ALG-LIVE.
+factor_product = big(3) * big(5) * big(17) * big(257) * big(65537)
+mersenne32 = big(2)^32 - 1
+@assert factor_product == mersenne32 == 4294967295
+
 # Multi-threaded deterministic integer reduction.
 # Do not index storage by threadid(): Julia 1.12 has multiple thread pools,
 # and thread IDs are not guaranteed to fit 1:nthreads(:default).
@@ -44,6 +49,8 @@ threaded_sum = sum(partials)
 serial_sum = Int128(n) * (n + 1) ÷ 2
 println("threaded_sum = ", threaded_sum)
 println("serial_sum   = ", serial_sum)
-@assert threaded_sum == serial_sum
+@assert threaded_sum == serial_sum == 500000500000
 
 println("P1-C JULIA/HPC = PASS")
+println("PROOFPATH_EVIDENCE ALG-LIVE independent_exact_crosscheck factor_product=4294967295")
+println("PROOFPATH_EVIDENCE HPC-LIVE hpc_computation threaded_sum=500000500000")
