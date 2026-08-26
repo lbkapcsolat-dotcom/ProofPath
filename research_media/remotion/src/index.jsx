@@ -15,7 +15,7 @@ const Scene = () => {
 };
 
 const Root = () => (
-  <Composition id="Main" component={Scene} durationInFrames={90} fps={30} width={1920} height={1080} />
+  <Composition id="Main" component={Scene} durationInFrames={180} fps={30} width={1920} height={1080} />
 );
 
 registerRoot(Root);
