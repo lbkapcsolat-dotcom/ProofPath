@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { initialState, applyEvent, stableStringify } from '../src/engine.js';
+test('initial state is canonical and has no commit',()=>{const s=initialState();assert.equal(s.currentEpoch,1);assert.equal(s.currentFence,1);assert.equal(s.canonicalCommit,null);assert.equal(s.taskState,'PENDING')});
+test('current fence can commit once',()=>{let s=initialState();s=applyEvent(s,{type:'LEASE_ACQUIRED',hostId:'A',epoch:1,fence:1});s=applyEvent(s,{type:'DISPATCHED',hostId:'A',epoch:1,fence:1});s=applyEvent(s,{type:'RESPONSE_PERSISTED',hostId:'A',epoch:1,fence:1,response:'ok'});s=applyEvent(s,{type:'COMMIT',hostId:'A',epoch:1,fence:1});assert.equal(s.taskState,'COMMITTED');assert.equal(s.canonicalCommit.hostId,'A')});
+test('stale fence is rejected',()=>{let s=initialState();s=applyEvent(s,{type:'PROMOTE_AUTHORITY',hostId:'B',epoch:2,fence:2});s=applyEvent(s,{type:'COMMIT',hostId:'A',epoch:1,fence:1});assert.equal(s.lastDecision,'EXPECTED_REJECTION_STALE_FENCE');assert.equal(s.canonicalCommit,null)});
+test('duplicate canonical commit is rejected',()=>{let s=initialState();s=applyEvent(s,{type:'LEASE_ACQUIRED',hostId:'A',epoch:1,fence:1});s=applyEvent(s,{type:'DISPATCHED',hostId:'A',epoch:1,fence:1});s=applyEvent(s,{type:'RESPONSE_PERSISTED',hostId:'A',epoch:1,fence:1,response:'ok'});s=applyEvent(s,{type:'COMMIT',hostId:'A',epoch:1,fence:1});s=applyEvent(s,{type:'COMMIT',hostId:'A',epoch:1,fence:1});assert.equal(s.lastDecision,'EXPECTED_REJECTION_DUPLICATE_COMMIT');assert.equal(s.commitCount,1)});
+test('invalid transition fails closed',()=>assert.equal(applyEvent(initialState(),{type:'RESPONSE_PERSISTED',hostId:'A',epoch:1,fence:1}).lastDecision,'HOLD_INVALID_TRANSITION'));
+test('stable stringify is key-order deterministic',()=>assert.equal(stableStringify({b:1,a:2}),stableStringify({a:2,b:1})));
