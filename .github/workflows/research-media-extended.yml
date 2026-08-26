@@ -204,11 +204,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          test -s in/voice/voice.wav
-          test -s in/remotion/remotion.mp4
+          test -s in/voice/out/voice.wav
+          test -s in/remotion/out/remotion.mp4
           ffmpeg -hide_banner -loglevel error -y \
-            -i in/remotion/remotion.mp4 \
-            -i in/voice/voice.wav \
+            -i in/remotion/out/remotion.mp4 \
+            -i in/voice/out/voice.wav \
             -filter_complex "[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,pan=stereo|c0=c0|c1=c0,apad=pad_dur=6[a]" \
             -map 0:v:0 -map '[a]' -t 6 \
             -c:v copy -c:a aac -b:a 128k \
@@ -262,7 +262,7 @@ jobs:
             out/final-factory.mp4.ffprobe.json
             out/factory-poster.jpg
             out/publication-package.json
-            in/voice/asr.txt
+            in/voice/out/asr.txt
             research_media/voice_canary.srt
             research_media/publication_metadata.json
           if-no-files-found: error
