@@ -3,7 +3,7 @@ name: Research Scholarly Verification
 on:
   push:
     branches:
-      - research-scholarly-verifier
+      - 'research-scholarly-verifier*'
     paths:
       - 'research_scholarly/**'
       - '.github/workflows/research-scholarly-verification.yml'
