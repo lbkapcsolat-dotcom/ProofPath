@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "render": "remotion render src/index.jsx Main ../../out/remotion.mp4 --codec h264 --crf 23 --pixel-format yuv420p"
+    "render": "remotion render src/index.jsx Main ../../out/remotion-raw.mp4 --codec h264 --crf 23 && ffmpeg -hide_banner -loglevel error -y -i ../../out/remotion-raw.mp4 -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p -an -movflags +faststart ../../out/remotion.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.506",
