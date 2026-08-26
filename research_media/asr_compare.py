@@ -16,12 +16,12 @@ def norm(s: str) -> list[str]:
 exp = norm(expected)
 act = norm(actual)
 ratio = SequenceMatcher(a=exp, b=act).ratio()
-required = {"proof", "path", "video", "publication"}
+required = {"verification", "system", "video", "publication"}
 missing = sorted(required - set(act))
 print("expected_words =", exp)
 print("actual_words   =", act)
 print(f"sequence_ratio = {ratio:.3f}")
 print("missing_required =", missing)
-assert ratio >= 0.80, ratio
+assert ratio >= 0.85, ratio
 assert not missing, missing
 print("M5-A VOICE -> ASR TEXT FIDELITY = PASS")
