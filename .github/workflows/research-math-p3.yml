@@ -1,4 +1,4 @@
-name: Research Math P3-P10 Assurance
+name: Research Math P3-P11 Assurance
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   math-assurance:
-    name: P3-P10 High-Assurance Math Gate
+    name: P3-P11 High-Assurance Math Gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact repository state
@@ -37,6 +37,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 research_math/orchestrator/test_assurance_pipeline.py
+
+      - name: P11 live receipt structural contract
+        working-directory: research_math/orchestrator
+        run: |
+          set -euo pipefail
+          python3 test_live_evidence.py
 
       - name: Build deterministic P3 report
         run: |
@@ -85,27 +91,32 @@ jobs:
             research_math/orchestrator/claim_router.py \
             research_math/orchestrator/test_assurance_pipeline.py \
             research_math/orchestrator/assurance_pipeline.py \
+            research_math/orchestrator/test_live_evidence.py \
+            research_math/orchestrator/live_evidence.py \
+            research_math/orchestrator/live_claims.json \
             out/math-p3-routing-report.json \
             out/math-p4-p10-assurance-report.json \
             | tee out/math-assurance-sha256.txt
           {
-            echo '## P3-P10 High-Assurance Mathematics'
+            echo '## P3-P11 High-Assurance Mathematics'
             echo "- Source SHA: $GITHUB_SHA"
             echo '- P3 router: fail-closed; no premature mathematical PASS'
             echo '- P4 verification DAG: deterministic'
             echo '- P5 engine independence: policy-owned family map'
+            echo '- P5 live evidence hashes: content-verified fail-closed'
             echo '- P6 adversarial counterexample gate: fail-closed'
             echo '- P7 high-risk numerical escalation: rigorous enclosure required'
             echo '- P8 theorem formalization: exact Lean target binding required'
             echo '- P9 proof receipt: SHA-256 tamper detection'
             echo '- P10 global gate: PASS only after every upstream gate'
-            echo '- Claim ceiling: structural canary validates gate behavior, not arbitrary future mathematics'
+            echo '- P11 live receipt structure: source/raw/input/receipt tamper guards'
+            echo '- Claim ceiling: structural tests do not substitute for the separate live-engine workflow run'
             echo '```'
             cat out/math-assurance-sha256.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Preserve P3-P10 evidence
+      - name: Preserve P3-P11 evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: math-assurance-${{ github.sha }}
@@ -118,6 +129,9 @@ jobs:
             research_math/orchestrator/claim_router.py
             research_math/orchestrator/test_assurance_pipeline.py
             research_math/orchestrator/assurance_pipeline.py
+            research_math/orchestrator/test_live_evidence.py
+            research_math/orchestrator/live_evidence.py
+            research_math/orchestrator/live_claims.json
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
