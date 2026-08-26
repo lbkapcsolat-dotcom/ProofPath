@@ -1,0 +1,76 @@
+name: Research Math P3 Orchestration
+
+on:
+  push:
+    branches:
+      - research-math-p0-verifier
+    paths:
+      - "research_math/orchestrator/**"
+      - ".github/workflows/research-math-p3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claim-authority-router:
+    name: P3 Claim Authority Router
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Record source identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 --version
+          echo "source_sha=$GITHUB_SHA"
+
+      - name: Run P3 routing contract
+        run: |
+          set -euo pipefail
+          python3 research_math/orchestrator/test_claim_router.py
+
+      - name: Build deterministic routing report
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 research_math/orchestrator/claim_router.py \
+            research_math/orchestrator/canary_claims.json \
+            > out/math-p3-routing-report.json
+          cat out/math-p3-routing-report.json
+
+      - name: Seal P3 evidence
+        run: |
+          set -euo pipefail
+          sha256sum \
+            research_math/orchestrator/canary_claims.json \
+            research_math/orchestrator/test_claim_router.py \
+            research_math/orchestrator/claim_router.py \
+            out/math-p3-routing-report.json \
+            | tee out/math-p3-sha256.txt
+          {
+            echo '## P3 Claim Authority Router'
+            echo "- Source SHA: $GITHUB_SHA"
+            echo '- Unknown claim class: fail-closed'
+            echo '- Incomplete claim specification: fail-closed'
+            echo '- Router grants ROUTE_READY only; mathematical PASS is downstream'
+            echo '```'
+            cat out/math-p3-sha256.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve P3 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-p3-routing-${{ github.sha }}
+          path: |
+            out/math-p3-routing-report.json
+            out/math-p3-sha256.txt
+            research_math/orchestrator/canary_claims.json
+            research_math/orchestrator/test_claim_router.py
+            research_math/orchestrator/claim_router.py
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
