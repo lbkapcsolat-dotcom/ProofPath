@@ -1,1 +1,1 @@
-Proof Path checks every video before publication.
+This verification system checks every video before publication.
