@@ -1,0 +1,30 @@
+{
+  "schema": "proofpath.reproducibility_policy.v1",
+  "min_runs": 3,
+  "claims": {
+    "ALG-LIVE": {
+      "mode": "BIT_EXACT",
+      "engines": ["julia", "sage"]
+    },
+    "THM-LIVE": {
+      "mode": "BIT_EXACT",
+      "engines": ["lean", "sage"]
+    },
+    "RIG-LIVE": {
+      "mode": "BOUNDED_NUMERIC",
+      "engines": ["arb", "sage"],
+      "metrics": {
+        "arb_residual_radius": {
+          "source_engine": "arb",
+          "regex": "sqrt\\(2\\)\\^2 - 2 enclosure: \\[\\+/- (?P<value>[0-9.]+e[-+][0-9]+)\\]",
+          "absolute_max": "1e-70",
+          "max_spread": "1e-72"
+        }
+      }
+    },
+    "HPC-LIVE": {
+      "mode": "BIT_EXACT",
+      "engines": ["julia", "sage"]
+    }
+  }
+}
