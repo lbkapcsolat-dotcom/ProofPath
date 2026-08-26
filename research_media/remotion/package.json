@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "render": "remotion render src/index.jsx Main ../../out/remotion-raw.mp4 --codec h264 --crf 23"
+    "render": "remotion render src/index.jsx Main ../../out/remotion-raw.mp4 --codec h264 --crf 23 && python3 ../normalize_remotion.py ../../out/remotion-raw.mp4 ../../out/remotion.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.506",
