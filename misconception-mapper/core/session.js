@@ -1,9 +1,9 @@
-export function createSession({ problem = '', attempt = '', concept = '' } = {}) {
-  return { problem, attempt, concept, diagnosis: null, hint: '', retry: '', retryOutcome: null };
+export function createSession() {
+  return { problem:'', attempt:'', diagnosis:null, hint:null, retry:'', retryOutcome:null };
 }
-export function applyDiagnosis(session, diagnosis, hint) {
-  return { ...session, diagnosis, hint };
+export function recordDiagnosis(state, payload) {
+  return { ...state, ...payload };
 }
-export function applyRetry(session, retry, retryOutcome) {
-  return { ...session, retry, retryOutcome };
+export function recordRetry(state, retry, retryOutcome) {
+  return { ...state, retry, retryOutcome };
 }
