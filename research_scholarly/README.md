@@ -34,7 +34,8 @@ A normal positive claim receives `PASS` only when all of the following hold:
 
 - the subject resolves to a canonical identity (DOI, PMID, arXiv, OpenAlex, or bounded title/year fallback),
 - at least two distinct engine identities corroborate the subject unless a stricter claim rule is supplied,
-- at least one hash-bound passage/full-text/citation-context evidence item is attached,
+- at least one passage/full-text/citation-context evidence item is attached with deterministic frozen content,
+- the verifier recomputes SHA-256 over the stored UTF-8 content and matches it to `content_sha256`,
 - no retraction is present,
 - no unresolved expression of concern, correction, or erratum is present.
 
@@ -60,7 +61,9 @@ Retraction wins over all positive evidence.
 - one Amass biomedical record that remains `HOLD_INSUFFICIENT_INDEPENDENCE` until another independent engine corroborates it;
 - a Sider DOI-resolver failure, recorded as `PASS_BOUNDED_WITH_RESOLVER_GAP` rather than hidden.
 
-The fixture stores identifiers, locators and content hashes rather than long copyrighted passages.
+Each evidence entry stores a deterministic frozen UTF-8 evidence object plus its SHA-256. The verifier hashes those stored bytes again at runtime and rejects a well-formed but incorrect 64-hex digest with `HOLD_BAD_EVIDENCE_HASH`.
+
+The frozen content is a bounded evidence-object representation of engine, subject, evidence kind, and locator. It is deliberately not a copy of long copyrighted source passages.
 
 ## Zero-spend policy
 
@@ -86,4 +89,6 @@ The GitHub workflow runs the same deterministic checks and emits SHA-256 hashes 
 
 ## Claim ceiling
 
-A green canary proves the router's identity, dedupe, evidence, editorial, and zero-spend invariants against the frozen evidence set. It does **not** prove literature completeness for every future query. Live research still has to execute the multi-engine retrieval lane, preserve provenance, and refresh the fixture when engine behavior or source state materially changes.
+A green canary proves router identity/dedupe/editorial/zero-spend invariants and **frozen evidence-object byte integrity** for the committed fixture: the stored UTF-8 evidence object is re-hashed and must match its committed `content_sha256`.
+
+It does **not** prove live connector readback, remote source-byte integrity, universal literature completeness, or the general scientific truth of every claim. Live research still has to execute the multi-engine retrieval lane, preserve provenance, and refresh the fixture when engine behavior or source state materially changes.
