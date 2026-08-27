@@ -1,0 +1,12 @@
+export const MISCONCEPTIONS = Object.freeze([
+  { id:'sign_handling', label:'Sign handling error', domain:'algebra', confidenceCeiling:0.88, signals:['added instead of subtracted','sign changed without inverse operation'], hintTemplate:'If you want to undo the constant term, what inverse operation should you apply to both sides?' },
+  { id:'operation_order', label:'Operation-order error', domain:'algebra', confidenceCeiling:0.82, signals:['operator precedence mismatch'], hintTemplate:'Which operation should be completed first before simplifying the rest?' },
+  { id:'equality_as_action', label:'Equality-as-action misunderstanding', domain:'algebra', confidenceCeiling:0.75, signals:['one-sided transformation'], hintTemplate:'What must stay true about both sides of an equation after each operation?' },
+  { id:'variable_isolation', label:'Variable isolation error', domain:'algebra', confidenceCeiling:0.82, signals:['coefficient not inverted correctly'], hintTemplate:'What operation would leave the variable by itself while preserving equality?' },
+  { id:'proportional_reasoning', label:'Proportional reasoning error', domain:'algebra', confidenceCeiling:0.76, signals:['non-proportional scaling'], hintTemplate:'If one quantity changes by this factor, what factor should apply to the related quantity?' },
+  { id:'equilibrium_vs_stability', label:'Equilibrium versus stability confusion', domain:'physics', confidenceCeiling:0.84, signals:['equilibrium treated as automatically stable'], hintTemplate:'After a very small disturbance, does the system stay near the equilibrium or move away from it?' },
+  { id:'velocity_vs_acceleration', label:'Velocity versus acceleration confusion', domain:'physics', confidenceCeiling:0.84, signals:['velocity and acceleration treated as equivalent'], hintTemplate:'Is the question asking how fast position changes, or how fast velocity changes?' },
+  { id:'insufficient_evidence', label:'Insufficient evidence', domain:'general', confidenceCeiling:0.55, signals:['claim exceeds supplied evidence'], hintTemplate:'What additional observation or relationship would you need before making that conclusion?' },
+  { id:'unknown', label:'Need more context', domain:'general', confidenceCeiling:0.4, signals:[], hintTemplate:'Can you show one intermediate step or explain what rule you used?' }
+]);
+export function getMisconception(id) { return MISCONCEPTIONS.find(item => item.id === id) ?? null; }
