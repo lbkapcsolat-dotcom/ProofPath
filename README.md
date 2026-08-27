@@ -15,23 +15,33 @@ Feature families include lexical overlap, coverage, negation mismatch, numeric m
 
 No external API, CDN, account, paid credit, or model download is required.
 
-## WebMCP Challenge delta
-This repository existed before the WebMCP Challenge submission period. The WebMCP integration in `webmcp.js`, its contract test in `test-webmcp.mjs`, and the app wiring that registers the `analyze_evidence` tool were added after the submission period began on August 25, 2026.
-
-When the browser exposes `document.modelContext.registerTool`, ProofPath registers one structured tool:
-
-- `analyze_evidence`
-  - input: `claim`, `evidence`
-  - output: the same bounded educational result used by the visible UI
-  - fail-closed behavior: missing claim/evidence returns `BLOCK`
-  - claim ceiling remains `EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY`
-
-If WebMCP is unavailable, ProofPath still works as the original browser app; the adapter returns without changing normal UI behavior.
-
 ## Verified bundled benchmark
 10/10 on the fixed untouched holdout/demo set.
 
 This is a tiny curated educational benchmark, not evidence of general-world accuracy.
+
+## WebMCP Challenge delta — added after 2026-08-25
+
+The pre-existing ProofPath UI remains intact. The challenge branch adds a bounded WebMCP adapter that exposes the same evidence-analysis path to compatible agents through:
+
+`document.modelContext.registerTool(...)`
+
+Registered tool: `analyze_evidence`
+
+Inputs:
+- `claim` — claim to assess
+- `evidence` — evidence supplied for that claim
+
+The tool calls the same `analyze()` function used by the human-facing UI. Missing claim or evidence remains fail-closed as `BLOCK`. The claim ceiling remains `EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY`.
+
+Challenge-specific additions:
+- `webmcp.js` — WebMCP registration adapter
+- `test-webmcp.mjs` — adapter contract and fail-closed tests
+- `.github/workflows/webmcp-regression.yml` — full branch regression CI
+- `LICENSE` — MIT open-source license
+
+Temporary zero-cost live deployment used for WebMCP validation:
+https://elastic-cloud-7bddb2h.shipstatic.com
 
 ## Run
 `python -m http.server 8000`
@@ -39,19 +49,8 @@ then open `http://localhost:8000`
 
 ## Test
 `node tests.mjs`
-
-WebMCP adapter contract:
+`node test-ui.mjs`
 `node test-webmcp.mjs`
-
-## WebMCP test path
-1. Run the app from a static host or local HTTP server.
-2. Open it in ChatGPT's in-app browser, or Chrome 149+ with WebMCP testing enabled.
-3. Inspect the registered tools and confirm `analyze_evidence` is present.
-4. Call it with both `claim` and `evidence` and confirm the structured result matches the visible ProofPath behavior.
-5. Call it with an empty claim or evidence and confirm the tool returns `BLOCK`.
-
-## License
-MIT. See `LICENSE`.
 
 ## Claim ceiling
 EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY
