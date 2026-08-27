@@ -87,6 +87,13 @@ python3 research_scholarly/router.py research_scholarly/fixtures/canary_records.
 
 The GitHub workflow runs the same deterministic checks and emits SHA-256 hashes for the fixture and generated report.
 
+### Final byte-integrity gate
+
+TDD red/green evidence:
+
+- RED head `0aa02e209bf50f1f29f63bffef6d94a05fb9ed0e`: the new well-formed tampered-hash negative control failed against the old router as expected.
+- GREEN head `2e9118e774ae7fdf03899d643a29afacc693972e`: GitHub Actions run `33054404230` completed successfully; deterministic router tests, normalized report, expected PASS/HOLD enforcement, fixture/report hashing, and gate summary all passed.
+
 ## Claim ceiling
 
 A green canary proves router identity/dedupe/editorial/zero-spend invariants and **frozen evidence-object byte integrity** for the committed fixture: the stored UTF-8 evidence object is re-hashed and must match its committed `content_sha256`.
