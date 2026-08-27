@@ -1,33 +1,16 @@
-import { MISCONCEPTIONS } from './taxonomy.js';
+import { getMisconception } from './taxonomy.js';
 
-function baseScore(id, features) {
-  const f = features.flags;
-  switch (id) {
-    case 'sign_handling':
-      return f.canonicalPlusFiveToTwenty && f.canonicalWrongTwentyFive ? 1 : 0;
-    case 'equilibrium_vs_stability':
-      return f.mentionsEquilibrium && f.assertsAutomaticStability ? 1 : 0;
-    case 'velocity_vs_acceleration':
-      return f.mentionsVelocity && f.mentionsAcceleration ? 0.45 : 0;
-    case 'insufficient_evidence':
-      return f.containsInstructionLikeText ? 0.2 : 0;
-    default:
-      return 0;
-  }
+function capped(id, raw, evidence) {
+  const ceiling = getMisconception(id)?.confidenceCeiling ?? 0.4;
+  return { id, score: Math.min(raw, ceiling), evidence };
 }
 
 export function rankMisconceptions(features) {
-  const scored = MISCONCEPTIONS
-    .filter(item => item.id !== 'unknown')
-    .map(item => {
-      const raw = baseScore(item.id, features);
-      return { id: item.id, score: raw, confidence: Math.min(item.confidenceCeiling, raw * item.confidenceCeiling) };
-    })
-    .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || b.confidence - a.confidence || a.id.localeCompare(b.id));
-
-  if (scored.length === 0) {
-    return [{ id: 'unknown', score: 0, confidence: 0.4 }];
-  }
-  return scored;
+  const { flags } = features;
+  const candidates = [];
+  if (flags.canonicalPlusFiveToTwenty && flags.canonicalWrongTwentyFive) candidates.push(capped('sign_handling', 0.88, ['+5 became +5 instead of being undone']));
+  if (flags.mentionsEquilibrium && flags.assertsAutomaticStability) candidates.push(capped('equilibrium_vs_stability', 0.84, ['equilibrium was treated as automatically stable']));
+  if (flags.mentionsVelocity && flags.mentionsAcceleration) candidates.push(capped('velocity_vs_acceleration', 0.62, ['both velocity and acceleration terms appear']));
+  if (candidates.length === 0) candidates.push(capped('unknown', 0.4, ['no bounded rule matched confidently']));
+  return candidates.sort((a, b) => b.score - a.score);
 }
