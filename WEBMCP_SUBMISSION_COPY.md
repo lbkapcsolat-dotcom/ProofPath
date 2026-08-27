@@ -10,7 +10,7 @@ Hungary
 Existing
 
 ## Existing-project challenge-period update
-ProofPath existed before the WebMCP Challenge submission period. After the submission period began, we added a new WebMCP layer that exposes the existing bounded evidence-analysis function as a structured `analyze_evidence` tool. The challenge-period delta also includes a dedicated WebMCP adapter contract test, fail-closed behavior for missing analysis input, challenge-specific documentation, an open-source license, a live deployment, and CI coverage that runs the original model/UI regressions together with the new WebMCP test.
+ProofPath existed before the WebMCP Challenge submission period. After the submission period began, we added a new WebMCP layer that exposes the existing bounded evidence-analysis function as a structured `analyze_evidence` tool. The challenge-period delta also includes a dedicated WebMCP adapter contract test, fail-closed behavior for missing analysis input, challenge-specific documentation, an open-source license, a live deployment, full regression CI, and a real headed-Chrome WebMCP runtime canary.
 
 ## Live URL
 https://elastic-cloud-7bddb2h.shipstatic.com
@@ -25,15 +25,22 @@ https://github.com/lbkapcsolat-dotcom/ProofPath/tree/webmcp-challenge
    - claim: `Iron is a metal.`
    - evidence: `Iron is classified as a metal.`
 4. Confirm a bounded evidence-classification result is returned.
-5. Invoke the same tool with blank/missing evidence and confirm the analysis path fails closed rather than producing a confident verdict.
+5. Invoke the same tool with blank evidence and confirm the analysis path fails closed rather than producing a confident verdict.
 
 The visual form remains usable when WebMCP is unavailable.
 
 ## Which agents/clients did you test your WebMCP tools with?
-HOLD_RUNTIME_READBACK — fill only after a supported WebMCP client has actually discovered and invoked `analyze_evidence`. Do not overclaim this field.
+Google Chrome 151.0.7922.173 in a headed Xvfb-backed GitHub Actions browser session with WebMCP enabled. The WebMCP testing interface discovered `analyze_evidence` and invoked it successfully.
+
+Runtime readback:
+- discovered tool: `analyze_evidence`
+- normal invocation: `status=READY`, `label=SUPPORTED`, claim ceiling `EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY`
+- fail-closed invocation with blank evidence: `status=BLOCK`, message `Add evidence first.`
+- browser canary run: `33053336003` — success
+- full regression run on the same commit: `33053336059` — success
 
 ## Which AI tools were leveraged?
-ChatGPT was used for implementation assistance, test design, documentation, and submission preparation. GitHub Actions was used for automated regression verification. Final project claims are limited to behavior supported by repository, CI, live-host, and runtime readback evidence.
+ChatGPT was used for implementation assistance, test design, documentation, and submission preparation. GitHub Actions was used for automated regression and real-browser runtime verification. Final project claims are limited to behavior supported by repository, CI, live-host, and browser runtime evidence.
 
 ## Learning level
 Significant
@@ -58,7 +65,7 @@ A person can inspect or enter evidence through the normal UI while an agent can 
 The challenge-period adapter registers `analyze_evidence` through `document.modelContext.registerTool`. Its schema requires `claim` and `evidence` strings and rejects additional properties. The execute handler delegates directly to the existing ProofPath `analyze()` function. If WebMCP is unavailable, ProofPath remains a functional ordinary web app.
 
 ### Verification
-The WebMCP branch contains the original model and UI tests plus a dedicated adapter contract test. A GitHub Actions regression workflow runs all three together with JavaScript syntax checks. The live application is hosted separately for challenge testing.
+The WebMCP branch contains the original model and UI tests plus a dedicated adapter contract test. GitHub Actions runs the full regression suite and a separate headed-Chrome WebMCP canary. Chrome 151 discovered and invoked the real `analyze_evidence` tool, including a fail-closed blank-evidence case.
 
 ### Claim ceiling
 `EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY`
@@ -66,4 +73,4 @@ The WebMCP branch contains the original model and UI tests plus a dedicated adap
 ProofPath is not a truth detector, scientific validator, medical/legal decision tool, or general automatic fact-checking service.
 
 ## Video URL
-HOLD_PENDING_WEBMCP_RUNTIME_READBACK_AND_FINAL_RECORDING
+READY_TO_RECORD — runtime evidence gate passed; final <3-minute public YouTube URL still required.
