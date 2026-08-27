@@ -2,14 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHint } from '../core/hints.js';
 
-test('returns exactly one approved hint for known diagnosis', () => {
+test('known diagnosis gets exactly one approved non-answer hint', () => {
   const h = buildHint({ id:'sign_handling' });
-  assert.equal(typeof h, 'string');
-  assert.ok(h.endsWith('?'));
-  assert.equal(h.includes('\n'), false);
+  assert.equal(typeof h.text, 'string');
+  assert.equal(h.revealsFinalAnswer, false);
+  assert.equal(h.text.includes('x = 5'), false);
 });
 
-test('unknown diagnosis gets clarification question', () => {
-  const h = buildHint({ id:'unknown' });
-  assert.match(h, /intermediate step|rule/i);
+test('unknown gets clarification hint', () => {
+  assert.match(buildHint({ id:'unknown' }).text, /intermediate step|rule/i);
 });
