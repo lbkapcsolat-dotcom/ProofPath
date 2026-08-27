@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -132,6 +133,17 @@ def is_route_allowed(action: str) -> bool:
     return action not in PAID_OR_METERED_ACTIONS
 
 
+def evidence_hash_matches(evidence: dict[str, Any]) -> bool:
+    expected = evidence.get("content_sha256", "")
+    content = evidence.get("content")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return False
+    if not isinstance(content, str):
+        return False
+    actual = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return actual == expected
+
+
 def evaluate_claims(payload: dict[str, Any]) -> list[dict[str, Any]]:
     groups, alias_to_group = dedupe_records(payload["records"])
     evidence_by_ref = {e["ref"]: e for e in payload.get("evidence", [])}
@@ -190,7 +202,7 @@ def evaluate_claims(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if not any(e.get("kind") in PASSAGE_KINDS for e in evidence):
             results.append({"id": claim["id"], "status": "HOLD_NO_PASSAGE_EVIDENCE"})
             continue
-        if any(not re.fullmatch(r"[0-9a-f]{64}", e.get("content_sha256", "")) for e in evidence):
+        if any(not evidence_hash_matches(e) for e in evidence):
             results.append({"id": claim["id"], "status": "HOLD_BAD_EVIDENCE_HASH"})
             continue
 
