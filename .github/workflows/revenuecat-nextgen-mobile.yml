@@ -55,56 +55,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_KEY="$(grep '^EXPO_PUBLIC_REVENUECAT_API_KEY=' .env.example | cut -d= -f2-)"
-          if [[ -z "$BASE_KEY" || "$BASE_KEY" == "goog_example" ]]; then
+          RC_KEY="$(grep '^EXPO_PUBLIC_REVENUECAT_API_KEY=' .env.example | cut -d= -f2-)"
+          if [[ -z "$RC_KEY" || "$RC_KEY" == "goog_example" ]]; then
             echo "RevenueCat public SDK key is missing"
             exit 1
           fi
 
-          # Screenshot-only disambiguation: test a bounded set of visually ambiguous
-          # public-key characters (0/O and I/l). Never print candidate keys.
-          candidates=(
-            "$BASE_KEY"
-            "${BASE_KEY/Y0P/YOP}"
-            "${BASE_KEY/TJVI/TJVl}"
-            "${BASE_KEY/QIz/Qlz}"
-            "${BASE_KEY/Y0P/YOP}" 
-          )
-          candidates+=(
-            "${BASE_KEY/Y0P/YOP}" 
-            "${BASE_KEY/TJVI/TJVl}" 
-            "${BASE_KEY/QIz/Qlz}"
-          )
+          HTTP_STATUS="$(curl --silent --show-error \
+            --output /tmp/revenuecat-offerings.json \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${RC_KEY}" \
+            --header 'X-Platform: android' \
+            --header 'Accept: application/json' \
+            'https://api.revenuecat.com/v1/subscribers/proofpath-ci-readback-20260827/offerings')"
 
-          # Add combined variants explicitly without exposing them.
-          candidates+=(
-            "$(printf '%s' "$BASE_KEY" | sed 's/Y0P/YOP/; s/TJVI/TJVl/')"
-            "$(printf '%s' "$BASE_KEY" | sed 's/Y0P/YOP/; s/QIz/Qlz/')"
-            "$(printf '%s' "$BASE_KEY" | sed 's/TJVI/TJVl/; s/QIz/Qlz/')"
-            "$(printf '%s' "$BASE_KEY" | sed 's/Y0P/YOP/; s/TJVI/TJVl/; s/QIz/Qlz/')"
-          )
-
-          FOUND=0
-          INDEX=0
-          for RC_KEY in "${candidates[@]}"; do
-            INDEX=$((INDEX + 1))
-            HTTP_STATUS="$(curl --silent --show-error \
-              --output /tmp/revenuecat-offerings.json \
-              --write-out '%{http_code}' \
-              --header "Authorization: Bearer ${RC_KEY}" \
-              --header 'X-Platform: android' \
-              --header 'Accept: application/json' \
-              'https://api.revenuecat.com/v1/subscribers/proofpath-ci-readback-20260827/offerings')"
-            echo "RevenueCat candidate ${INDEX} HTTP status: ${HTTP_STATUS}"
-            if [[ "$HTTP_STATUS" == "200" ]]; then
-              FOUND=1
-              echo "RevenueCat valid public-key candidate index: ${INDEX}"
-              break
-            fi
-          done
-
-          if [[ "$FOUND" != "1" ]]; then
-            echo "HOLD_REVENUECAT_PUBLIC_KEY_READBACK_INVALID"
+          echo "RevenueCat offerings HTTP status: ${HTTP_STATUS}"
+          if [[ "$HTTP_STATUS" != "200" ]]; then
             cat /tmp/revenuecat-offerings.json
             exit 1
           fi
