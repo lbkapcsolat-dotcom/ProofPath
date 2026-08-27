@@ -1,14 +1,11 @@
-import { extractFeatures } from './features.js';
-
-export function evaluateRetry({ diagnosisId, problem, previousAttempt, retry, concept = '' }) {
-  if (!retry || diagnosisId === 'unknown') return { status: 'uncertain' };
-  const f = extractFeatures(problem, retry, concept);
-  if (diagnosisId === 'sign_handling') {
-    if (f.flags.canonicalCorrectFifteen && f.flags.canonicalCorrectFive) return { status: 'improved' };
-    if (f.flags.canonicalWrongTwentyFive) return { status: 'same pattern' };
+export function evaluateRetry(previousDiagnosis, retryFeatures) {
+  if (previousDiagnosis?.id === 'sign_handling') {
+    if (retryFeatures.flags.canonicalCorrectFifteen && retryFeatures.flags.canonicalCorrectFive) return 'improved';
+    if (retryFeatures.flags.canonicalWrongTwentyFive) return 'same_pattern';
   }
-  if (diagnosisId === 'equilibrium_vs_stability' && !f.flags.assertsAutomaticStability && f.flags.mentionsEquilibrium) {
-    return { status: 'improved' };
+  if (previousDiagnosis?.id === 'equilibrium_vs_stability') {
+    if (!retryFeatures.flags.assertsAutomaticStability && retryFeatures.flags.mentionsEquilibrium) return 'improved';
+    if (retryFeatures.flags.assertsAutomaticStability) return 'same_pattern';
   }
-  return { status: 'uncertain' };
+  return 'uncertain';
 }
