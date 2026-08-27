@@ -1,0 +1,52 @@
+name: RevenueCat Next Gen Mobile
+
+on:
+  push:
+    branches:
+      - revenuecat-nextgen-mobile-v1
+    paths:
+      - 'mobile-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen-mobile.yml'
+  pull_request:
+    paths:
+      - 'mobile-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen-mobile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mobile-nextgen
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node 22
+        uses: actions/setup-node@1e60f620b9541d8b243d45f7a0ed6a0edb8a886c
+        with:
+          node-version: '22'
+
+      - name: Record runtime identity
+        run: |
+          node --version
+          npm --version
+          git rev-parse HEAD
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck mobile app
+        run: npm run typecheck
+
+      - name: Verify zero-spend transaction guard
+        run: |
+          if grep -R "purchasePackage\|purchaseStoreProduct\|purchaseProduct" -n App.tsx src; then
+            echo "Transaction call detected in zero-spend prototype"
+            exit 1
+          fi
+          echo "PASS_ZERO_SPEND_TRANSACTION_GUARD"
