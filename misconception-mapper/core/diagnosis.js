@@ -1,30 +1,13 @@
 import { getMisconception } from './taxonomy.js';
-
-function unknownDiagnosis() {
-  const item = getMisconception('unknown');
-  return {
-    id: item.id,
-    label: item.label,
-    status: 'uncertain',
-    confidence: item.confidenceCeiling,
-    confidenceLabel: 'Uncertain — need more context',
-    reason: 'The available evidence does not support a single bounded misconception pattern.'
-  };
-}
-
-export function selectDiagnosis(candidates = []) {
-  if (!Array.isArray(candidates) || candidates.length === 0) return unknownDiagnosis();
-  const [first, second] = candidates;
-  if (!first || first.id === 'unknown' || first.confidence < 0.6) return unknownDiagnosis();
-  if (second && Math.abs((first.score ?? 0) - (second.score ?? 0)) < 0.1) return unknownDiagnosis();
-  const item = getMisconception(first.id);
-  if (!item) return unknownDiagnosis();
-  return {
-    id: item.id,
-    label: item.label,
-    status: 'likely',
-    confidence: Math.min(first.confidence, item.confidenceCeiling),
-    confidenceLabel: 'Likely pattern',
-    reason: `The submitted steps match bounded signals associated with ${item.label.toLowerCase()}.`
-  };
+export function selectDiagnosis(candidates) {
+  const top = candidates?.[0];
+  const second = candidates?.[1];
+  if (!top || top.id === 'unknown' || top.score < 0.6) {
+    return { status:'uncertain', id:'unknown', label:'Need more context', confidenceText:'Uncertain — need more context', why:'The current answer does not match a bounded pattern confidently.' };
+  }
+  if (second && top.score - second.score < 0.08) {
+    return { status:'uncertain', id:'unknown', label:'Need more context', confidenceText:'Uncertain — two patterns are similarly plausible', why:'One additional intermediate step would help distinguish the patterns.' };
+  }
+  const item = getMisconception(top.id);
+  return { status:'likely', id:top.id, label:item.label, confidenceText:`Likely pattern (${Math.round(top.score * 100)}% bounded score ceiling)`, why:top.evidence[0] ?? 'The submitted steps match this bounded pattern.' };
 }
