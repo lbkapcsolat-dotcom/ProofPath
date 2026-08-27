@@ -102,7 +102,8 @@
       "subject_alias": "doi:10.1111/faf.70079",
       "kind": "passage",
       "locator": "10.1111/faf.70079_0002",
-      "content_sha256": "8ca7c381dad6c950598449ea9358edfd3f12769ab684b83b3d97382fb7ef1837"
+      "content": "frozen-evidence-v1|scholar_gateway|doi:10.1111/faf.70079|passage|10.1111/faf.70079_0002",
+      "content_sha256": "a749f6b10e298e478b625c333f318d06f8f5383d99f5dfdb321c8a9230d3980b"
     },
     {
       "ref": "faf_scite_passage",
@@ -110,7 +111,8 @@
       "subject_alias": "doi:10.1111/faf.70079",
       "kind": "fulltext",
       "locator": "scite:10.1111/faf.70079:fulltextExcerpts",
-      "content_sha256": "8ca7c381dad6c950598449ea9358edfd3f12769ab684b83b3d97382fb7ef1837"
+      "content": "frozen-evidence-v1|scite|doi:10.1111/faf.70079|fulltext|scite:10.1111/faf.70079:fulltextExcerpts",
+      "content_sha256": "6c1179c656c299b82c962dfde8db58f71288ae7b93f0acb46af1c737f10e7c45"
     },
     {
       "ref": "er_agent_alphaxiv_page2",
@@ -118,7 +120,8 @@
       "subject_alias": "arxiv:2608.13867",
       "kind": "fulltext",
       "locator": "arxiv:2608.13867v1:page:2",
-      "content_sha256": "a1223c2169616f50fcf14194ef1fd7f31b02a5d2743b01e56b0baf0e01b5c287"
+      "content": "frozen-evidence-v1|alphaxiv|arxiv:2608.13867|fulltext|arxiv:2608.13867v1:page:2",
+      "content_sha256": "0122cf64dd0354915c5be291d708b257c64bbf1f9c7fc07e3128a19fd0e0bcf6"
     },
     {
       "ref": "amass_abstract_only",
@@ -126,7 +129,8 @@
       "subject_alias": "doi:10.2147/btt.s429411",
       "kind": "abstract",
       "locator": "amass:AMBC_RSwefj3ZzWIIpXH4xNRQAsMaFuT:abstract",
-      "content_sha256": "1588c6880735b6cc016ed391e20b057f1cb2a3eb08a831a49bb5d5978f5d4f31"
+      "content": "frozen-evidence-v1|amass|doi:10.2147/btt.s429411|abstract|amass:AMBC_RSwefj3ZzWIIpXH4xNRQAsMaFuT:abstract",
+      "content_sha256": "dcdc0646930addf758067079397c0d2d8083d7009739fb6da39bd0121390bbbb"
     }
   ],
   "claims": [
