@@ -75,6 +75,45 @@ def run() -> None:
     }
     assert router.evaluate_claims(single_engine)[0]["status"] == "HOLD_INSUFFICIENT_INDEPENDENCE"
 
+    # A syntactically valid but tampered 64-hex digest must fail byte-integrity verification.
+    tampered_hash = {
+        "records": [
+            {
+                "engine": "scispace",
+                "ids": {"doi": "10.1234/hash-check"},
+                "title": "Hash Check",
+                "year": 2026,
+                "editorial_status": ["clear"],
+            },
+            {
+                "engine": "scite",
+                "ids": {"doi": "10.1234/hash-check"},
+                "title": "Hash Check",
+                "year": 2026,
+                "editorial_status": ["clear"],
+            },
+        ],
+        "evidence": [
+            {
+                "ref": "tampered",
+                "engine": "scite",
+                "subject_alias": "doi:10.1234/hash-check",
+                "kind": "fulltext",
+                "content": "deterministic frozen evidence bytes",
+                "content_sha256": "0" * 64,
+            }
+        ],
+        "claims": [
+            {
+                "id": "HASH_NEGATIVE",
+                "subject_alias": "doi:10.1234/hash-check",
+                "evidence_refs": ["tampered"],
+                "min_independent_engines": 2,
+            }
+        ],
+    }
+    assert router.evaluate_claims(tampered_hash)[0]["status"] == "HOLD_BAD_EVIDENCE_HASH"
+
     # Zero-spend policy is executable, not prose.
     for blocked in router.PAID_OR_METERED_ACTIONS:
         assert not router.is_route_allowed(blocked)
@@ -97,6 +136,7 @@ def run() -> None:
     print("PASS dedupe identity canary")
     print("PASS claim/evidence gate canary")
     print("PASS retraction negative control")
+    print("PASS tampered evidence hash negative control")
     print("PASS zero-spend route guard")
 
 
