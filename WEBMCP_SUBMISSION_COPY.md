@@ -73,4 +73,6 @@ The WebMCP branch contains the original model and UI tests plus a dedicated adap
 ProofPath is not a truth detector, scientific validator, medical/legal decision tool, or general automatic fact-checking service.
 
 ## Video URL
-READY_TO_RECORD — runtime evidence gate passed; final <3-minute public YouTube URL still required.
+https://youtu.be/DEY2eNZ_Pio
+
+Video ID: `DEY2eNZ_Pio`
