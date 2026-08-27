@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Misconception Mapper V1</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">PROMETHEUS SEPTEMBER AI CHALLENGE 2</p>
+      <h1>Misconception Mapper</h1>
+      <p>Find a likely misconception pattern, get one Socratic hint, then retry.</p>
+    </header>
+    <section class="panel input-panel">
+      <label>Concept
+        <select id="concept">
+          <option value="algebra">Introductory algebra</option>
+          <option value="physics">Introductory physics</option>
+        </select>
+      </label>
+      <label>Problem
+        <textarea id="problem" rows="3">Solve 3x + 5 = 20.</textarea>
+      </label>
+      <label>Your attempt
+        <textarea id="attempt" rows="3">3x = 25, x = 8.33</textarea>
+      </label>
+      <button id="analyze">Analyze attempt</button>
+    </section>
+    <section id="result" class="panel" hidden>
+      <p class="eyebrow">LIKELY MISCONCEPTION</p>
+      <h2 id="diagnosis"></h2>
+      <p id="reason"></p>
+      <div class="hint">
+        <strong>Try this next</strong>
+        <p id="hint"></p>
+      </div>
+      <label>Retry
+        <textarea id="retry" rows="2" placeholder="Try the next step here"></textarea>
+      </label>
+      <button id="check-retry">Check retry</button>
+      <p id="retry-state" class="state"></p>
+    </section>
+    <footer>Prototype claim ceiling: bounded misconception patterns + Socratic hints. No grading, diagnosis of ability, or teacher replacement.</footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
