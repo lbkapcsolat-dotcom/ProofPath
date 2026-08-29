@@ -9,18 +9,18 @@ main{max-width:900px;margin:0 auto;padding:48px 20px 72px}.hero{margin-bottom:28
 .sub{font-size:1.15rem;max-width:720px;color:#525252}.badge{display:inline-block;border:1px solid #bbb;border-radius:999px;padding:6px 10px;font-size:.8rem;margin-bottom:18px;background:white}
 .card{background:white;border:1px solid #ddd;border-radius:18px;padding:22px;margin-top:18px;box-shadow:0 8px 30px rgba(0,0,0,.04)}label{display:block;font-weight:700;margin:14px 0 7px}
 textarea,select{width:100%;border:1px solid #c8c8c8;border-radius:12px;padding:13px;font:inherit;background:#fff}textarea{min-height:120px;resize:vertical}
-button{margin-top:16px;border:0;border-radius:12px;padding:13px 18px;font:inherit;font-weight:800;background:#171717;color:#fff;cursor:pointer}.verdict{font-size:2rem;font-weight:900;letter-spacing:-.03em;margin-bottom:8px}
+button{margin-top:16px;border:0;border-radius:12px;padding:13px 18px;font:inherit;font-weight:800;background:#171717;color:#fff;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.verdict{font-size:2rem;font-weight:900;letter-spacing:-.03em;margin-bottom:8px}
 .probs{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9rem;color:#555}.muted{color:#666;font-size:.9rem}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:700px){.grid{grid-template-columns:1fr}}.mini h3{margin-top:0}.footer-note{margin-top:24px;font-size:.85rem;color:#666}
 </style>
 </head><body><main>
-<section class="hero"><div class="badge">Prometheus submission build · offline ML</div><h1>ProofPath</h1>
-<p class="sub">An educational AI/ML tool that teaches one question: <strong>does the evidence support the claim, contradict it, or remain insufficient?</strong></p></section>
+<section class="hero"><div class="badge">Fund My Crazy · Education + Gemini delta</div><h1>ProofPath</h1>
+<p class="sub">An educational evidence-reasoning tool that separates the classifier's bounded verdict from an optional Gemini learning explanation.</p></section>
 <section class="card"><label for="exampleSelect">Try one of 10 built-in examples</label><select id="exampleSelect"><option value="">Choose an example…</option></select>
 <form id="proofForm"><label for="claim">Claim</label><textarea id="claim" placeholder="Example: Carrots guarantee perfect night vision."></textarea>
 <label for="evidence">Evidence</label><textarea id="evidence" placeholder="Example: Carrots contain vitamin A."></textarea><button type="submit">Analyze evidence</button></form></section>
-<section class="card"><div id="result" class="verdict">READY</div><div id="probabilities" class="probs">Choose an example or enter your own claim and evidence.</div><div id="explanation"></div></section>
-<section class="grid"><div class="card mini"><h3>How the ML works</h3><p>A small three-class softmax regression model is trained in the browser from bundled labeled claim–evidence examples. It learns from overlap, negation, numeric conflict, uncertainty and overclaim signals.</p></div>
-<div class="card mini"><h3>Why it is educational</h3><p>ProofPath never presents itself as a truth detector. It teaches students to separate <strong>support</strong>, <strong>contradiction</strong>, and <strong>missing evidence</strong>.</p></div></section>
+<section class="card"><div id="result" class="verdict">READY</div><div id="probabilities" class="probs">Choose an example or enter your own claim and evidence.</div><div id="explanation"></div><button id="geminiExplain" type="button" disabled>Explain this for learning with Gemini</button><div id="geminiExplanation"></div></section>
+<section class="grid"><div class="card mini"><h3>Classifier authority</h3><p>The bundled three-class model decides SUPPORTED, CONTRADICTED, or INSUFFICIENT. Gemini is never allowed to alter that verdict or its probabilities.</p></div>
+<div class="card mini"><h3>Gemini learning layer</h3><p>After a verdict exists, Gemini may explain evidence limits in student-friendly language and suggest one next evidence-gathering step.</p></div></section>
 <section class="card"><strong>Model status</strong><div id="modelStatus" class="muted"></div></section>
-<p class="footer-note">Claim ceiling: EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY. This prototype is not a scientific validator, truth detector, or automatic fact-checking service.</p>
+<p class="footer-note">Claim ceiling: EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY. This prototype is not a scientific validator, truth detector, grading authority, or automatic fact-checking service.</p>
 </main><script type="module" src="./app.js"></script></body></html>
