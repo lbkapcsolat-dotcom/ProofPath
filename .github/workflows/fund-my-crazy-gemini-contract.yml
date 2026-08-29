@@ -14,3 +14,8 @@ jobs:
           node-version: '22'
       - name: Gemini authority contract
         run: node test-gemini-contract.mjs
+      - name: Syntax checks
+        run: |
+          node --check gemini-contract.js
+          node --check api/gemini-explain.js
+          node --check app.js
