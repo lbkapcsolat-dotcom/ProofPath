@@ -22,8 +22,8 @@ export default async function handler(req, res) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseSchema: {
+          response_mime_type: 'application/json',
+          response_schema: {
             type: 'OBJECT',
             properties: {
               explanation: { type: 'STRING' },
