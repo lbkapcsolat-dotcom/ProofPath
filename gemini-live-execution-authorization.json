@@ -1,0 +1,14 @@
+{
+  "gate": "PROVEN_ZERO_SPEND_GEMINI_CREDENTIAL_BIND",
+  "authorized": false,
+  "authorizationBasis": null,
+  "requiredUserEvidence": "Google AI Studio project shows Free tier / Set up billing is not activated for the key project.",
+  "modelTarget": "gemini-3.7-flash",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "forbidBillingActivation": true,
+  "forbidKeyInSource": true,
+  "forbidKeyInChat": true,
+  "zeroCorpusWrites": true,
+  "globalBind": false,
+  "pointerPromotion": false
+}
