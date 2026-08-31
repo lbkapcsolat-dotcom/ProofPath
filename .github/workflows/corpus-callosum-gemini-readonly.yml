@@ -17,6 +17,8 @@ jobs:
         run: node test-corpus-callosum-gemini-readonly.mjs
       - name: GPT independent shared-packet run
         run: node test-gpt-current-authority-run.mjs
+      - name: Gemini 3.7 runtime contract
+        run: node test-gemini-3-7-runtime-contract.mjs
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -26,6 +28,7 @@ jobs:
           node --check corpus-callosum-contract.mjs
           node --check api/corpus-callosum-gemini-reason.js
           node --check test-gpt-current-authority-run.mjs
+          node --check test-gemini-3-7-runtime-contract.mjs
           node --check gemini-live-zero-spend-preflight.mjs
       - uses: actions/upload-artifact@v4
         with:
