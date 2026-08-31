@@ -1,0 +1,21 @@
+name: Corpus Callosum Gemini Read-Only Gate
+
+on:
+  push:
+    branches: [corpus-callosum-gemini-readonly-v1]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only bind contract
+        run: node test-corpus-callosum-gemini-readonly.mjs
+      - name: Syntax checks
+        run: |
+          node --check corpus-callosum-contract.mjs
+          node --check api/corpus-callosum-gemini-reason.js
