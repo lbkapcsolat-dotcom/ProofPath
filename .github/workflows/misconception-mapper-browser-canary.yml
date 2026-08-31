@@ -1,0 +1,26 @@
+name: Misconception Mapper Browser Canary
+
+on:
+  push:
+    branches:
+      - prometheus-misconception-mapper
+  workflow_dispatch:
+
+jobs:
+  browser-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start static server
+        run: |
+          python3 -m http.server 4173 --directory misconception-mapper > /tmp/mm-http.log 2>&1 &
+          sleep 2
+      - name: Locate Chrome
+        run: |
+          command -v google-chrome || command -v chromium || command -v chromium-browser
+      - name: Run canonical browser canary
+        run: |
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          "$CHROME" --headless --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom http://127.0.0.1:4173/browser-canary.html > /tmp/mm-dom.txt
+          cat /tmp/mm-dom.txt
+          grep -q 'PASS_CANONICAL_BROWSER' /tmp/mm-dom.txt
