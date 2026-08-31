@@ -4,7 +4,7 @@ import {
   normalizeReasoningRun
 } from '../corpus-callosum-contract.mjs';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.7-flash';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ status: 'BLOCK', message: 'POST required.' });
@@ -16,16 +16,18 @@ export default async function handler(req, res) {
   try {
     const bind = await buildCorpusCallosumReadOnlyBind(req.body || {});
     const prompt = buildIndependentReasoningPrompt('GEMINI', bind);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': process.env.GEMINI_API_KEY
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.1,
-          response_mime_type: 'application/json',
-          response_schema: {
+          responseMimeType: 'application/json',
+          responseSchema: {
             type: 'OBJECT',
             properties: {
               conclusion: { type: 'STRING' },
@@ -51,7 +53,7 @@ export default async function handler(req, res) {
       packetSha256: bind.packetSha256,
       ...candidate
     }, bind);
-    return res.status(200).json({ status: 'READY', gate: bind.gate, run });
+    return res.status(200).json({ status: 'READY', gate: bind.gate, model: MODEL, run });
   } catch (error) {
     return res.status(400).json({ status: 'BLOCK', message: error?.message || 'Read-only bind rejected.' });
   }
