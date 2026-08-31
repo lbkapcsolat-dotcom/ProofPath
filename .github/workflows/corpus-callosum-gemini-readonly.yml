@@ -19,18 +19,32 @@ jobs:
         run: node test-gpt-current-authority-run.mjs
       - name: Gemini 3.7 runtime contract
         run: node test-gemini-3-7-runtime-contract.mjs
+      - name: Gemini live pipeline fail-closed test
+        run: node test-gemini-live-pipeline-failclosed.mjs
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node gemini-live-zero-spend-preflight.mjs | tee gemini-live-zero-spend-preflight.json
+      - name: Gemini exact shared-packet execution gate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node gemini-live-same-packet-run.mjs | tee gemini-live-same-packet-receipt.json
+      - name: GPT Gemini convergence divergence gate
+        run: node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
       - name: Syntax checks
         run: |
           node --check corpus-callosum-contract.mjs
           node --check api/corpus-callosum-gemini-reason.js
           node --check test-gpt-current-authority-run.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
+          node --check test-gemini-live-pipeline-failclosed.mjs
           node --check gemini-live-zero-spend-preflight.mjs
+          node --check gemini-live-same-packet-run.mjs
+          node --check compute-gpt-gemini-convergence-receipt.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: gemini-live-zero-spend-preflight
-          path: gemini-live-zero-spend-preflight.json
+          name: corpus-callosum-gemini-gates
+          path: |
+            gemini-live-zero-spend-preflight.json
+            gemini-live-same-packet-receipt.json
+            gpt-gemini-convergence-divergence-receipt.json
