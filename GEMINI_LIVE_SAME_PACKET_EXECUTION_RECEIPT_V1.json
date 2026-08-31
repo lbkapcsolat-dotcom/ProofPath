@@ -12,14 +12,14 @@
   "liveInferenceExecuted": false,
   "zeroSpendPreserved": true,
   "workflow": {
-    "runId": 33428063790,
-    "headSha": "abb6308dee14fcef53ac99eb294aec4c65d10da1",
+    "runId": 33428245953,
+    "headSha": "2c1a6cc24b22ef7302be560a0b73f53b836da61c",
     "conclusion": "success"
   },
   "artifact": {
-    "artifactId": 9771498437,
+    "artifactId": 9771563879,
     "name": "corpus-callosum-gemini-gates",
-    "digest": "sha256:31af467c3f39938da1df000f1caaabefce6f92db45408346630193b705f61c78"
+    "digest": "sha256:f51dfd37766d03616cadce9d2e129649a32a08e416555e308e3c3281fecd2dbd"
   },
   "firstMissingProof": "User-visible Google AI Studio readback that the key project is Free tier, followed by secure GitHub Actions secret GEMINI_API_KEY injection.",
   "claimCeiling": {
