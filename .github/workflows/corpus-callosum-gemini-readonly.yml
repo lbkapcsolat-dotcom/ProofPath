@@ -15,7 +15,10 @@ jobs:
           node-version: '22'
       - name: Read-only bind contract
         run: node test-corpus-callosum-gemini-readonly.mjs
+      - name: GPT independent shared-packet run
+        run: node test-gpt-current-authority-run.mjs
       - name: Syntax checks
         run: |
           node --check corpus-callosum-contract.mjs
           node --check api/corpus-callosum-gemini-reason.js
+          node --check test-gpt-current-authority-run.mjs
