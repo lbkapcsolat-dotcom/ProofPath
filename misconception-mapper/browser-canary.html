@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Misconception Mapper Browser Canary</title></head>
+<body>
+<pre id="result">PENDING</pre>
+<script type="module">
+  import { analyzeAttempt, analyzeRetry } from './core/analyze.js';
+  const first = await analyzeAttempt({
+    problem: 'Solve 3x + 5 = 20.',
+    attempt: '3x = 25, x = 8.33',
+    concept: 'algebra'
+  });
+  const retry = analyzeRetry({
+    problem: 'Solve 3x + 5 = 20.',
+    previousDiagnosis: first.diagnosis,
+    retry: '3x = 15, x = 5',
+    concept: 'algebra'
+  });
+  const pass = first.diagnosis?.id === 'sign_handling'
+    && first.hint?.revealsFinalAnswer === false
+    && retry.outcome === 'improved';
+  document.getElementById('result').textContent = pass
+    ? 'PASS_CANONICAL_BROWSER | sign_handling | hint_before_solution | improved'
+    : `FAIL_CANONICAL_BROWSER | ${JSON.stringify({first, retry})}`;
+  document.body.dataset.canary = pass ? 'pass' : 'fail';
+</script>
+</body>
+</html>
