@@ -13,7 +13,9 @@
   "geminiRun": {
     "present": false,
     "requiredReceipt": "GEMINI_LIVE_SAME_PACKET_EXECUTION_RECEIPT_V1",
-    "currentReceiptStatus": "HOLD_USER_FREE_TIER_READBACK_REQUIRED"
+    "currentReceiptStatus": "HOLD_KEY_PROJECT_TO_FREE_TIER_BIND_UNRESOLVED__EXECUTION_SURFACE_UNAVAILABLE",
+    "privateCredentialEvidencePresent": true,
+    "credentialValueCommitted": false
   },
   "convergenceComputed": false,
   "classification": null,
@@ -22,11 +24,7 @@
     "PARTIAL_DIVERGENCE",
     "MATERIAL_DIVERGENCE"
   ],
-  "workflowRunId": 33428245953,
-  "evidenceHeadSha": "2c1a6cc24b22ef7302be560a0b73f53b836da61c",
-  "artifactId": 9771563879,
-  "artifactDigest": "sha256:f51dfd37766d03616cadce9d2e129649a32a08e416555e308e3c3281fecd2dbd",
-  "firstMissingProof": "Authentic Gemini reasoning output over the exact c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024 packet after Free-tier readback and secure credential injection.",
+  "firstMissingProof": "Authentic Gemini reasoning output over the exact c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024 packet after the specific key project is proven Free Tier and authenticated model access is read back from a secure reachable execution surface.",
   "zeroCorpusWrites": true,
   "authorityMutation": false,
   "pointerPromotion": false,
