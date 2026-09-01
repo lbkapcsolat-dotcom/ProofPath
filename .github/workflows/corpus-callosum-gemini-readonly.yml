@@ -51,18 +51,6 @@ jobs:
         run: |
           set -o pipefail
           node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
-      - name: Gemini live structured claim vector
-        if: always()
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          set -o pipefail
-          node gemini-live-structured-claim-run.mjs | tee gemini-live-structured-claim-receipt.json
-      - name: Structured claim vector adjudication
-        if: always()
-        run: |
-          set -o pipefail
-          node compute-structured-claim-adjudication-receipt.mjs gemini-live-structured-claim-receipt.json | tee structured-claim-adjudication-receipt.json
       - name: Gemini dual-live fixed-ontology claim vector
         if: always()
         env:
@@ -75,6 +63,18 @@ jobs:
         run: |
           set -o pipefail
           node compute-dual-live-structured-adjudication-receipt.mjs gpt-live-chatgpt-session-structured-receipt.json gemini-live-dual-structured-claim-receipt.json | tee dual-live-structured-adjudication-receipt.json
+      - name: Gemini live structured claim vector
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-structured-claim-run.mjs | tee gemini-live-structured-claim-receipt.json
+      - name: Structured claim vector adjudication
+        if: always()
+        run: |
+          set -o pipefail
+          node compute-structured-claim-adjudication-receipt.mjs gemini-live-structured-claim-receipt.json | tee structured-claim-adjudication-receipt.json
       - name: Syntax checks
         if: always()
         run: |
