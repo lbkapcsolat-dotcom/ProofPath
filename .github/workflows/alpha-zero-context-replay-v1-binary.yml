@@ -1,0 +1,99 @@
+name: ALPHA Zero Context Replay V1 Binary
+
+on:
+  push:
+    branches:
+      - alpha-zero-context-replay-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout isolated replay branch
+        uses: actions/checkout@v4
+
+      - name: Verify canonical portable package bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(stat -c %s replay/package.zip)" = "24412"
+          echo '49d49101e9efd5408b85908cf2d8edfac4007df3d10cf766acacf90a96a67d8a  replay/package.zip' | sha256sum -c -
+          mkdir -p /tmp/alpha-zero-context
+          unzip -q replay/package.zip -d /tmp/alpha-zero-context
+          echo 'PASS_CANONICAL_PACKAGE_24412_BYTES_SHA256_49D49101'
+
+      - name: Execute portable replay with empty environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-zero-context
+          env -i PATH=/usr/bin:/bin PYTHONHASHSEED=random python3 -I replay_verifier.py | tee REPLAY_STDOUT.json
+          test -s ZERO_CONTEXT_REPLAY_ATTESTATION.json
+
+      - name: Validate machine attestation without expected digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-zero-context
+          python3 - <<'PY'
+          import json
+          d=json.load(open('ZERO_CONTEXT_REPLAY_ATTESTATION.json',encoding='utf-8'))
+          checks=d.get('checks',{})
+          if d.get('verdict') != 'PASS_PORTABLE_ZERO_CONTEXT_CONTROL_STATE_REPLAY':
+              raise SystemExit('FAIL_ATTESTATION_VERDICT')
+          if len(checks) != 13 or not all(checks.values()):
+              raise SystemExit(f'FAIL_CHECKS_{sum(bool(v) for v in checks.values())}_OF_{len(checks)}')
+          digest=d.get('reconstructed_state_sha256')
+          if not isinstance(digest,str) or len(digest) != 64:
+              raise SystemExit('FAIL_DIGEST_FORMAT')
+          print('PASS_REPLAY_CHECKS_13_OF_13')
+          print('RECONSTRUCTED_STATE_SHA256='+digest)
+          PY
+
+      - name: Create provider attestation envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-zero-context
+          PACKAGE_SHA=$(sha256sum "$GITHUB_WORKSPACE/replay/package.zip" | awk '{print $1}')
+          ATT_SHA=$(sha256sum ZERO_CONTEXT_REPLAY_ATTESTATION.json | awk '{print $1}')
+          STATE_SHA=$(python3 -c "import json; print(json.load(open('ZERO_CONTEXT_REPLAY_ATTESTATION.json'))['reconstructed_state_sha256'])")
+          python3 - <<PY
+          import json, os
+          envelope={
+            'schema':'GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE_V1',
+            'execution_provider':'GitHub Actions',
+            'runner_class':'github-hosted ubuntu-latest',
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'run_id':os.environ['GITHUB_RUN_ID'],
+            'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'commit_sha':os.environ['GITHUB_SHA'],
+            'package_sha256':'${PACKAGE_SHA}',
+            'replay_attestation_sha256':'${ATT_SHA}',
+            'reconstructed_state_sha256':'${STATE_SHA}',
+            'expected_state_digest_supplied_to_verifier':False,
+            'live_drive_read':False,
+            'pointer_target_input':False,
+            'global_bind':False
+          }
+          with open('GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json','w',encoding='utf-8') as f:
+              json.dump(envelope,f,sort_keys=True,indent=2); f.write('\n')
+          print(json.dumps(envelope,sort_keys=True))
+          PY
+          sha256sum ZERO_CONTEXT_REPLAY_ATTESTATION.json GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json
+
+      - name: Upload provider attestation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-zero-context-replay-attestation-v1-binary
+          path: |
+            /tmp/alpha-zero-context/ZERO_CONTEXT_REPLAY_ATTESTATION.json
+            /tmp/alpha-zero-context/GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json
+            /tmp/alpha-zero-context/REPLAY_STDOUT.json
+          if-no-files-found: error
+          retention-days: 7
