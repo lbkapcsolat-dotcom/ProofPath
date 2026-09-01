@@ -22,19 +22,29 @@ jobs:
       - name: Gemini live pipeline fail-closed test
         run: node test-gemini-live-pipeline-failclosed.mjs
       - name: V5 Absolute Candidate deterministic round-trip gate
-        run: node test-v5-absolute-candidate-roundtrip.mjs | tee v5-absolute-candidate-receipt.json
+        run: |
+          set -o pipefail
+          node test-v5-absolute-candidate-roundtrip.mjs | tee v5-absolute-candidate-receipt.json
       - name: ML PDF2 exact-source extraction determinism + C* round-trip gate
-        run: node test-mlpdf2-extraction-candidate-roundtrip.mjs | tee mlpdf2-extraction-candidate-receipt.json
+        run: |
+          set -o pipefail
+          node test-mlpdf2-extraction-candidate-roundtrip.mjs | tee mlpdf2-extraction-candidate-receipt.json
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node gemini-live-zero-spend-preflight.mjs | tee gemini-live-zero-spend-preflight.json
+        run: |
+          set -o pipefail
+          node gemini-live-zero-spend-preflight.mjs | tee gemini-live-zero-spend-preflight.json
       - name: Gemini exact shared-packet execution gate
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node gemini-live-same-packet-run.mjs | tee gemini-live-same-packet-receipt.json
+        run: |
+          set -o pipefail
+          node gemini-live-same-packet-run.mjs | tee gemini-live-same-packet-receipt.json
       - name: GPT Gemini convergence divergence gate
-        run: node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
+        run: |
+          set -o pipefail
+          node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
       - name: Syntax checks
         run: |
           node --check corpus-callosum-contract.mjs
