@@ -48,7 +48,9 @@ jobs:
           set -o pipefail
           node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
       - name: Syntax checks
+        if: always()
         run: |
+          bash -n test-mlpdf2-raw-drive-ci-gate.sh
           node --check corpus-callosum-contract.mjs
           node --check v5-absolute-candidate.mjs
           node --check mlpdf2-extraction-candidate.mjs
@@ -62,8 +64,10 @@ jobs:
           node --check gemini-live-same-packet-run.mjs
           node --check compute-gpt-gemini-convergence-receipt.mjs
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: corpus-callosum-gemini-gates
+          if-no-files-found: warn
           path: |
             gemini-live-zero-spend-preflight.json
             gemini-live-same-packet-receipt.json
