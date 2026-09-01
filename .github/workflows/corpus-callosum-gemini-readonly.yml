@@ -29,6 +29,8 @@ jobs:
         run: |
           set -o pipefail
           node test-mlpdf2-extraction-candidate-roundtrip.mjs | tee mlpdf2-extraction-candidate-receipt.json
+      - name: ML PDF2 raw Drive download + fresh extraction CI gate
+        run: bash test-mlpdf2-raw-drive-ci-gate.sh
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -49,6 +51,7 @@ jobs:
         run: |
           node --check corpus-callosum-contract.mjs
           node --check v5-absolute-candidate.mjs
+          node --check mlpdf2-extraction-candidate.mjs
           node --check api/corpus-callosum-gemini-reason.js
           node --check test-gpt-current-authority-run.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
@@ -67,3 +70,4 @@ jobs:
             gpt-gemini-convergence-divergence-receipt.json
             v5-absolute-candidate-receipt.json
             mlpdf2-extraction-candidate-receipt.json
+            mlpdf2-raw-drive-ci-receipt.json
