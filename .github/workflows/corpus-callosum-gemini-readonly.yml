@@ -21,6 +21,8 @@ jobs:
         run: node test-gemini-3-7-runtime-contract.mjs
       - name: Gemini live pipeline fail-closed test
         run: node test-gemini-live-pipeline-failclosed.mjs
+      - name: V5 Absolute Candidate deterministic round-trip gate
+        run: node test-v5-absolute-candidate-roundtrip.mjs
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -38,6 +40,7 @@ jobs:
           node --check test-gpt-current-authority-run.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
           node --check test-gemini-live-pipeline-failclosed.mjs
+          node --check test-v5-absolute-candidate-roundtrip.mjs
           node --check gemini-live-zero-spend-preflight.mjs
           node --check gemini-live-same-packet-run.mjs
           node --check compute-gpt-gemini-convergence-receipt.mjs
@@ -48,3 +51,4 @@ jobs:
             gemini-live-zero-spend-preflight.json
             gemini-live-same-packet-receipt.json
             gpt-gemini-convergence-divergence-receipt.json
+            v5-absolute-candidate-receipt.json
