@@ -1,0 +1,2 @@
+// V5 Absolute Candidate engine placeholder for TDD presence gate.
+export const V5_ABSOLUTE_CANDIDATE_GATE = 'V5_BENCHMARK_ABSOLUTE_CANDIDATE_DETERMINISTIC_ROUNDTRIP_AND_NEGATIVE_DRILL_V1';
