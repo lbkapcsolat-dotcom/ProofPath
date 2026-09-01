@@ -23,6 +23,8 @@ jobs:
         run: node test-gemini-live-pipeline-failclosed.mjs
       - name: V5 Absolute Candidate deterministic round-trip gate
         run: node test-v5-absolute-candidate-roundtrip.mjs | tee v5-absolute-candidate-receipt.json
+      - name: ML PDF2 exact-source extraction determinism + C* round-trip gate
+        run: node test-mlpdf2-extraction-candidate-roundtrip.mjs | tee mlpdf2-extraction-candidate-receipt.json
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -42,6 +44,7 @@ jobs:
           node --check test-gemini-3-7-runtime-contract.mjs
           node --check test-gemini-live-pipeline-failclosed.mjs
           node --check test-v5-absolute-candidate-roundtrip.mjs
+          node --check test-mlpdf2-extraction-candidate-roundtrip.mjs
           node --check gemini-live-zero-spend-preflight.mjs
           node --check gemini-live-same-packet-run.mjs
           node --check compute-gpt-gemini-convergence-receipt.mjs
@@ -53,3 +56,4 @@ jobs:
             gemini-live-same-packet-receipt.json
             gpt-gemini-convergence-divergence-receipt.json
             v5-absolute-candidate-receipt.json
+            mlpdf2-extraction-candidate-receipt.json
