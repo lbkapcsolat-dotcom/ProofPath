@@ -1,0 +1,109 @@
+name: ALPHA Zero Context Replay V1
+
+on:
+  push:
+    branches:
+      - alpha-zero-context-replay-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout isolated replay branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify byte-exact portable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/alpha-replay
+          base64 -d replay/package.b64 > /tmp/alpha-replay/package.zip
+          test "$(stat -c %s /tmp/alpha-replay/package.zip)" = "24412"
+          echo "49d49101e9efd5408b85908cf2d8edfac4007df3d10cf766acacf90a96a67d8a  /tmp/alpha-replay/package.zip" | sha256sum -c -
+          unzip -q /tmp/alpha-replay/package.zip -d /tmp/alpha-replay/package
+
+      - name: Enforce zero-context target isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-replay/package
+          if grep -R -n -E 'A3483|BOOT2126|1sMOtdxX-WiJVkl0Ik-eXS9N7OMCCYP-mdouYMbsBblg|4e16f6dc448680005303496426d50f8e18c6ce5b577211f528b987508d2055d3|ba7c12c385f97870dae319612d0c13528bdeafcaef9b7cf7ae002f1f8ca9d39f' .; then
+            echo 'FAIL_TARGET_LEAKAGE_DETECTED'
+            exit 9
+          fi
+          echo 'PASS_NO_TARGET_AUTHORITY_OR_EXPECTED_STATE_DIGEST_IN_PACKAGE'
+
+      - name: Execute zero-context replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-replay/package
+          env -i PATH=/usr/bin:/bin PYTHONHASHSEED=random python3 -I replay_verifier.py | tee REPLAY_STDOUT.json
+          test -s ZERO_CONTEXT_REPLAY_ATTESTATION.json
+
+      - name: Validate attestation without expected state digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-replay/package
+          python3 - <<'PY'
+          import json, sys
+          p='ZERO_CONTEXT_REPLAY_ATTESTATION.json'
+          d=json.load(open(p,encoding='utf-8'))
+          if d.get('verdict') != 'PASS_PORTABLE_ZERO_CONTEXT_CONTROL_STATE_REPLAY':
+              raise SystemExit('FAIL_ATTESTATION_VERDICT')
+          checks=d.get('checks',{})
+          if not checks or not all(checks.values()):
+              raise SystemExit('FAIL_ATTESTATION_CHECKS')
+          if len(checks) != 13:
+              raise SystemExit(f'FAIL_CHECK_COUNT_{len(checks)}')
+          digest=d.get('reconstructed_state_sha256')
+          if not isinstance(digest,str) or len(digest) != 64:
+              raise SystemExit('FAIL_STATE_DIGEST_FORMAT')
+          print(json.dumps({'verdict':d['verdict'],'checks_passed':sum(checks.values()),'checks_total':len(checks),'reconstructed_state_sha256':digest},sort_keys=True))
+          PY
+
+      - name: Create GitHub-hosted provider envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/alpha-replay/package
+          ZIP_SHA=$(sha256sum /tmp/alpha-replay/package.zip | awk '{print $1}')
+          ATT_SHA=$(sha256sum ZERO_CONTEXT_REPLAY_ATTESTATION.json | awk '{print $1}')
+          STATE_SHA=$(python3 -c "import json;print(json.load(open('ZERO_CONTEXT_REPLAY_ATTESTATION.json'))['reconstructed_state_sha256'])")
+          cat > GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json <<EOF
+          {
+            "schema": "GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE_V1",
+            "execution_provider": "GitHub Actions",
+            "runner_class": "github-hosted ubuntu-latest",
+            "repository": "${GITHUB_REPOSITORY}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "commit_sha": "${GITHUB_SHA}",
+            "package_sha256": "${ZIP_SHA}",
+            "replay_attestation_sha256": "${ATT_SHA}",
+            "reconstructed_state_sha256": "${STATE_SHA}",
+            "expected_state_digest_supplied_to_verifier": false,
+            "live_drive_read": false,
+            "pointer_target_input": false,
+            "global_bind": false
+          }
+          EOF
+          cat GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json
+          sha256sum ZERO_CONTEXT_REPLAY_ATTESTATION.json GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json
+
+      - name: Upload external replay attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-zero-context-replay-attestation-v1
+          path: |
+            /tmp/alpha-replay/package/ZERO_CONTEXT_REPLAY_ATTESTATION.json
+            /tmp/alpha-replay/package/GITHUB_HOSTED_RUNNER_ATTESTATION_ENVELOPE.json
+            /tmp/alpha-replay/package/REPLAY_STDOUT.json
+          if-no-files-found: error
+          retention-days: 7
