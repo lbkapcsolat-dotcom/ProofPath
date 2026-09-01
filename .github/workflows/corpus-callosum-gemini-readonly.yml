@@ -15,6 +15,8 @@ jobs:
           node-version: '22'
       - name: Read-only bind contract
         run: node test-corpus-callosum-gemini-readonly.mjs
+      - name: Structured claim vector contract
+        run: node test-structured-claim-vector.mjs
       - name: GPT independent shared-packet run
         run: node test-gpt-current-authority-run.mjs
       - name: Gemini 3.7 runtime contract
@@ -47,22 +49,38 @@ jobs:
         run: |
           set -o pipefail
           node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
+      - name: Gemini live structured claim vector
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-structured-claim-run.mjs | tee gemini-live-structured-claim-receipt.json
+      - name: Structured claim vector adjudication
+        if: always()
+        run: |
+          set -o pipefail
+          node compute-structured-claim-adjudication-receipt.mjs gemini-live-structured-claim-receipt.json | tee structured-claim-adjudication-receipt.json
       - name: Syntax checks
         if: always()
         run: |
           bash -n test-mlpdf2-raw-drive-ci-gate.sh
           node --check corpus-callosum-contract.mjs
+          node --check structured-claim-contract.mjs
           node --check v5-absolute-candidate.mjs
           node --check mlpdf2-extraction-candidate.mjs
           node --check api/corpus-callosum-gemini-reason.js
           node --check test-gpt-current-authority-run.mjs
+          node --check test-structured-claim-vector.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
           node --check test-gemini-live-pipeline-failclosed.mjs
           node --check test-v5-absolute-candidate-roundtrip.mjs
           node --check test-mlpdf2-extraction-candidate-roundtrip.mjs
           node --check gemini-live-zero-spend-preflight.mjs
           node --check gemini-live-same-packet-run.mjs
+          node --check gemini-live-structured-claim-run.mjs
           node --check compute-gpt-gemini-convergence-receipt.mjs
+          node --check compute-structured-claim-adjudication-receipt.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,6 +90,8 @@ jobs:
             gemini-live-zero-spend-preflight.json
             gemini-live-same-packet-receipt.json
             gpt-gemini-convergence-divergence-receipt.json
+            gemini-live-structured-claim-receipt.json
+            structured-claim-adjudication-receipt.json
             v5-absolute-candidate-receipt.json
             mlpdf2-extraction-candidate-receipt.json
             mlpdf2-raw-drive-ci-receipt.json
