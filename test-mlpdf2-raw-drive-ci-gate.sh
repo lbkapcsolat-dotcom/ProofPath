@@ -21,7 +21,7 @@ if ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdfinfo >/dev/null 2>&
 fi
 
 python -m pip install --quiet --disable-pip-version-check gdown
-python -m gdown --id "$SOURCE_ID" --output "$PDF" --quiet
+python -m gdown "$SOURCE_ID" -O "$PDF" -q
 
 SOURCE_SHA="$(sha256sum "$PDF" | awk '{print $1}')"
 SOURCE_SIZE="$(stat -c%s "$PDF")"
