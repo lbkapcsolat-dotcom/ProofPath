@@ -14,25 +14,22 @@ trap 'rm -rf "$TMPDIR_ML"' EXIT
 PDF="$TMPDIR_ML/source.pdf"
 TXT_A="$TMPDIR_ML/extract-a.txt"
 TXT_B="$TMPDIR_ML/extract-b.txt"
-HEADERS="$TMPDIR_ML/headers.txt"
 
 if ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdfinfo >/dev/null 2>&1; then
   sudo apt-get update -y >/dev/null
   sudo apt-get install -y poppler-utils >/dev/null
 fi
 
-DOWNLOAD_URL="https://drive.usercontent.google.com/download?id=${SOURCE_ID}&export=download&confirm=t"
-curl --fail --location --silent --show-error --retry 3 --retry-delay 2 --dump-header "$HEADERS" "$DOWNLOAD_URL" --output "$PDF"
+python -m pip install --quiet --disable-pip-version-check gdown
+python -m gdown --id "$SOURCE_ID" --output "$PDF" --quiet
 
 SOURCE_SHA="$(sha256sum "$PDF" | awk '{print $1}')"
 SOURCE_SIZE="$(stat -c%s "$PDF")"
 SOURCE_MIME="$(file --brief --mime-type "$PDF")"
-HTTP_CONTENT_TYPE="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub(/\r/,""); v=$0} END{sub(/^[^:]+:[[:space:]]*/,"",v); print v}' "$HEADERS")"
 
 echo "OBSERVED_SOURCE_SHA256=${SOURCE_SHA}"
 echo "OBSERVED_SOURCE_SIZE=${SOURCE_SIZE}"
 echo "OBSERVED_FILE_MIME=${SOURCE_MIME}"
-echo "OBSERVED_HTTP_CONTENT_TYPE=${HTTP_CONTENT_TYPE}"
 
 [[ "$SOURCE_SHA" == "$EXPECTED_SOURCE_SHA" ]] || { echo "HOLD_SOURCE_SHA_REVERIFY_FAILED" >&2; exit 21; }
 [[ "$SOURCE_SIZE" == "$EXPECTED_SOURCE_SIZE" ]] || { echo "HOLD_SOURCE_SIZE_REVERIFY_FAILED" >&2; exit 22; }
