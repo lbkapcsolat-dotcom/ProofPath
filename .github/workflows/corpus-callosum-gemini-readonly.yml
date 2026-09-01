@@ -22,7 +22,7 @@ jobs:
       - name: Gemini live pipeline fail-closed test
         run: node test-gemini-live-pipeline-failclosed.mjs
       - name: V5 Absolute Candidate deterministic round-trip gate
-        run: node test-v5-absolute-candidate-roundtrip.mjs
+        run: node test-v5-absolute-candidate-roundtrip.mjs | tee v5-absolute-candidate-receipt.json
       - name: Gemini live zero-spend preflight
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -36,6 +36,7 @@ jobs:
       - name: Syntax checks
         run: |
           node --check corpus-callosum-contract.mjs
+          node --check v5-absolute-candidate.mjs
           node --check api/corpus-callosum-gemini-reason.js
           node --check test-gpt-current-authority-run.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
