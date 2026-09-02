@@ -9,6 +9,7 @@ import { emitReceiptAndExit } from './gate-status.mjs';
 const MODEL = 'gemini-3.7-flash';
 const fixture = JSON.parse(fs.readFileSync(new URL('./corpus-callosum-current-authority-fixture.json', import.meta.url), 'utf8'));
 const auth = JSON.parse(fs.readFileSync(new URL('./gemini-live-execution-authorization.json', import.meta.url), 'utf8'));
+const security = JSON.parse(fs.readFileSync(new URL('./true-dual-live-security-authorization.json', import.meta.url), 'utf8'));
 const bind = await buildCorpusCallosumReadOnlyBind(fixture);
 
 const receipt = {
@@ -22,17 +23,22 @@ const receipt = {
   authorizationBasis: auth.authorizationBasis,
   freeTierAuthorized: auth.authorized === true,
   keyConfigured: Boolean(process.env.GEMINI_API_KEY),
+  credentialRotationRequired: security.geminiCredentialRotationRequired === true,
+  credentialRotationProven: security.geminiCredentialRotationProven === true,
+  oldCredentialRevoked: security.oldGeminiCredentialRevoked === true,
+  newCredentialReboundToGitHubSecret: security.newGeminiCredentialReboundToGitHubSecret === true,
   authenticatedModelSurface: false,
   liveInferenceExecuted: false,
   zeroCorpusWrites: true,
   authorityMutation: false,
   pointerPromotion: false,
   globalBind: false,
+  runtimeAdmission: false,
   externalActuation: false
 };
 
-if (bind.packetSha256 !== auth.packetSha256 || bind.packetSha256 !== fixture.expectedPacketSha256) {
-  receipt.status = 'HOLD_SHARED_PACKET_IDENTITY_MISMATCH';
+if (bind.packetSha256 !== auth.packetSha256 || bind.packetSha256 !== fixture.expectedPacketSha256 || bind.packetSha256 !== security.packetSha256) {
+  receipt.status = 'FAIL_GEMINI_SHARED_PACKET_IDENTITY_MISMATCH';
   emitReceiptAndExit(receipt);
 }
 if (auth.modelTarget !== MODEL) {
@@ -45,6 +51,14 @@ if (auth.authorized !== true) {
 }
 if (!process.env.GEMINI_API_KEY) {
   receipt.status = 'HOLD_GEMINI_API_KEY_NOT_CONFIGURED_IN_GITHUB_ACTIONS';
+  emitReceiptAndExit(receipt);
+}
+if (security.geminiCredentialRotationRequired === true && (
+  security.geminiCredentialRotationProven !== true ||
+  security.oldGeminiCredentialRevoked !== true ||
+  security.newGeminiCredentialReboundToGitHubSecret !== true
+)) {
+  receipt.status = 'HOLD_GEMINI_CREDENTIAL_ROTATION_NOT_PROVEN';
   emitReceiptAndExit(receipt);
 }
 
