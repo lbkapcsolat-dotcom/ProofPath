@@ -1,0 +1,14 @@
+{
+  "gate": "ALPHA_CORPUS_CALLOSUM_SECURITY_AND_TRUE_DUAL_LIVE_CLOSE_V1",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "modelTarget": "gpt-5.6-sol",
+  "apiSurface": "Responses API",
+  "credentialConfiguredInGitHub": true,
+  "zeroSpendRequired": true,
+  "zeroSpendProven": false,
+  "liveInferenceAuthorized": false,
+  "authorizationBasis": "OPENAI_API_KEY_PRESENT__MODEL_PRICING_PUBLIC__ZERO_SPEND_EXECUTION_NOT_PROVEN",
+  "forbidSecretInSource": true,
+  "forbidSecretInLogs": true,
+  "forbidCrossProviderSecretExposure": true
+}
