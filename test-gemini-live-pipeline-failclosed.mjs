@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
 const auth = JSON.parse(fs.readFileSync(new URL('./gemini-live-execution-authorization.json', import.meta.url), 'utf8'));
@@ -13,13 +13,15 @@ assert.equal(auth.forbidKeyInSource, true);
 assert.equal(auth.forbidKeyInChat, true);
 assert.equal(auth.packetSha256, 'c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024');
 
-// Negative drill: even with a proven Free Tier project bind, absence of the
-// runtime secret must fail closed before any model-surface or inference call.
-const output = execFileSync(process.execPath, ['gemini-live-same-packet-run.mjs'], {
+// Negative drill: absence of the runtime secret must emit a HOLD receipt AND
+// return non-zero, so CI cannot represent semantic HOLD as a green success.
+const run = spawnSync(process.execPath, ['gemini-live-same-packet-run.mjs'], {
   encoding: 'utf8',
   env: { ...process.env, GEMINI_API_KEY: '' }
-}).trim();
-const receipt = JSON.parse(output);
+});
+assert.equal(run.status, 2, 'HOLD must exit with semantic HOLD code 2');
+assert.equal(run.stderr, '');
+const receipt = JSON.parse(run.stdout.trim());
 assert.equal(receipt.status, 'HOLD_GEMINI_API_KEY_NOT_CONFIGURED_IN_GITHUB_ACTIONS');
 assert.equal(receipt.liveInferenceExecuted, false);
 assert.equal(receipt.freeTierAuthorized, true);
