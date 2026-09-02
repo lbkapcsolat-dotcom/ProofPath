@@ -19,5 +19,7 @@ jobs:
         run: node test-dual-live-structured-claim.mjs
       - name: OpenAI true-live provider contract
         run: node test-openai-live-dual-structured-contract.mjs
-      - name: OpenAI live runner zero-spend RED gate
+      - name: OpenAI live runner zero-spend fail-closed contract
         run: node test-openai-live-runner-failclosed.mjs
+      - name: OpenAI model metadata preflight RED gate
+        run: node test-openai-model-preflight-failclosed.mjs
