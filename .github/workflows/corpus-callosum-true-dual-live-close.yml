@@ -1,0 +1,84 @@
+name: Corpus Callosum True Dual-Live Final Close
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  openai_live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: OpenAI exact c934 structured provider run
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          node openai-live-dual-structured-claim-run.mjs | tee openai-live-dual-structured-claim-receipt.json
+      - name: Upload OpenAI provider receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-dual-openai-receipt
+          if-no-files-found: error
+          path: openai-live-dual-structured-claim-receipt.json
+
+  gemini_live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Gemini exact c934 structured provider run
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-dual-structured-claim-run.mjs | tee gemini-live-dual-structured-claim-receipt.json
+      - name: Upload Gemini provider receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-dual-gemini-receipt
+          if-no-files-found: error
+          path: gemini-live-dual-structured-claim-receipt.json
+
+  adjudication:
+    needs: [openai_live, gemini_live]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download OpenAI receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: true-dual-openai-receipt
+          path: true-dual-input/openai
+      - name: Download Gemini receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: true-dual-gemini-receipt
+          path: true-dual-input/gemini
+      - name: Deterministic true dual-live adjudication
+        run: |
+          set -o pipefail
+          node compute-dual-live-structured-adjudication-receipt.mjs \
+            true-dual-input/openai/openai-live-dual-structured-claim-receipt.json \
+            true-dual-input/gemini/gemini-live-dual-structured-claim-receipt.json \
+            | tee true-dual-live-final-adjudication-receipt.json
+      - name: Upload final close evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-dual-live-final-close-evidence
+          if-no-files-found: warn
+          path: true-dual-live-final-adjudication-receipt.json
