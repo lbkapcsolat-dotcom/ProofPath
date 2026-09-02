@@ -3,6 +3,7 @@ import { buildCorpusCallosumReadOnlyBind } from './corpus-callosum-contract.mjs'
 import { emitReceiptAndExit } from './gate-status.mjs';
 
 const fixture = JSON.parse(fs.readFileSync(new URL('./corpus-callosum-current-authority-fixture.json', import.meta.url), 'utf8'));
+const security = JSON.parse(fs.readFileSync(new URL('./true-dual-live-security-authorization.json', import.meta.url), 'utf8'));
 const bind = await buildCorpusCallosumReadOnlyBind(fixture);
 if (bind.packetSha256 !== fixture.expectedPacketSha256) {
   throw new Error('shared packet hash mismatch');
@@ -16,13 +17,35 @@ const result = {
   zeroSpendPolicy: true,
   modelTarget: 'gemini-3.7-flash',
   keyConfigured: Boolean(process.env.GEMINI_API_KEY),
+  credentialRotationRequired: security.geminiCredentialRotationRequired === true,
+  credentialRotationProven: security.geminiCredentialRotationProven === true,
+  oldCredentialRevoked: security.oldGeminiCredentialRevoked === true,
+  newCredentialReboundToGitHubSecret: security.newGeminiCredentialReboundToGitHubSecret === true,
   authenticatedModelSurface: false,
   liveInferenceExecuted: false,
+  zeroCorpusWrites: true,
+  authorityMutation: false,
+  pointerPromotion: false,
+  globalBind: false,
+  runtimeAdmission: false,
+  externalActuation: false,
   status: 'HOLD'
 };
 
+if (bind.packetSha256 !== security.packetSha256) {
+  result.status = 'FAIL_GEMINI_PREFLIGHT_PACKET_IDENTITY_MISMATCH';
+  emitReceiptAndExit(result);
+}
 if (!process.env.GEMINI_API_KEY) {
   result.status = 'HOLD_GEMINI_API_KEY_NOT_CONFIGURED_IN_GITHUB_ACTIONS';
+  emitReceiptAndExit(result);
+}
+if (security.geminiCredentialRotationRequired === true && (
+  security.geminiCredentialRotationProven !== true ||
+  security.oldGeminiCredentialRevoked !== true ||
+  security.newGeminiCredentialReboundToGitHubSecret !== true
+)) {
+  result.status = 'HOLD_GEMINI_CREDENTIAL_ROTATION_NOT_PROVEN';
   emitReceiptAndExit(result);
 }
 
