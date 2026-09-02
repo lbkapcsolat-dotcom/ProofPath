@@ -17,5 +17,7 @@ jobs:
         run: node test-true-dual-live-failclosed.mjs
       - name: Canonical claim ontology contract
         run: node test-dual-live-structured-claim.mjs
-      - name: OpenAI true-live provider contract RED gate
+      - name: OpenAI true-live provider contract
         run: node test-openai-live-dual-structured-contract.mjs
+      - name: OpenAI live runner zero-spend RED gate
+        run: node test-openai-live-runner-failclosed.mjs
