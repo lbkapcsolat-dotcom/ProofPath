@@ -25,6 +25,8 @@ jobs:
         run: node test-gemini-3-7-runtime-contract.mjs
       - name: Gemini live pipeline fail-closed test
         run: node test-gemini-live-pipeline-failclosed.mjs
+      - name: True dual-live semantic fail-closed RED gate
+        run: node test-true-dual-live-failclosed.mjs
       - name: V5 Absolute Candidate deterministic round-trip gate
         run: |
           set -o pipefail
@@ -90,6 +92,7 @@ jobs:
           node --check test-dual-live-structured-claim.mjs
           node --check test-gemini-3-7-runtime-contract.mjs
           node --check test-gemini-live-pipeline-failclosed.mjs
+          node --check test-true-dual-live-failclosed.mjs
           node --check test-v5-absolute-candidate-roundtrip.mjs
           node --check test-mlpdf2-extraction-candidate-roundtrip.mjs
           node --check gemini-live-zero-spend-preflight.mjs
