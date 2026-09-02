@@ -26,6 +26,8 @@ jobs:
         run: node test-openai-live-runner-failclosed.mjs
       - name: OpenAI model metadata preflight contract
         run: node test-openai-model-preflight-failclosed.mjs
+      - name: Gemini credential rotation RED gate
+        run: node test-gemini-true-dual-rotation-guard.mjs
 
   openai_preflight:
     needs: contract
