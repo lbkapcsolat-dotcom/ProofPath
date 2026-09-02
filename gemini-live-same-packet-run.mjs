@@ -4,6 +4,7 @@ import {
   buildIndependentReasoningPrompt,
   normalizeReasoningRun
 } from './corpus-callosum-contract.mjs';
+import { emitReceiptAndExit } from './gate-status.mjs';
 
 const MODEL = 'gemini-3.7-flash';
 const fixture = JSON.parse(fs.readFileSync(new URL('./corpus-callosum-current-authority-fixture.json', import.meta.url), 'utf8'));
@@ -32,23 +33,19 @@ const receipt = {
 
 if (bind.packetSha256 !== auth.packetSha256 || bind.packetSha256 !== fixture.expectedPacketSha256) {
   receipt.status = 'HOLD_SHARED_PACKET_IDENTITY_MISMATCH';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 if (auth.modelTarget !== MODEL) {
   receipt.status = 'HOLD_MODEL_AUTHORIZATION_MISMATCH';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 if (auth.authorized !== true) {
   receipt.status = 'HOLD_USER_FREE_TIER_READBACK_REQUIRED';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 if (!process.env.GEMINI_API_KEY) {
   receipt.status = 'HOLD_GEMINI_API_KEY_NOT_CONFIGURED_IN_GITHUB_ACTIONS';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 
 const modelsResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
@@ -56,16 +53,14 @@ const modelsResponse = await fetch('https://generativelanguage.googleapis.com/v1
 });
 if (!modelsResponse.ok) {
   receipt.status = `HOLD_GEMINI_AUTHENTICATED_MODEL_SURFACE_HTTP_${modelsResponse.status}`;
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 const models = await modelsResponse.json();
 const available = (models.models || []).map(m => String(m.name || '').replace(/^models\//, ''));
 receipt.authenticatedModelSurface = available.includes(MODEL);
 if (!receipt.authenticatedModelSurface) {
   receipt.status = 'HOLD_GEMINI_3_7_FLASH_NOT_AVAILABLE_TO_CONFIGURED_KEY';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 
 const prompt = buildIndependentReasoningPrompt('GEMINI', bind);
@@ -95,23 +90,20 @@ const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/m
 receipt.liveInferenceExecuted = true;
 if (!response.ok) {
   receipt.status = `HOLD_GEMINI_LIVE_HTTP_${response.status}`;
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 const payload = await response.json();
 const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
 if (!text) {
   receipt.status = 'HOLD_GEMINI_LIVE_EMPTY_REASONING';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 let candidate;
 try {
   candidate = JSON.parse(text);
 } catch {
   receipt.status = 'HOLD_GEMINI_LIVE_MALFORMED_JSON';
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 
 try {
@@ -122,9 +114,8 @@ try {
   }, bind);
 } catch (error) {
   receipt.status = `HOLD_GEMINI_REASONING_CONTRACT_REJECTED__${String(error?.message || 'unknown').replace(/\s+/g, '_')}`;
-  console.log(JSON.stringify(receipt));
-  process.exit(0);
+  emitReceiptAndExit(receipt);
 }
 
 receipt.status = 'PASS_GEMINI_LIVE_SAME_PACKET_EXECUTION';
-console.log(JSON.stringify(receipt));
+emitReceiptAndExit(receipt);
