@@ -1,0 +1,54 @@
+name: Corpus Callosum True Dual-Live Gate
+
+on:
+  push:
+    branches: [corpus-callosum-gemini-readonly-v1]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Semantic fail-closed contract
+        run: node test-true-dual-live-failclosed.mjs
+      - name: Canonical claim ontology contract
+        run: node test-dual-live-structured-claim.mjs
+      - name: OpenAI true-live provider contract
+        run: node test-openai-live-dual-structured-contract.mjs
+      - name: OpenAI live runner zero-spend fail-closed contract
+        run: node test-openai-live-runner-failclosed.mjs
+      - name: OpenAI model metadata preflight contract
+        run: node test-openai-model-preflight-failclosed.mjs
+      - name: Gemini credential rotation guard
+        run: node test-gemini-true-dual-rotation-guard.mjs
+      - name: True API provider adjudicator RED gate
+        run: node test-true-dual-live-adjudicator.mjs
+
+  openai_preflight:
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: OpenAI authenticated model metadata preflight
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          node openai-live-model-preflight.mjs | tee openai-live-model-preflight-receipt.json
+      - name: Upload OpenAI preflight evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-callosum-openai-preflight
+          if-no-files-found: warn
+          path: openai-live-model-preflight-receipt.json

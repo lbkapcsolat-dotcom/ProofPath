@@ -1,0 +1,35 @@
+{
+  "gate": "GPT_GEMINI_CONVERGENCE_DIVERGENCE_RECEIPT_V1",
+  "status": "HOLD_DEPENDENCY_GEMINI_LIVE_SAME_PACKET_EXECUTION_MISSING",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "systemAuthority": "A3460/BOOT2106",
+  "corpusRouter": "A3449/BOOT2095",
+  "gptRun": {
+    "present": true,
+    "file": "gpt-current-authority-run.json",
+    "consumer": "GPT",
+    "conclusion": "READ_ONLY_CURRENT_ROUTE_WITH_FAIL_CLOSED_HISTORICAL_RECONCILIATION"
+  },
+  "geminiRun": {
+    "present": false,
+    "requiredReceipt": "GEMINI_LIVE_SAME_PACKET_EXECUTION_RECEIPT_V1",
+    "currentReceiptStatus": "HOLD_KEY_PROJECT_TO_FREE_TIER_BIND_UNRESOLVED__EXECUTION_SURFACE_UNAVAILABLE",
+    "privateCredentialEvidencePresent": true,
+    "credentialValueCommitted": false
+  },
+  "convergenceComputed": false,
+  "classification": null,
+  "allowedFutureClassifications": [
+    "CONVERGED",
+    "PARTIAL_DIVERGENCE",
+    "MATERIAL_DIVERGENCE"
+  ],
+  "firstMissingProof": "Authentic Gemini reasoning output over the exact c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024 packet after the specific key project is proven Free Tier and authenticated model access is read back from a secure reachable execution surface.",
+  "zeroCorpusWrites": true,
+  "authorityMutation": false,
+  "pointerPromotion": false,
+  "runtimeAdmission": false,
+  "globalBind": false,
+  "externalActuation": false,
+  "spend": false
+}

@@ -1,0 +1,48 @@
+{
+  "gate": "GEMINI_LIVE_SAME_PACKET_EXECUTION_RECEIPT_V1",
+  "status": "HOLD_KEY_PROJECT_TO_FREE_TIER_BIND_UNRESOLVED__EXECUTION_SURFACE_UNAVAILABLE",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "systemAuthority": "A3460/BOOT2106",
+  "corpusRouter": "A3449/BOOT2095",
+  "modelTarget": "gemini-3.7-flash",
+  "authorizationGate": "PROVEN_ZERO_SPEND_GEMINI_CREDENTIAL_BIND",
+  "privateCredentialEvidence": {
+    "receivedVia": "GMAIL_PRIVATE_EVIDENCE_CHANNEL",
+    "messageSubject": "Gemini projekt API",
+    "credentialPresent": true,
+    "credentialSha256": "4328f935a93c447a476bc43026074a938a96597adc62ffeebe3832073532f8c0",
+    "credentialValueCommitted": false,
+    "keyProjectNumber": "1066743013619"
+  },
+  "freeTierEvidence": {
+    "userVisibleAIStudioReadbackPresent": true,
+    "freeTierProjectsVisible": 2,
+    "paidTierProjectsVisible": 1,
+    "specificKeyProjectMappedToFreeTier": false
+  },
+  "freeTierAuthorized": false,
+  "keyConfiguredInGitHubSecretStore": false,
+  "authenticatedModelSurface": false,
+  "liveInferenceExecuted": false,
+  "zeroSpendPreserved": true,
+  "executionProbe": {
+    "attempted": true,
+    "type": "METADATA_ONLY_MODEL_LIST",
+    "result": "HOLD_EXECUTION_ENVIRONMENT_DNS_UNAVAILABLE",
+    "inferenceTokensSent": 0
+  },
+  "firstMissingProof": "Map key project number 1066743013619 to one of the AI Studio Free Tier projects, then execute an authenticated metadata-only model-surface readback from a secure runtime that can reach generativelanguage.googleapis.com without exposing the credential.",
+  "claimCeiling": {
+    "credentialPossessionClaim": true,
+    "specificKeyFreeTierClaim": false,
+    "geminiReasoningClaim": false,
+    "convergenceClaim": false,
+    "corpusWrite": false,
+    "authorityMutation": false,
+    "pointerPromotion": false,
+    "runtimeAdmission": false,
+    "globalBind": false,
+    "externalActuation": false,
+    "spend": false
+  }
+}

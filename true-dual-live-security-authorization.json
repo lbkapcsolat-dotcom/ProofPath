@@ -1,0 +1,13 @@
+{
+  "gate": "ALPHA_CORPUS_CALLOSUM_SECURITY_AND_TRUE_DUAL_LIVE_CLOSE_V1",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "geminiCredentialRotationRequired": true,
+  "geminiCredentialRotationProven": false,
+  "oldGeminiCredentialRevoked": false,
+  "newGeminiCredentialReboundToGitHubSecret": false,
+  "authorizationBasis": "PRIOR_GEMINI_CREDENTIAL_QUERY_PARAMETER_EXPOSURE__ROTATION_REQUIRED_BEFORE_TRUE_DUAL_LIVE",
+  "forbidOldCredentialNetworkUse": true,
+  "forbidSecretInSource": true,
+  "forbidSecretInLogs": true,
+  "forbidCrossProviderSecretExposure": true
+}

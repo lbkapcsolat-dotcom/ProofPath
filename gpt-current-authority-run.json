@@ -1,0 +1,16 @@
+{
+  "consumer": "GPT",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "conclusion": "READ_ONLY_CURRENT_ROUTE_WITH_FAIL_CLOSED_HISTORICAL_RECONCILIATION",
+  "reasoning": "The evidence packet identifies A3460/BOOT2106 as the preserved current system authority fence and A3449/BOOT2095 as the non-promoting corpus discovery route. Corpus recall must proceed through the Corpus Discovery Pointer, resumption ledger, latest final File Library mastery, exact object or branch identity, fresh current-state readback, and supersession check before reaching a target artifact. Historical 7P56GB locator data is evidence rather than current authority because the historical pointer hash mismatch is explicit. The consumer has no corpus-write, pointer-promotion, authority-mutation, runtime-admission, external-actuation, or spend authority. The route must HOLD on a stale pointer, contradictory or unresolved authority, or missing exact bytes when exact bytes are required.",
+  "provenanceIds": [
+    "current-pointer-top-block",
+    "system-authority-crossref",
+    "corpus-discovery-pointer",
+    "corpus-router-crossref"
+  ],
+  "uncertainties": [
+    "No live Gemini execution over this exact packet is yet evidenced.",
+    "The Corpus Discovery Pointer proves discovery and recall routing, not raw 7.59 GB byte custody or production runtime admission."
+  ]
+}

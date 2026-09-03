@@ -1,0 +1,121 @@
+name: Corpus Callosum Gemini Read-Only Gate
+
+on:
+  push:
+    branches: [corpus-callosum-gemini-readonly-v1]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only bind contract
+        run: node test-corpus-callosum-gemini-readonly.mjs
+      - name: Structured claim vector contract
+        run: node test-structured-claim-vector.mjs
+      - name: Dual-live canonical claim ontology contract
+        run: node test-dual-live-structured-claim.mjs
+      - name: GPT independent shared-packet run
+        run: node test-gpt-current-authority-run.mjs
+      - name: Gemini 3.7 runtime contract
+        run: node test-gemini-3-7-runtime-contract.mjs
+      - name: Gemini live pipeline fail-closed test
+        run: node test-gemini-live-pipeline-failclosed.mjs
+      - name: True dual-live semantic fail-closed RED gate
+        run: node test-true-dual-live-failclosed.mjs
+      - name: V5 Absolute Candidate deterministic round-trip gate
+        run: |
+          set -o pipefail
+          node test-v5-absolute-candidate-roundtrip.mjs | tee v5-absolute-candidate-receipt.json
+      - name: ML PDF2 exact-source extraction determinism + C* round-trip gate
+        run: |
+          set -o pipefail
+          node test-mlpdf2-extraction-candidate-roundtrip.mjs | tee mlpdf2-extraction-candidate-receipt.json
+      - name: ML PDF2 raw Drive download + fresh extraction CI gate
+        run: bash test-mlpdf2-raw-drive-ci-gate.sh
+      - name: Gemini live zero-spend preflight
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-zero-spend-preflight.mjs | tee gemini-live-zero-spend-preflight.json
+      - name: Gemini exact shared-packet execution gate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-same-packet-run.mjs | tee gemini-live-same-packet-receipt.json
+      - name: GPT Gemini convergence divergence gate
+        run: |
+          set -o pipefail
+          node compute-gpt-gemini-convergence-receipt.mjs gemini-live-same-packet-receipt.json | tee gpt-gemini-convergence-divergence-receipt.json
+      - name: Gemini dual-live fixed-ontology claim vector
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-dual-structured-claim-run.mjs | tee gemini-live-dual-structured-claim-receipt.json
+      - name: Dual-live structured claim adjudication
+        if: always()
+        run: |
+          set -o pipefail
+          node compute-dual-live-structured-adjudication-receipt.mjs gpt-live-chatgpt-session-structured-receipt.json gemini-live-dual-structured-claim-receipt.json | tee dual-live-structured-adjudication-receipt.json
+      - name: Gemini live structured claim vector
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node gemini-live-structured-claim-run.mjs | tee gemini-live-structured-claim-receipt.json
+      - name: Structured claim vector adjudication
+        if: always()
+        run: |
+          set -o pipefail
+          node compute-structured-claim-adjudication-receipt.mjs gemini-live-structured-claim-receipt.json | tee structured-claim-adjudication-receipt.json
+      - name: Syntax checks
+        if: always()
+        run: |
+          bash -n test-mlpdf2-raw-drive-ci-gate.sh
+          node --check corpus-callosum-contract.mjs
+          node --check structured-claim-contract.mjs
+          node --check dual-live-structured-claim-contract.mjs
+          node --check v5-absolute-candidate.mjs
+          node --check mlpdf2-extraction-candidate.mjs
+          node --check api/corpus-callosum-gemini-reason.js
+          node --check test-gpt-current-authority-run.mjs
+          node --check test-structured-claim-vector.mjs
+          node --check test-dual-live-structured-claim.mjs
+          node --check test-gemini-3-7-runtime-contract.mjs
+          node --check test-gemini-live-pipeline-failclosed.mjs
+          node --check test-true-dual-live-failclosed.mjs
+          node --check test-v5-absolute-candidate-roundtrip.mjs
+          node --check test-mlpdf2-extraction-candidate-roundtrip.mjs
+          node --check gemini-live-zero-spend-preflight.mjs
+          node --check gemini-live-same-packet-run.mjs
+          node --check gemini-live-structured-claim-run.mjs
+          node --check gemini-live-dual-structured-claim-run.mjs
+          node --check compute-gpt-gemini-convergence-receipt.mjs
+          node --check compute-structured-claim-adjudication-receipt.mjs
+          node --check compute-dual-live-structured-adjudication-receipt.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: corpus-callosum-gemini-gates
+          if-no-files-found: warn
+          path: |
+            gemini-live-zero-spend-preflight.json
+            gemini-live-same-packet-receipt.json
+            gpt-gemini-convergence-divergence-receipt.json
+            gemini-live-structured-claim-receipt.json
+            structured-claim-adjudication-receipt.json
+            gpt-live-chatgpt-session-structured-receipt.json
+            gemini-live-dual-structured-claim-receipt.json
+            dual-live-structured-adjudication-receipt.json
+            v5-absolute-candidate-receipt.json
+            mlpdf2-extraction-candidate-receipt.json
+            mlpdf2-raw-drive-ci-receipt.json

@@ -1,0 +1,36 @@
+{
+  "gate": "ALPHA_NSH_DUAL_LIVE_STRUCTURED_CLAIM_EXECUTION_AND_ADJUDICATION_V1",
+  "status": "PASS_GPT_LIVE_CHATGPT_SESSION_STRUCTURED_CLAIM_VECTOR",
+  "claimSchema": "ALPHA_NSH_STRUCTURED_CLAIM_VECTOR_V1",
+  "claimOntology": "ALPHA_NSH_DUAL_LIVE_CLAIM_ONTOLOGY_V1",
+  "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+  "provider": "OpenAI",
+  "model": "GPT-5.6 Sol",
+  "providerSurface": "ChatGPT",
+  "executionMode": "LIVE_CHATGPT_SESSION_NOT_API_PROVIDER_RECEIPT",
+  "liveInferenceExecuted": true,
+  "providerSignedReceipt": false,
+  "zeroSpendPolicyPreserved": true,
+  "zeroCorpusWrites": true,
+  "authorityMutation": false,
+  "pointerPromotion": false,
+  "globalBind": false,
+  "runtimeAdmission": false,
+  "externalActuation": false,
+  "run": {
+    "consumer": "GPT",
+    "packetSha256": "c934b241c00f3a9cf15f56f9239f96471a0d721d8161865cbcaa6c8165493024",
+    "claims": [
+      {"claim_id":"CURRENT_SYSTEM_AUTHORITY","proposition":"The preserved current global system authority is A3460/BOOT2106.","polarity":"AFFIRM","scope":"system-authority","authority_basis":"A3460/BOOT2106","provenance_ids":["current-pointer-top-block","system-authority-crossref"],"uncertainty":"","hold_trigger":"CONTRADICTORY_OR_UNRESOLVED","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"CORPUS_DISCOVERY_ROUTER","proposition":"The non-promoting corpus discovery router is A3449/BOOT2095.","polarity":"AFFIRM","scope":"corpus-routing","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer","corpus-router-crossref"],"uncertainty":"","hold_trigger":"STALE_POINTER","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"ROUTING_ORDER","proposition":"Corpus recall is routed through Corpus Discovery Pointer, resumption ledger, latest File Library mastery, exact object or branch identity, fresh current-state readback, supersession check, then target artifact.","polarity":"AFFIRM","scope":"corpus-routing","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer"],"uncertainty":"","hold_trigger":"STALE_POINTER","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"WRITE_BOUNDARY","proposition":"The bound route is read-only and grants no corpus-write, pointer-promotion, authority-mutation, runtime-admission, external-actuation, or spend authority.","polarity":"AFFIRM","scope":"execution-boundary","authority_basis":"A3460/BOOT2106+A3449/BOOT2095","provenance_ids":["current-pointer-top-block","system-authority-crossref","corpus-discovery-pointer","corpus-router-crossref"],"uncertainty":"","hold_trigger":"","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"HOLD_STALE_POINTER","proposition":"A stale corpus pointer requires HOLD_STALE_CORPUS_POINTER.","polarity":"AFFIRM","scope":"fail-closed","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer"],"uncertainty":"","hold_trigger":"STALE_POINTER","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"HOLD_UNRESOLVED_AUTHORITY","proposition":"Contradictory or unresolved corpus authority requires HOLD_CORPUS_AUTHORITY_UNRESOLVED.","polarity":"AFFIRM","scope":"fail-closed","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer"],"uncertainty":"","hold_trigger":"CONTRADICTORY_OR_UNRESOLVED","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"HOLD_MISSING_EXACT_BYTES","proposition":"Missing exact bytes when exact bytes are required requires HOLD_EXACT_CORPUS_BYTES_MISSING.","polarity":"AFFIRM","scope":"fail-closed","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer"],"uncertainty":"Exact-byte custody is not established by the discovery router alone.","hold_trigger":"MISSING_EXACT_BYTES_WHEN_REQUIRED","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""},
+      {"claim_id":"FULL_RAW_CORPUS_BYTE_CUSTODY","proposition":"The corpus discovery router proves full raw 7.59 GB corpus byte custody.","polarity":"DENY","scope":"evidence-custody","authority_basis":"A3449/BOOT2095","provenance_ids":["corpus-discovery-pointer"],"uncertainty":"Full raw-corpus byte custody requires separate byte-level evidence.","hold_trigger":"MISSING_EXACT_BYTES_WHEN_REQUIRED","write_intent":false,"metric_key":"raw_corpus_size","metric_value":"7.59","metric_unit":"GB"},
+      {"claim_id":"PRODUCTION_RUNTIME_ADMISSION","proposition":"The corpus route grants production runtime admission.","polarity":"DENY","scope":"runtime-admission","authority_basis":"A3460/BOOT2106+A3449/BOOT2095","provenance_ids":["current-pointer-top-block","system-authority-crossref","corpus-discovery-pointer","corpus-router-crossref"],"uncertainty":"","hold_trigger":"","write_intent":false,"metric_key":"","metric_value":"","metric_unit":""}
+    ]
+  },
+  "receipt_sha256": "89cf3cff14a9e71acaade198ce6a3e319be59813313adf8ed526f8271e20472c"
+}
