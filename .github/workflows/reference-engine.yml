@@ -1,0 +1,46 @@
+name: Reference Engine Verification
+
+on:
+  pull_request:
+    paths:
+      - "reference_engine/**"
+      - ".github/workflows/reference-engine.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "reference_engine/**"
+      - ".github/workflows/reference-engine.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reference_engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run unit and adversarial tests
+        run: python -m pytest -q
+      - name: Run deterministic reference closure
+        run: python scripts/run_reference_closure.py --out /tmp/reference-closure
+      - name: Run adversarial closure
+        run: python scripts/run_adversarial_closure.py --out /tmp/adversarial-closure
+      - name: Verify canonical adversarial replay
+        run: |
+          test "$(sha256sum /tmp/adversarial-closure/run_a/report.json | awk '{print $1}')" = "cb6452ab0fdb2d90f797400762b2734020e4566d10571458c3fe3486ece73748"
+          test "$(sha256sum /tmp/adversarial-closure/run_b/report.json | awk '{print $1}')" = "cb6452ab0fdb2d90f797400762b2734020e4566d10571458c3fe3486ece73748"
+          test "$(sha256sum /tmp/adversarial-closure/run_a/manifest.sha256 | awk '{print $1}')" = "1236fac1bef8f780cd2bc298cd89475b79ff70c553b5d816764a1779d6ffe59d"
+          test "$(sha256sum /tmp/adversarial-closure/closure_report.json | awk '{print $1}')" = "c92a5d3e631dd471c2291fb99317aad7f5abce56e54bbf3a0d70b9716b2f514d"
+          cmp -s /tmp/adversarial-closure/run_a/report.json /tmp/adversarial-closure/run_b/report.json
+          cmp -s /tmp/adversarial-closure/run_a/manifest.sha256 /tmp/adversarial-closure/run_b/manifest.sha256

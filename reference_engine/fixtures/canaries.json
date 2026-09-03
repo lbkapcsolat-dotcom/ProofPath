@@ -1,0 +1,369 @@
+[
+  {
+    "name": "1A_GAP_POSITIVE",
+    "module": "GAP_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "importance_bp": 8000,
+      "coverage_bp": 4000,
+      "required_coverage_bp": 10000,
+      "evidence_deficiency_bp": 9000,
+      "freshness_factor_bp": 10000,
+      "current_known": true,
+      "bound": true,
+      "contradicted": false
+    },
+    "expected": {
+      "gap_type": "PARTIAL",
+      "severity_bp": 4320,
+      "verdict": "PASS"
+    }
+  },
+  {
+    "name": "1B_GAP_NEGATIVE",
+    "module": "GAP_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "identity_collision": true
+    },
+    "expected": {
+      "verdict": "HOLD",
+      "reason_code": "HOLD_IDENTITY",
+      "severity_bp": null
+    }
+  },
+  {
+    "name": "2A_RESEARCH_POSITIVE",
+    "module": "RESEARCH_CONTRACT",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "question": "What changed?",
+      "purpose": "Evidence-backed decision",
+      "claim_ceiling": "bounded factual claim",
+      "accepted_source_classes": [
+        "primary",
+        "peer_reviewed"
+      ],
+      "proof_obligations": [
+        "source_identity",
+        "freshness"
+      ],
+      "stop_conditions": [
+        "all obligations satisfied"
+      ]
+    },
+    "expected": {
+      "status": "READY",
+      "verdict": "PASS",
+      "search_allowed": true
+    }
+  },
+  {
+    "name": "2B_RESEARCH_NEGATIVE",
+    "module": "RESEARCH_CONTRACT",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "question": "What changed?",
+      "purpose": "Evidence-backed decision",
+      "claim_ceiling": "",
+      "accepted_source_classes": [
+        "primary"
+      ],
+      "proof_obligations": [
+        "source_identity"
+      ],
+      "stop_conditions": [
+        "proof obligation satisfied"
+      ]
+    },
+    "expected": {
+      "status": "HOLD",
+      "verdict": "HOLD",
+      "reason_code": "HOLD_PRECONDITION",
+      "search_allowed": false
+    }
+  },
+  {
+    "name": "3A_PRIORITY_POSITIVE",
+    "module": "PRIORITY_SCORE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {
+      "max_external_cost_microunits": 0
+    },
+    "input": {
+      "dimensions_bp": [
+        8000,
+        7000,
+        9000,
+        6000,
+        7000,
+        9000
+      ],
+      "risk_bp": 1000,
+      "uncertainty_bp": 900,
+      "dependency_burden_bp": 1000,
+      "cost_burden_bp": 0,
+      "confidence_bp": 9100,
+      "max_external_cost_microunits": 0,
+      "estimated_external_cost_microunits": 0
+    },
+    "expected": {
+      "utility_bp": 7750,
+      "penalty_bp": 725,
+      "score_bp": 6392,
+      "eligible": true,
+      "verdict": "PASS"
+    }
+  },
+  {
+    "name": "3B_PRIORITY_NEGATIVE",
+    "module": "PRIORITY_SCORE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {
+      "max_external_cost_microunits": 0
+    },
+    "input": {
+      "dimensions_bp": [
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000
+      ],
+      "risk_bp": 0,
+      "uncertainty_bp": 0,
+      "dependency_burden_bp": 0,
+      "cost_burden_bp": 0,
+      "confidence_bp": 10000,
+      "max_external_cost_microunits": 0,
+      "estimated_external_cost_microunits": 1
+    },
+    "expected": {
+      "verdict": "HOLD",
+      "reason_code": "HOLD_COST",
+      "eligible": false,
+      "score_bp": null
+    }
+  },
+  {
+    "name": "4A_BATCH_POSITIVE",
+    "module": "BATCH_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "jobs": [
+        {
+          "required": true,
+          "verdict": "PASS"
+        },
+        {
+          "required": true,
+          "verdict": "PASS"
+        },
+        {
+          "required": true,
+          "verdict": "PASS"
+        }
+      ]
+    },
+    "expected": {
+      "verdict": "PASS",
+      "batch_status": "PASS_3_OF_3"
+    }
+  },
+  {
+    "name": "4B_BATCH_NEGATIVE",
+    "module": "BATCH_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "jobs": [
+        {
+          "required": true,
+          "verdict": "PASS"
+        },
+        {
+          "required": true,
+          "verdict": "HOLD"
+        },
+        {
+          "required": true,
+          "verdict": "PASS"
+        }
+      ]
+    },
+    "expected": {
+      "verdict": "HOLD",
+      "batch_status": "HOLD_2_OF_3"
+    }
+  },
+  {
+    "name": "5A_STATE_POSITIVE",
+    "module": "STATE_MACHINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "from": {
+        "lifecycle": "PROCESSED",
+        "verification": "VERIFIED",
+        "authority": "NON_CANONICAL"
+      },
+      "to": {
+        "lifecycle": "REVIEW_READY",
+        "verification": "VERIFIED",
+        "authority": "NON_CANONICAL"
+      },
+      "required_evidence": [
+        "evidence://proof-1"
+      ],
+      "receipt_ref": "receipt://transition-1",
+      "actor_scope": "ANALYZE"
+    },
+    "expected": {
+      "verdict": "PASS",
+      "transition_allowed": true
+    }
+  },
+  {
+    "name": "5B_STATE_NEGATIVE",
+    "module": "STATE_MACHINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "from": {
+        "lifecycle": "PROCESSED",
+        "verification": "UNVERIFIED",
+        "authority": "NON_CANONICAL"
+      },
+      "to": {
+        "lifecycle": "REVIEW_READY",
+        "verification": "UNVERIFIED",
+        "authority": "CANONICAL"
+      },
+      "required_evidence": [],
+      "receipt_ref": "receipt://transition-2",
+      "actor_scope": "ANALYZE"
+    },
+    "expected": {
+      "verdict": "HOLD",
+      "reason_code": "HOLD_EVIDENCE",
+      "transition_allowed": false
+    }
+  },
+  {
+    "name": "6A_NBA_POSITIVE",
+    "module": "NBA_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "actions": [
+        {
+          "action_id": "ACTION_A",
+          "hard_guard_pass": true,
+          "action_size_units": 1,
+          "blocker_reduction_bp": 6150,
+          "evidence_gain_bp": 6150,
+          "downstream_unlock_bp": 6150,
+          "reversibility_bp": 6150,
+          "confidence_bp": 6150,
+          "information_gain_bp": 6150,
+          "penalty_bp": 0,
+          "origin": "OPEN_GAP"
+        },
+        {
+          "action_id": "ACTION_B",
+          "hard_guard_pass": true,
+          "action_size_units": 2,
+          "blocker_reduction_bp": 9000,
+          "evidence_gain_bp": 9000,
+          "downstream_unlock_bp": 9000,
+          "reversibility_bp": 9000,
+          "confidence_bp": 9000,
+          "information_gain_bp": 9000,
+          "penalty_bp": 0,
+          "origin": "OPEN_GAP"
+        },
+        {
+          "action_id": "ACTION_C",
+          "hard_guard_pass": false,
+          "action_size_units": 1,
+          "blocker_reduction_bp": 10000,
+          "evidence_gain_bp": 10000,
+          "downstream_unlock_bp": 10000,
+          "reversibility_bp": 10000,
+          "confidence_bp": 10000,
+          "information_gain_bp": 10000,
+          "penalty_bp": 0,
+          "origin": "OPEN_GAP"
+        }
+      ]
+    },
+    "expected": {
+      "verdict": "PASS",
+      "selected_action_id": "ACTION_A",
+      "selected_score_bp": 6150
+    }
+  },
+  {
+    "name": "6B_NBA_NEGATIVE",
+    "module": "NBA_ENGINE",
+    "evaluated_at": "2026-09-01T12:00:00Z",
+    "policy": {},
+    "input": {
+      "actions": [
+        {
+          "action_id": "ACTION_A",
+          "hard_guard_pass": false,
+          "action_size_units": 1,
+          "blocker_reduction_bp": 7000,
+          "evidence_gain_bp": 7000,
+          "downstream_unlock_bp": 7000,
+          "reversibility_bp": 7000,
+          "confidence_bp": 7000,
+          "information_gain_bp": 7000,
+          "penalty_bp": 0,
+          "hold_reason": "HOLD_AUTHORITY",
+          "origin": "OPEN_GAP"
+        },
+        {
+          "action_id": "ACTION_B",
+          "hard_guard_pass": false,
+          "action_size_units": 1,
+          "blocker_reduction_bp": 8000,
+          "evidence_gain_bp": 8000,
+          "downstream_unlock_bp": 8000,
+          "reversibility_bp": 8000,
+          "confidence_bp": 8000,
+          "information_gain_bp": 8000,
+          "penalty_bp": 0,
+          "hold_reason": "HOLD_COST",
+          "origin": "OPEN_GAP"
+        },
+        {
+          "action_id": "ACTION_C",
+          "hard_guard_pass": false,
+          "action_size_units": 1,
+          "blocker_reduction_bp": 9000,
+          "evidence_gain_bp": 9000,
+          "downstream_unlock_bp": 9000,
+          "reversibility_bp": 9000,
+          "confidence_bp": 9000,
+          "information_gain_bp": 9000,
+          "penalty_bp": 0,
+          "hold_reason": "HOLD_DEPENDENCY",
+          "origin": "OPEN_GAP"
+        }
+      ]
+    },
+    "expected": {
+      "verdict": "HOLD",
+      "reason_code": "HOLD_NO_SAFE_ACTION",
+      "selected_action_id": null
+    }
+  }
+]
