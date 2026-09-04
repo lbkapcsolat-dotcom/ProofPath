@@ -1,0 +1,345 @@
+name: Mantyl Real ALPHA Shadow V2
+
+on:
+  push:
+    branches:
+      - alpha/mantyl-real-shadow-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REAL_MAIN_SHA: "5952ba59762bc9cb800e3fa82ab61748b25728c3"
+  REAL_REFERENCE_TREE: "efd70b2eccea206e9a7a51f1d115cfeb29180b89"
+  MANTYL_VERSION: "0.5.0"
+  EXPECTED_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
+  CROSS_HOST_ANCHOR_SHA: "b34666d6d70b38c956250197fc3ba2ed3c4dfa43a72334d1e300e255a81bcc45"
+  PREEXEC_ANCHOR_SHA: "a73941023f5050130bc00d2c383411a93bdc16c05d894bc7f8e07456a05cdc53"
+  EXPECTED_REPORT_SHA: "cb6452ab0fdb2d90f797400762b2734020e4566d10571458c3fe3486ece73748"
+  EXPECTED_MANIFEST_SHA: "1236fac1bef8f780cd2bc298cd89475b79ff70c553b5d816764a1779d6ffe59d"
+  EXPECTED_CLOSURE_SHA: "c92a5d3e631dd471c2291fb99317aad7f5abce56e54bbf3a0d70b9716b2f514d"
+  MAX_RECEIPT_AGE_SECONDS: "900"
+  GRANT_TTL_SECONDS: "300"
+
+jobs:
+  baseline:
+    name: Existing ungated real reference-engine baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      report_sha: ${{ steps.sig.outputs.report_sha }}
+      manifest_sha: ${{ steps.sig.outputs.manifest_sha }}
+      closure_sha: ${{ steps.sig.outputs.closure_sha }}
+      source_tree: ${{ steps.sig.outputs.source_tree }}
+    steps:
+      - name: Checkout exact real main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          persist-credentials: false
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Verify source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REAL_MAIN_SHA"
+          test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+      - name: Execute existing baseline workflow commands
+        shell: bash
+        working-directory: reference_engine
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          python -m pytest -q
+          rm -rf /tmp/reference-closure /tmp/adversarial-closure
+          python scripts/run_reference_closure.py --out /tmp/reference-closure
+          python scripts/run_adversarial_closure.py --out /tmp/adversarial-closure
+          test "$(sha256sum /tmp/adversarial-closure/run_a/report.json | awk '{print $1}')" = "$EXPECTED_REPORT_SHA"
+          test "$(sha256sum /tmp/adversarial-closure/run_a/manifest.sha256 | awk '{print $1}')" = "$EXPECTED_MANIFEST_SHA"
+          test "$(sha256sum /tmp/adversarial-closure/closure_report.json | awk '{print $1}')" = "$EXPECTED_CLOSURE_SHA"
+          cmp -s /tmp/adversarial-closure/run_a/report.json /tmp/adversarial-closure/run_b/report.json
+          cmp -s /tmp/adversarial-closure/run_a/manifest.sha256 /tmp/adversarial-closure/run_b/manifest.sha256
+      - name: Normalize baseline signature
+        id: sig
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT_SHA="$(sha256sum /tmp/adversarial-closure/run_a/report.json | awk '{print $1}')"
+          MANIFEST_SHA="$(sha256sum /tmp/adversarial-closure/run_a/manifest.sha256 | awk '{print $1}')"
+          CLOSURE_SHA="$(sha256sum /tmp/adversarial-closure/closure_report.json | awk '{print $1}')"
+          SOURCE_TREE="$(git rev-parse HEAD:reference_engine)"
+          printf 'report_sha=%s\n' "$REPORT_SHA" >> "$GITHUB_OUTPUT"
+          printf 'manifest_sha=%s\n' "$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
+          printf 'closure_sha=%s\n' "$CLOSURE_SHA" >> "$GITHUB_OUTPUT"
+          printf 'source_tree=%s\n' "$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          printf '{"main_sha":"%s","reference_engine_tree":"%s","report_sha":"%s","manifest_sha":"%s","closure_sha":"%s"}\n' "$REAL_MAIN_SHA" "$SOURCE_TREE" "$REPORT_SHA" "$MANIFEST_SHA" "$CLOSURE_SHA" > "$RUNNER_TEMP/baseline.json"
+      - name: Upload baseline signature
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-real-v2-baseline
+          path: ${{ runner.temp }}/baseline.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  real_receipt:
+    name: Mantyl receipt over real non-sensitive reference-engine work unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      receipt_sha: ${{ steps.receipt.outputs.receipt_sha }}
+      passport_sha: ${{ steps.receipt.outputs.passport_sha }}
+      passport_digest: ${{ steps.receipt.outputs.passport_digest }}
+    steps:
+      - name: Checkout immutable control-plane anchors
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout exact real main separately
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          path: real
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Verify immutable anchors and exact real source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C real rev-parse HEAD)" = "$REAL_MAIN_SHA"
+          test "$(git -C real rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          test "$(sha256sum control/.alpha/receipts/MANTYL_CROSS_HOST_RUN_33917109281.json | awk '{print $1}')" = "$CROSS_HOST_ANCHOR_SHA"
+          test "$(sha256sum control/.alpha/receipts/MANTYL_ANCHORED_PREEXEC_CONTROL_PLANE_RUN_33918597107.json | awk '{print $1}')" = "$PREEXEC_ANCHOR_SHA"
+      - name: Pin Mantyl package and prepare exact real work unit copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-real-v2"; TOOL="$ROOT/tool"; WORK="$ROOT/reference_engine"
+          mkdir -p "$TOOL" "$WORK"
+          cp -a real/reference_engine/. "$WORK/"
+          cd "$TOOL"
+          test "$(npm view "mantyl@$MANTYL_VERSION" version)" = "$MANTYL_VERSION"
+          test "$(npm view "mantyl@$MANTYL_VERSION" dist.integrity)" = "$EXPECTED_INTEGRITY"
+          npm pack "mantyl@$MANTYL_VERSION" --json > pack.json
+          TARBALL="$(node -e 'console.log(require("./pack.json")[0].filename)')"
+          test "$(node -e 'console.log(require("./pack.json")[0].integrity)')" = "$EXPECTED_INTEGRITY"
+          npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
+          printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" >> "$GITHUB_ENV"
+          printf 'REAL_WORK=%s\n' "$WORK" >> "$GITHUB_ENV"
+          printf 'MANTYL_TARBALL_SHA256=%s\n' "$(sha256sum "$TARBALL" | awk '{print $1}')" >> "$GITHUB_ENV"
+          cd "$WORK"
+          git init -b main
+          git config user.name 'ALPHA Real Shadow Canary'
+          git config user.email 'canary@example.invalid'
+          "$TOOL/install/node_modules/.bin/mantyl" init
+          git add .
+          GIT_AUTHOR_DATE='2026-09-04T00:00:00Z' GIT_COMMITTER_DATE='2026-09-04T00:00:00Z' git commit -m 'Exact real reference-engine work unit plus Mantyl config'
+      - name: Mantyl scan verify generate on real work unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REAL_WORK"
+          "$MANTYL_BIN" scan
+          "$MANTYL_BIN" verify
+          "$MANTYL_BIN" generate | tee "$RUNNER_TEMP/mantyl-real-v2-generate.log"
+          test -s .mantyl/passport.json
+      - name: Normalize real project receipt
+        id: receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASSPORT="$REAL_WORK/.mantyl/passport.json"
+          export PASSPORT_SHA="$(sha256sum "$PASSPORT" | awk '{print $1}')"
+          export PASSPORT_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.passportDigest)' "$PASSPORT")"
+          export EVIDENCE_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.evidenceDigest)' "$PASSPORT")"
+          export FILE_MANIFEST_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.fileManifestDigest)' "$PASSPORT")"
+          export LOCAL_COMMIT="$(git -C "$REAL_WORK" rev-parse HEAD)"
+          export LOCAL_TREE="$(git -C "$REAL_WORK" rev-parse HEAD^{tree})"
+          RECEIPT="$RUNNER_TEMP/mantyl-real-v2-receipt.json"
+          node - <<'NODE' > "$RECEIPT"
+          const r={gate:'MANTYL_REAL_ALPHA_REFERENCE_ENGINE_RECEIPT_V2',timestamp_utc:new Date().toISOString(),workflow_run_id:process.env.GITHUB_RUN_ID,workflow_sha:process.env.GITHUB_SHA,
+            source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,
+            canonical_cross_host_anchor_sha256:process.env.CROSS_HOST_ANCHOR_SHA,canonical_preexec_anchor_sha256:process.env.PREEXEC_ANCHOR_SHA,
+            mantyl_version:process.env.MANTYL_VERSION,registry_integrity:process.env.EXPECTED_INTEGRITY,package_tarball_sha256:process.env.MANTYL_TARBALL_SHA256,
+            local_work_unit_commit:process.env.LOCAL_COMMIT,local_work_unit_tree:process.env.LOCAL_TREE,passport_sha256:process.env.PASSPORT_SHA,passport_digest:process.env.PASSPORT_DIGEST,
+            evidence_digest:process.env.EVIDENCE_DIGEST,file_manifest_digest:process.env.FILE_MANIFEST_DIGEST,verification_command_exit_zero:true,
+            external_publish:false,paid_layer_used:false,authority_promotion:false,global_bind:false,production_readiness_claim:false,verdict:'PASS_BOUNDED'};
+          process.stdout.write(JSON.stringify(r,null,2)+'\n');
+          NODE
+          RECEIPT_SHA="$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          printf 'receipt_sha=%s\n' "$RECEIPT_SHA" >> "$GITHUB_OUTPUT"
+          printf 'passport_sha=%s\n' "$PASSPORT_SHA" >> "$GITHUB_OUTPUT"
+          printf 'passport_digest=%s\n' "$PASSPORT_DIGEST" >> "$GITHUB_OUTPUT"
+          cat "$RECEIPT"
+          printf 'REAL_RECEIPT_SHA256=%s\n' "$RECEIPT_SHA"
+      - name: Upload real receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-real-v2-receipt
+          path: ${{ runner.temp }}/mantyl-real-v2-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  gate:
+    name: Issue two one-shot least-authority grants
+    needs: [baseline, real_receipt]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      grants_sha: ${{ steps.gate.outputs.grants_sha }}
+    steps:
+      - name: Download real receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-real-v2-receipt
+          path: ${{ runner.temp }}/gate
+      - name: Validate real receipt and issue grants
+        id: gate
+        shell: bash
+        env:
+          EXPECTED_RECEIPT_SHA: ${{ needs.real_receipt.outputs.receipt_sha }}
+          EXPECTED_BASELINE_TREE: ${{ needs.baseline.outputs.source_tree }}
+        run: |
+          set -euo pipefail
+          RECEIPT="$RUNNER_TEMP/gate/mantyl-real-v2-receipt.json"; GRANTS="$RUNNER_TEMP/gate/grants.json"
+          test "$(sha256sum "$RECEIPT" | awk '{print $1}')" = "$EXPECTED_RECEIPT_SHA"
+          export RECEIPT GRANTS
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'); const r=JSON.parse(fs.readFileSync(process.env.RECEIPT,'utf8')); const now=Date.now(); const age=(now-Date.parse(r.timestamp_utc))/1000;
+          const ok=r.gate==='MANTYL_REAL_ALPHA_REFERENCE_ENGINE_RECEIPT_V2'&&r.verdict==='PASS_BOUNDED'&&r.verification_command_exit_zero===true&&r.source_main_sha===process.env.REAL_MAIN_SHA&&
+            r.source_reference_engine_tree===process.env.REAL_REFERENCE_TREE&&r.source_reference_engine_tree===process.env.EXPECTED_BASELINE_TREE&&r.canonical_cross_host_anchor_sha256===process.env.CROSS_HOST_ANCHOR_SHA&&
+            r.canonical_preexec_anchor_sha256===process.env.PREEXEC_ANCHOR_SHA&&r.mantyl_version===process.env.MANTYL_VERSION&&r.registry_integrity===process.env.EXPECTED_INTEGRITY&&
+            r.external_publish===false&&r.paid_layer_used===false&&r.authority_promotion===false&&r.global_bind===false&&r.production_readiness_claim===false&&Number.isFinite(age)&&age>=0&&age<=Number(process.env.MAX_RECEIPT_AGE_SECONDS);
+          if(!ok) process.exit(73);
+          const mk=(run)=>{const issued=new Date(),expires=new Date(issued.getTime()+Number(process.env.GRANT_TTL_SECONDS)*1000);return {gate:'MANTYL_REAL_ALPHA_SCOPED_GRANT_V2',run,source_receipt_sha256:process.env.EXPECTED_RECEIPT_SHA,source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,cross_host_anchor_sha256:process.env.CROSS_HOST_ANCHOR_SHA,preexec_anchor_sha256:process.env.PREEXEC_ANCHOR_SHA,scope:'REFERENCE_ENGINE_EXISTING_VERIFICATION_COMMANDS_ONLY',nonce:crypto.randomBytes(32).toString('hex'),issued_at:issued.toISOString(),expires_at:expires.toISOString(),authority:'NONE',github_permissions:'CONTENTS_READ_ONLY',external_publish:false,paid_layer_used:false,verdict:'ADMIT_BOUNDED'};};
+          fs.writeFileSync(process.env.GRANTS,JSON.stringify({A:mk('A'),B:mk('B')},null,2)+'\n');
+          NODE
+          GRANTS_SHA="$(sha256sum "$GRANTS" | awk '{print $1}')"; printf 'grants_sha=%s\n' "$GRANTS_SHA" >> "$GITHUB_OUTPUT"; cat "$GRANTS"; printf 'GRANTS_SHA256=%s\n' "$GRANTS_SHA"
+      - name: Upload grants
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-real-v2-grants
+          path: ${{ runner.temp }}/gate/grants.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  shadow:
+    name: Gated real shadow, negative canaries, rollback, second replay
+    needs: [baseline, real_receipt, gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      normalized_a_sha: ${{ steps.execute.outputs.normalized_a_sha }}
+      normalized_b_sha: ${{ steps.execute.outputs.normalized_b_sha }}
+    steps:
+      - name: Checkout exact real main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          persist-credentials: false
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Install existing test runner
+        run: python -m pip install --disable-pip-version-check pytest==9.1.1
+      - name: Download receipt and grants
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mantyl-real-v2-*
+          path: ${{ runner.temp }}/shadow-artifacts
+          merge-multiple: true
+      - name: Execute gated run A, adversarial canaries, rollback, run B
+        id: execute
+        shell: bash
+        env:
+          EXPECTED_RECEIPT_SHA: ${{ needs.real_receipt.outputs.receipt_sha }}
+          EXPECTED_GRANTS_SHA: ${{ needs.gate.outputs.grants_sha }}
+          BASE_REPORT_SHA: ${{ needs.baseline.outputs.report_sha }}
+          BASE_MANIFEST_SHA: ${{ needs.baseline.outputs.manifest_sha }}
+          BASE_CLOSURE_SHA: ${{ needs.baseline.outputs.closure_sha }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/shadow-artifacts"; RECEIPT="$ROOT/mantyl-real-v2-receipt.json"; GRANTS="$ROOT/grants.json"
+          test "$(sha256sum "$RECEIPT" | awk '{print $1}')" = "$EXPECTED_RECEIPT_SHA"; test "$(sha256sum "$GRANTS" | awk '{print $1}')" = "$EXPECTED_GRANTS_SHA"
+          test "$(git rev-parse HEAD)" = "$REAL_MAIN_SHA"; test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          export RECEIPT GRANTS
+          cat > "$RUNNER_TEMP/verify-grant.js" <<'NODE'
+          const fs=require('fs'),crypto=require('crypto'); const r=JSON.parse(fs.readFileSync(process.env.RECEIPT,'utf8')),gs=JSON.parse(fs.readFileSync(process.env.GRANTS,'utf8'));
+          const run=process.argv[2],ledger=process.argv[3],expectedTree=process.argv[4],g=gs[run],now=Date.now(); const receiptSha=crypto.createHash('sha256').update(fs.readFileSync(process.env.RECEIPT,'utf8')).digest('hex');
+          const valid=g&&g.gate==='MANTYL_REAL_ALPHA_SCOPED_GRANT_V2'&&g.verdict==='ADMIT_BOUNDED'&&g.run===run&&g.source_receipt_sha256===receiptSha&&g.source_main_sha===process.env.REAL_MAIN_SHA&&
+            g.source_reference_engine_tree===expectedTree&&g.cross_host_anchor_sha256===process.env.CROSS_HOST_ANCHOR_SHA&&g.preexec_anchor_sha256===process.env.PREEXEC_ANCHOR_SHA&&g.scope==='REFERENCE_ENGINE_EXISTING_VERIFICATION_COMMANDS_ONLY'&&
+            g.authority==='NONE'&&g.github_permissions==='CONTENTS_READ_ONLY'&&g.external_publish===false&&g.paid_layer_used===false&&Date.parse(g.issued_at)<=now&&now<=Date.parse(g.expires_at)&&
+            r.source_main_sha===g.source_main_sha&&r.source_reference_engine_tree===g.source_reference_engine_tree;
+          let used=[];try{used=fs.readFileSync(ledger,'utf8').trim().split(/\n/).filter(Boolean)}catch{} if(!valid||used.includes(g.nonce))process.exit(74);fs.appendFileSync(ledger,g.nonce+'\n');
+          NODE
+          run_payload(){ LABEL="$1"; OUT_REF="/tmp/reference-$LABEL"; OUT_ADV="/tmp/adversarial-$LABEL"; rm -rf "$OUT_REF" "$OUT_ADV"; (cd reference_engine && python -m pytest -q && python scripts/run_reference_closure.py --out "$OUT_REF" && python scripts/run_adversarial_closure.py --out "$OUT_ADV"); REPORT="$(sha256sum "$OUT_ADV/run_a/report.json"|awk '{print $1}')"; MANIFEST="$(sha256sum "$OUT_ADV/run_a/manifest.sha256"|awk '{print $1}')"; CLOSURE="$(sha256sum "$OUT_ADV/closure_report.json"|awk '{print $1}')"; test "$REPORT" = "$BASE_REPORT_SHA"; test "$MANIFEST" = "$BASE_MANIFEST_SHA"; test "$CLOSURE" = "$BASE_CLOSURE_SHA"; printf '{"main_sha":"%s","reference_engine_tree":"%s","report_sha":"%s","manifest_sha":"%s","closure_sha":"%s","cross_host_anchor_sha":"%s","preexec_anchor_sha":"%s","mantyl_version":"%s","verdict":"PASS_BOUNDED"}\n' "$REAL_MAIN_SHA" "$REAL_REFERENCE_TREE" "$REPORT" "$MANIFEST" "$CLOSURE" "$CROSS_HOST_ANCHOR_SHA" "$PREEXEC_ANCHOR_SHA" "$MANTYL_VERSION" > "$RUNNER_TEMP/normalized-$LABEL.json"; }
+          LEDGER="$RUNNER_TEMP/nonce-ledger.txt"; node "$RUNNER_TEMP/verify-grant.js" A "$LEDGER" "$REAL_REFERENCE_TREE"; run_payload A
+          if node "$RUNNER_TEMP/verify-grant.js" A "$LEDGER" "$REAL_REFERENCE_TREE"; then exit 81; else echo REPLAYED_NONCE_DENIED; fi
+          if node "$RUNNER_TEMP/verify-grant.js" A "$RUNNER_TEMP/wrong-tree-ledger" "$(printf '0%.0s' {1..40})"; then exit 82; else echo WRONG_TREE_DENIED; fi
+          cp "$RECEIPT" "$RUNNER_TEMP/tampered-receipt.json"; printf ' ' >> "$RUNNER_TEMP/tampered-receipt.json"; RECEIPT_ORIG="$RECEIPT"; export RECEIPT="$RUNNER_TEMP/tampered-receipt.json"; if node "$RUNNER_TEMP/verify-grant.js" B "$RUNNER_TEMP/tamper-ledger" "$REAL_REFERENCE_TREE"; then exit 83; else echo TAMPERED_RECEIPT_DENIED; fi; export RECEIPT="$RECEIPT_ORIG"
+          cp "$GRANTS" "$RUNNER_TEMP/forged-grants.json"; node -e 'const fs=require("fs");const p=process.argv[1],o=require(p);o.B.scope="FORGED_SCOPE";fs.writeFileSync(p,JSON.stringify(o,null,2)+"\n")' "$RUNNER_TEMP/forged-grants.json"; GRANTS_ORIG="$GRANTS"; export GRANTS="$RUNNER_TEMP/forged-grants.json"; if node "$RUNNER_TEMP/verify-grant.js" B "$RUNNER_TEMP/forged-ledger" "$REAL_REFERENCE_TREE"; then exit 84; else echo FORGED_GRANT_DENIED; fi; export GRANTS="$GRANTS_ORIG"
+          printf '\n# rollback-canary\n' >> reference_engine/pyproject.toml; test -n "$(git status --porcelain reference_engine)"; echo DIRTY_WORKTREE_BLOCKED
+          git checkout -- reference_engine/pyproject.toml; test -z "$(git status --porcelain reference_engine)"; test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          node "$RUNNER_TEMP/verify-grant.js" B "$LEDGER" "$REAL_REFERENCE_TREE"; run_payload B
+          SHA_A="$(sha256sum "$RUNNER_TEMP/normalized-A.json"|awk '{print $1}')"; SHA_B="$(sha256sum "$RUNNER_TEMP/normalized-B.json"|awk '{print $1}')"; test "$SHA_A" = "$SHA_B"; printf 'normalized_a_sha=%s\nnormalized_b_sha=%s\n' "$SHA_A" "$SHA_B" >> "$GITHUB_OUTPUT"; printf 'NORMALIZED_RECEIPT_EQUALITY_SHA256=%s\n' "$SHA_A"
+      - name: Upload normalized replay receipts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-real-v2-shadow-normalized-receipts
+          path: |
+            ${{ runner.temp }}/normalized-A.json
+            ${{ runner.temp }}/normalized-B.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  final:
+    name: Normalize bounded real-workflow runtime admission receipt
+    needs: [baseline, real_receipt, gate, shadow]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require exact equality and normalize final receipt
+        shell: bash
+        env:
+          BASE_REPORT_SHA: ${{ needs.baseline.outputs.report_sha }}
+          BASE_MANIFEST_SHA: ${{ needs.baseline.outputs.manifest_sha }}
+          BASE_CLOSURE_SHA: ${{ needs.baseline.outputs.closure_sha }}
+          REAL_RECEIPT_SHA: ${{ needs.real_receipt.outputs.receipt_sha }}
+          PASSPORT_SHA: ${{ needs.real_receipt.outputs.passport_sha }}
+          PASSPORT_DIGEST: ${{ needs.real_receipt.outputs.passport_digest }}
+          GRANTS_SHA: ${{ needs.gate.outputs.grants_sha }}
+          NORMALIZED_A_SHA: ${{ needs.shadow.outputs.normalized_a_sha }}
+          NORMALIZED_B_SHA: ${{ needs.shadow.outputs.normalized_b_sha }}
+        run: |
+          set -euo pipefail; test "$NORMALIZED_A_SHA" = "$NORMALIZED_B_SHA"; RECEIPT="$RUNNER_TEMP/mantyl-real-alpha-shadow-v2-final.json"
+          node - <<'NODE' > "$RECEIPT"
+          const r={gate:'MANTYL_REAL_ALPHA_SHADOW_WORKFLOW_AND_BOUNDED_RUNTIME_ADMISSION_V1',implementation_revision:'V2_DUAL_CHECKOUT',timestamp_utc:new Date().toISOString(),workflow_run_id:process.env.GITHUB_RUN_ID,workflow_sha:process.env.GITHUB_SHA,
+            real_source_main_sha:process.env.REAL_MAIN_SHA,real_reference_engine_tree:process.env.REAL_REFERENCE_TREE,canonical_cross_host_anchor_sha256:process.env.CROSS_HOST_ANCHOR_SHA,canonical_preexec_anchor_sha256:process.env.PREEXEC_ANCHOR_SHA,
+            real_project_receipt_sha256:process.env.REAL_RECEIPT_SHA,mantyl_passport_sha256:process.env.PASSPORT_SHA,mantyl_passport_digest:process.env.PASSPORT_DIGEST,scoped_grants_sha256:process.env.GRANTS_SHA,
+            existing_baseline_report_sha256:process.env.BASE_REPORT_SHA,existing_baseline_manifest_sha256:process.env.BASE_MANIFEST_SHA,existing_baseline_closure_sha256:process.env.BASE_CLOSURE_SHA,
+            gated_shadow_matches_existing_baseline:true,second_clean_replay:true,normalized_receipt_equality:true,normalized_receipt_sha256:process.env.NORMALIZED_A_SHA,replayed_nonce_denied:true,wrong_source_tree_denied:true,tampered_receipt_denied:true,forged_grant_denied:true,dirty_worktree_blocked:true,rollback_to_exact_source_passed:true,
+            false_deny_observed:false,false_admit_observed:false,least_authority:'CONTENTS_READ_ONLY',external_publish:false,paid_layer_used:false,runtime_admission:'TRUE_BOUNDED_REAL_REFERENCE_ENGINE_SHADOW_ONLY',authority_promotion:false,global_bind:false,production_readiness_claim:false,
+            claim_ceiling:'Real non-sensitive ProofPath reference_engine shadow workflow only; no global bypass-prevention, authority promotion, or production-readiness claim.',verdict:'PASS_BOUNDED'};process.stdout.write(JSON.stringify(r,null,2)+'\n');
+          NODE
+          cat "$RECEIPT"; printf 'FINAL_REAL_SHADOW_RECEIPT_SHA256=%s\n' "$(sha256sum "$RECEIPT"|awk '{print $1}')"
+      - name: Upload final receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-real-v2-alpha-shadow-final
+          path: ${{ runner.temp }}/mantyl-real-alpha-shadow-v2-final.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
