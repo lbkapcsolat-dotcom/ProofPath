@@ -1,0 +1,30 @@
+name: Mantyl Enforced Scoped V1
+
+on:
+  push:
+    branches:
+      - alpha/mantyl-enforced-scoped-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: scoped-enforcement-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact enforcement branch commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require Node 24 runtime family
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          test "$(node -p "process.versions.node.split('.')[0]")" = "24"
+      - name: Run focused enforcement contract test
+        shell: bash
+        run: node --test .alpha/enforcement/enforce.test.mjs
