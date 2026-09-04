@@ -1,0 +1,257 @@
+name: MC Trained Model Shadow Eval V1
+
+on:
+  push:
+    branches:
+      - alpha/mc-trained-model-shadow-v1
+    paths:
+      - .github/workflows/mc-trained-model-shadow-v1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trained-model-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout ProofPath
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.3.1'
+          python -m pip install 'transformers==4.45.2' 'safetensors==0.4.5' 'huggingface_hub==0.25.2' 'numpy==1.26.4'
+          mkdir -p outputs/mc_trained_shadow
+
+      - name: Recover trained checkpoint and run real-text shadow evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, math, os, statistics, sys, time, urllib.request
+          from pathlib import Path
+          import torch
+          import torch.nn.functional as F
+          from huggingface_hub import snapshot_download
+          from safetensors.torch import load_file
+
+          OUT = Path('outputs/mc_trained_shadow')
+          OUT.mkdir(parents=True, exist_ok=True)
+          REPO_ID = 'Quazim0t0/Byrne-100M-Ultra-MC'
+          STAGE = 'base_62k'
+          SEED = 20260905
+          torch.manual_seed(SEED)
+          torch.set_num_threads(1)
+
+          root = Path(snapshot_download(
+              repo_id=REPO_ID,
+              revision='main',
+              allow_patterns=[
+                  'config.py', 'model_v2.py', 'spike_tokenizer.py', 'special_tokens.py', 'fractal.py',
+                  f'safetensors/{STAGE}/config.json',
+                  f'safetensors/{STAGE}/model.safetensors',
+                  f'safetensors/{STAGE}/tokenizer.json',
+              ],
+          ))
+          stage = root / 'safetensors' / STAGE
+          sys.path.insert(0, str(root))
+          from config import SpikeWhaleConfig
+          from model_v2 import SpikeWhaleLM
+          from spike_tokenizer import SpikeTokenizer
+
+          cfg_data = json.loads((stage/'config.json').read_text(encoding='utf-8'))
+          cfg = SpikeWhaleConfig(**cfg_data)
+          model = SpikeWhaleLM(cfg)
+          state = load_file(str(stage/'model.safetensors'), device='cpu')
+          missing, unexpected = model.load_state_dict(state, strict=False)
+          model.tie_weights()
+          model.eval()
+
+          tok_path = stage/'tokenizer.json'
+          tok = SpikeTokenizer(vocab_file=str(tok_path))
+
+          # Public-domain real-text LM task: Tiny Shakespeare corpus.
+          corpus_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
+          corpus_bytes = urllib.request.urlopen(corpus_url, timeout=30).read()
+          corpus = corpus_bytes.decode('utf-8', errors='ignore')
+          token_ids = tok.encode(corpus, add_special_tokens=False)
+          bos = tok.bos_token_id
+          if bos is None:
+              bos = int(getattr(cfg, 'bos_token_id', 0))
+
+          # Three non-overlapping 300-token windows. 300 > mc_segment_len=256,
+          # so every measured window crosses at least one Memory Cache segment boundary.
+          window_len = 300
+          starts = [0, max(0, len(token_ids)//3), max(0, 2*len(token_ids)//3)]
+          windows = []
+          for s in starts:
+              body = token_ids[s:s+window_len]
+              if len(body) < window_len:
+                  body = token_ids[-window_len:]
+              ids = [bos] + body
+              windows.append(torch.tensor([ids], dtype=torch.long))
+
+          gate_names = [n for n,_ in model.named_parameters() if 'mc_gate' in n]
+          if not gate_names:
+              raise RuntimeError('No mc_gate parameters found; fail closed rather than pretending MC knock-out occurred.')
+          gate_backup = {n:p.detach().clone() for n,p in model.named_parameters() if n in gate_names}
+          gate_values = torch.cat([p.detach().flatten().float() for n,p in model.named_parameters() if n in gate_names])
+          gate_mean_abs_tanh = float(torch.tanh(gate_values).abs().mean().item())
+          gate_min_tanh = float(torch.tanh(gate_values).min().item())
+          gate_max_tanh = float(torch.tanh(gate_values).max().item())
+
+          def evaluate(label: str):
+              rows=[]
+              hashes=[]
+              with torch.no_grad():
+                  for wi, ids in enumerate(windows):
+                      t0=time.perf_counter()
+                      out=model(input_ids=ids, use_cache=False)
+                      dt=(time.perf_counter()-t0)*1000
+                      logits=out.logits
+                      loss=F.cross_entropy(logits[:,:-1,:].reshape(-1, logits.shape[-1]), ids[:,1:].reshape(-1))
+                      b=logits.detach().cpu().numpy().tobytes()
+                      h=hashlib.sha256(b).hexdigest()
+                      hashes.append(h)
+                      rows.append({'window':wi,'tokens':int(ids.numel()),'loss':float(loss.item()),'ppl':float(math.exp(min(20.0, loss.item()))),'latency_ms':dt,'logits_sha256':h})
+              return {'label':label,'rows':rows,'mean_loss':statistics.mean(r['loss'] for r in rows),'mean_ppl':statistics.mean(r['ppl'] for r in rows),'median_latency_ms':statistics.median(r['latency_ms'] for r in rows),'logit_hashes':hashes}
+
+          mc_on = evaluate('MC_ON')
+
+          with torch.no_grad():
+              for n,p in model.named_parameters():
+                  if n in gate_names:
+                      p.zero_()
+          mc_off = evaluate('MC_OFF_KNOCKOUT')
+
+          with torch.no_grad():
+              for n,p in model.named_parameters():
+                  if n in gate_backup:
+                      p.copy_(gate_backup[n])
+          replay = evaluate('MC_ON_REPLAY')
+
+          exact_replay = mc_on['logit_hashes'] == replay['logit_hashes']
+          ppl_delta = mc_off['mean_ppl'] - mc_on['mean_ppl']
+          loss_delta = mc_off['mean_loss'] - mc_on['mean_loss']
+          latency_delta = mc_off['median_latency_ms'] - mc_on['median_latency_ms']
+
+          weight_sha = hashlib.sha256((stage/'model.safetensors').read_bytes()).hexdigest()
+          config_sha = hashlib.sha256((stage/'config.json').read_bytes()).hexdigest()
+          tokenizer_sha = hashlib.sha256(tok_path.read_bytes()).hexdigest()
+          corpus_sha = hashlib.sha256(corpus_bytes).hexdigest()
+
+          # Fail closed on the things this gate actually promises.
+          checkpoint_recovered = (stage/'model.safetensors').exists() and len(state) > 0
+          real_task_executed = len(mc_on['rows']) == 3 and all(r['tokens'] > 256 for r in mc_on['rows'])
+          gate_knockout_executed = len(gate_names) > 0
+          verdict = 'PASS_BOUNDED_COMMUNITY_TRAINED_REAL_TASK_SHADOW' if (checkpoint_recovered and real_task_executed and gate_knockout_executed and exact_replay) else 'HOLD'
+
+          receipt = {
+              'gate':'MC_TRAINED_MODEL_CHECKPOINT_RECOVERY_AND_REAL_TASK_SHADOW_EVAL_V1',
+              'verdict':verdict,
+              'zero_spend':True,
+              'checkpoint':{
+                  'repo_id':REPO_ID,
+                  'stage':STAGE,
+                  'trained':True,
+                  'official_paper_author_checkpoint':False,
+                  'community_model':True,
+                  'weight_sha256':weight_sha,
+                  'config_sha256':config_sha,
+                  'tokenizer_sha256':tokenizer_sha,
+                  'tensors_loaded':len(state),
+                  'missing_keys':list(missing),
+                  'unexpected_keys':list(unexpected),
+              },
+              'model':{
+                  'class':'SpikeWhaleLM',
+                  'parameter_count':sum(p.numel() for p in model.parameters()),
+                  'context':int(getattr(cfg,'max_position_embeddings',0)),
+                  'mc_gate_parameter_names':gate_names,
+                  'mc_gate_mean_abs_tanh':gate_mean_abs_tanh,
+                  'mc_gate_min_tanh':gate_min_tanh,
+                  'mc_gate_max_tanh':gate_max_tanh,
+              },
+              'task':{
+                  'name':'Tiny Shakespeare next-token language modeling',
+                  'source_type':'public-domain real text corpus',
+                  'corpus_sha256':corpus_sha,
+                  'windows':3,
+                  'window_body_tokens':window_len,
+                  'crosses_mc_segment_boundary':True,
+              },
+              'mc_on':mc_on,
+              'mc_off_knockout':mc_off,
+              'shadow_delta':{
+                  'mean_loss_off_minus_on':loss_delta,
+                  'mean_ppl_off_minus_on':ppl_delta,
+                  'median_latency_ms_off_minus_on':latency_delta,
+                  'direction_ppl':'MC_ON_BETTER' if ppl_delta>0 else ('MC_OFF_BETTER' if ppl_delta<0 else 'EQUAL'),
+              },
+              'replay':{
+                  'exact_logit_hash_equality':exact_replay,
+                  'first_run_hashes':mc_on['logit_hashes'],
+                  'replay_hashes':replay['logit_hashes'],
+              },
+              'claim_ceiling':{
+                  'trained_checkpoint_recovered':checkpoint_recovered,
+                  'real_model_forward':True,
+                  'real_text_lm_task':real_task_executed,
+                  'mc_gate_knockout_shadow':gate_knockout_executed,
+                  'official_author_checkpoint':False,
+                  'paper_parity':False,
+                  'causal_training_ablation':False,
+                  'production_latency_claim':False,
+                  'universal_mc_quality_claim':False,
+              },
+          }
+          pre=json.dumps(receipt,sort_keys=True,indent=2).encode()
+          receipt['receipt_sha256_pre_field']=hashlib.sha256(pre).hexdigest()
+          (OUT/'receipt.json').write_text(json.dumps(receipt,sort_keys=True,indent=2),encoding='utf-8')
+          (OUT/'summary.json').write_text(json.dumps({
+              'verdict':verdict,
+              'mc_on_mean_ppl':mc_on['mean_ppl'],
+              'mc_off_mean_ppl':mc_off['mean_ppl'],
+              'ppl_delta_off_minus_on':ppl_delta,
+              'mc_on_median_latency_ms':mc_on['median_latency_ms'],
+              'mc_off_median_latency_ms':mc_off['median_latency_ms'],
+              'exact_replay':exact_replay,
+              'gate_mean_abs_tanh':gate_mean_abs_tanh,
+          },sort_keys=True,indent=2),encoding='utf-8')
+
+          print('VERDICT',verdict)
+          print('PARAMETER_COUNT',receipt['model']['parameter_count'])
+          print('TENSORS_LOADED',len(state))
+          print('MISSING_KEYS',list(missing))
+          print('UNEXPECTED_KEYS',list(unexpected))
+          print('MC_GATE_NAMES',gate_names)
+          print('MC_GATE_MEAN_ABS_TANH',gate_mean_abs_tanh)
+          print('MC_ON_MEAN_PPL',mc_on['mean_ppl'])
+          print('MC_OFF_MEAN_PPL',mc_off['mean_ppl'])
+          print('PPL_DELTA_OFF_MINUS_ON',ppl_delta)
+          print('MC_ON_MEDIAN_LATENCY_MS',mc_on['median_latency_ms'])
+          print('MC_OFF_MEDIAN_LATENCY_MS',mc_off['median_latency_ms'])
+          print('EXACT_REPLAY',exact_replay)
+          print('WEIGHT_SHA256',weight_sha)
+          print('CORPUS_SHA256',corpus_sha)
+          print('RECEIPT_SHA256_PRE_FIELD',receipt['receipt_sha256_pre_field'])
+          PY
+
+      - name: Upload trained shadow evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-trained-model-shadow-v1
+          path: outputs/mc_trained_shadow/
+          if-no-files-found: error
+          retention-days: 7
