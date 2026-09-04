@@ -1,0 +1,84 @@
+name: stele-hardware-attestation-capability-v1
+
+on:
+  push:
+    branches:
+      - stele-hardware-attestation-capability-v1
+    paths:
+      - .github/workflows/stele-hardware-attestation-capability-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  capability-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Capture hardware attestation capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/stele-hw
+
+          KERNEL="$(uname -a)"
+          OS_RELEASE="$(. /etc/os-release; printf '%s %s' "$NAME" "$VERSION")"
+          VIRT="$(systemd-detect-virt 2>/dev/null || true)"
+
+          TPM0=false
+          TPMRM0=false
+          TPM_SYSFS=false
+          EFI=false
+          SECUREBOOT_VAR=false
+          EVENTLOG=false
+          TPM2_GETCAP=false
+          TPM2_PCRREAD=false
+          TPM2_QUOTE=false
+
+          test -c /dev/tpm0 && TPM0=true || true
+          test -c /dev/tpmrm0 && TPMRM0=true || true
+          test -d /sys/class/tpm/tpm0 && TPM_SYSFS=true || true
+          test -d /sys/firmware/efi && EFI=true || true
+          compgen -G '/sys/firmware/efi/efivars/SecureBoot-*' >/dev/null && SECUREBOOT_VAR=true || true
+          test -r /sys/kernel/security/tpm0/binary_bios_measurements && EVENTLOG=true || true
+          command -v tpm2_getcap >/dev/null 2>&1 && TPM2_GETCAP=true || true
+          command -v tpm2_pcrread >/dev/null 2>&1 && TPM2_PCRREAD=true || true
+          command -v tpm2_quote >/dev/null 2>&1 && TPM2_QUOTE=true || true
+
+          VERDICT=HOLD_TPM_HARDWARE_CAPABILITY
+          if { [ "$TPM0" = true ] || [ "$TPMRM0" = true ]; } \
+             && [ "$TPM_SYSFS" = true ] \
+             && [ "$EFI" = true ] \
+             && [ "$SECUREBOOT_VAR" = true ] \
+             && [ "$EVENTLOG" = true ]; then
+            VERDICT=PASS_TPM_HARDWARE_CAPABILITY
+          fi
+
+          jq -n \
+            --arg schema 'STELE_HARDWARE_BACKED_IDENTITY_CAPABILITY_RECEIPT_V1' \
+            --arg verdict "$VERDICT" \
+            --arg kernel "$KERNEL" \
+            --arg os_release "$OS_RELEASE" \
+            --arg virtualization "$VIRT" \
+            --argjson dev_tpm0 "$TPM0" \
+            --argjson dev_tpmrm0 "$TPMRM0" \
+            --argjson tpm_sysfs "$TPM_SYSFS" \
+            --argjson efi_present "$EFI" \
+            --argjson secureboot_var_readable "$SECUREBOOT_VAR" \
+            --argjson measured_boot_eventlog_readable "$EVENTLOG" \
+            --argjson tpm2_getcap_present "$TPM2_GETCAP" \
+            --argjson tpm2_pcrread_present "$TPM2_PCRREAD" \
+            --argjson tpm2_quote_present "$TPM2_QUOTE" \
+            '{schema:$schema,verdict:$verdict,host:{provider:"GitHub-hosted Actions",runner:"ubuntu-24.04",kernel:$kernel,os_release:$os_release,virtualization:$virtualization},hardware:{dev_tpm0:$dev_tpm0,dev_tpmrm0:$dev_tpmrm0,tpm_sysfs:$tpm_sysfs,efi_present:$efi_present,secureboot_var_readable:$secureboot_var_readable,measured_boot_eventlog_readable:$measured_boot_eventlog_readable},tools:{tpm2_getcap_present:$tpm2_getcap_present,tpm2_pcrread_present:$tpm2_pcrread_present,tpm2_quote_present:$tpm2_quote_present},claim_ceiling:["CAPABILITY_DISCOVERY_ONLY","NO_TPM_QUOTE_IF_HARDWARE_ABSENT","NO_RUNTIME_ADMISSION","NO_PRODUCTION_PROMOTION","NO_POINTER_PROMOTION","NO_GLOBAL_AUTHORITY_CHANGE"]}' \
+            > /tmp/stele-hw/capability_receipt.json
+
+          sha256sum /tmp/stele-hw/capability_receipt.json > /tmp/stele-hw/capability_receipt.sha256
+          cat /tmp/stele-hw/capability_receipt.json
+
+      - name: Upload capability receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: stele-hardware-attestation-capability-v1
+          path: /tmp/stele-hw/
+          if-no-files-found: error
+          retention-days: 7
