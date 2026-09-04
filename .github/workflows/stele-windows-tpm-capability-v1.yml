@@ -15,56 +15,84 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
-      - name: Capture Windows TPM and Secure Boot capability
+      - name: Initialize fail-closed receipt
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path $env:RUNNER_TEMP\stele-hw-win | Out-Null
+          $dir = "$env:RUNNER_TEMP\stele-hw-win"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $default = [ordered]@{
+            schema = 'STELE_WINDOWS_TPM_SECUREBOOT_CAPABILITY_RECEIPT_V1'
+            verdict = 'HOLD_PROBE_INCOMPLETE'
+            host = [ordered]@{ provider='GitHub-hosted Actions'; runner='windows-2025'; os=[System.Environment]::OSVersion.VersionString; machine=$env:COMPUTERNAME }
+            tpm = [ordered]@{ get_tpm_cmdlet_present=$false; get_tpm_present=$false; get_tpm_ready=$false; wmi_tpm_present=$false; manufacturer=$null; spec_version=$null }
+            secure_boot = [ordered]@{ cmdlet_present=$false; supported=$false; enabled=$false; error=$null }
+            tools = [ordered]@{ tpmtool_present=$false }
+            probe_errors = @('CAPTURE_NOT_COMPLETED')
+            claim_ceiling = @('CAPABILITY_DISCOVERY_ONLY','NO_MEASURED_BOOT_QUOTE_YET','NO_RUNTIME_ADMISSION','NO_PRODUCTION_PROMOTION','NO_POINTER_PROMOTION','NO_GLOBAL_AUTHORITY_CHANGE')
+          }
+          $json = $default | ConvertTo-Json -Depth 8
+          [System.IO.File]::WriteAllText("$dir\capability_receipt.json", $json + "`n", [System.Text.UTF8Encoding]::new($false))
 
+      - name: Capture Windows TPM and Secure Boot capability
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dir = "$env:RUNNER_TEMP\stele-hw-win"
+          $errors = [System.Collections.Generic.List[string]]::new()
+
+          $getTpmCmdletPresent = $null -ne (Get-Command Get-Tpm -ErrorAction SilentlyContinue)
           $tpmPresent = $false
           $tpmReady = $false
           $tpmEnabled = $false
           $tpmActivated = $false
           $tpmOwned = $false
-          $tpmManufacturer = $null
-          $tpmSpecVersion = $null
-          $getTpmError = $null
-          try {
-            $tpm = Get-Tpm
-            $tpmPresent = [bool]$tpm.TpmPresent
-            $tpmReady = [bool]$tpm.TpmReady
-            $tpmEnabled = [bool]$tpm.TpmEnabled
-            $tpmActivated = [bool]$tpm.TpmActivated
-            $tpmOwned = [bool]$tpm.TpmOwned
-          } catch {
-            $getTpmError = $_.Exception.Message
+          if ($getTpmCmdletPresent) {
+            try {
+              $tpm = Get-Tpm -ErrorAction Stop
+              $tpmPresent = [bool]$tpm.TpmPresent
+              $tpmReady = [bool]$tpm.TpmReady
+              $tpmEnabled = [bool]$tpm.TpmEnabled
+              $tpmActivated = [bool]$tpm.TpmActivated
+              $tpmOwned = [bool]$tpm.TpmOwned
+            } catch {
+              $errors.Add("GET_TPM_ERROR: $($_.Exception.Message)")
+            }
+          } else {
+            $errors.Add('GET_TPM_CMDLET_NOT_PRESENT')
           }
 
           $wmiPresent = $false
+          $tpmManufacturer = $null
+          $tpmSpecVersion = $null
           try {
             $wmi = Get-CimInstance -Namespace 'root\cimv2\security\microsofttpm' -ClassName Win32_Tpm -ErrorAction Stop
             if ($null -ne $wmi) {
               $wmiPresent = $true
-              $tpmManufacturer = $wmi.ManufacturerIdTxt
-              $tpmSpecVersion = $wmi.SpecVersion
+              $tpmManufacturer = [string]$wmi.ManufacturerIdTxt
+              $tpmSpecVersion = [string]$wmi.SpecVersion
             }
-          } catch {}
+          } catch {
+            $errors.Add("WMI_TPM_ERROR: $($_.Exception.Message)")
+          }
 
+          $secureBootCmdletPresent = $null -ne (Get-Command Confirm-SecureBootUEFI -ErrorAction SilentlyContinue)
           $secureBootSupported = $false
           $secureBootEnabled = $false
           $secureBootError = $null
-          try {
-            $secureBootEnabled = [bool](Confirm-SecureBootUEFI)
-            $secureBootSupported = $true
-          } catch {
-            $secureBootError = $_.Exception.Message
+          if ($secureBootCmdletPresent) {
+            try {
+              $secureBootEnabled = [bool](Confirm-SecureBootUEFI -ErrorAction Stop)
+              $secureBootSupported = $true
+            } catch {
+              $secureBootError = $_.Exception.Message
+              $errors.Add("SECURE_BOOT_ERROR: $secureBootError")
+            }
+          } else {
+            $errors.Add('CONFIRM_SECURE_BOOT_UEFI_CMDLET_NOT_PRESENT')
           }
 
           $tpmToolPresent = $null -ne (Get-Command tpmtool.exe -ErrorAction SilentlyContinue)
-          $tpmToolOutput = $null
-          if ($tpmToolPresent) {
-            $tpmToolOutput = (& tpmtool.exe getdeviceinformation 2>&1 | Out-String).Trim()
-          }
 
           $verdict = 'HOLD_TPM_HARDWARE_CAPABILITY'
           if ($tpmPresent -and $tpmReady -and $wmiPresent -and $secureBootSupported -and $secureBootEnabled) {
@@ -74,13 +102,9 @@ jobs:
           $receipt = [ordered]@{
             schema = 'STELE_WINDOWS_TPM_SECUREBOOT_CAPABILITY_RECEIPT_V1'
             verdict = $verdict
-            host = [ordered]@{
-              provider = 'GitHub-hosted Actions'
-              runner = 'windows-2025'
-              os = [System.Environment]::OSVersion.VersionString
-              machine = $env:COMPUTERNAME
-            }
+            host = [ordered]@{ provider='GitHub-hosted Actions'; runner='windows-2025'; os=[System.Environment]::OSVersion.VersionString; machine=$env:COMPUTERNAME }
             tpm = [ordered]@{
+              get_tpm_cmdlet_present = $getTpmCmdletPresent
               get_tpm_present = $tpmPresent
               get_tpm_ready = $tpmReady
               get_tpm_enabled = $tpmEnabled
@@ -89,33 +113,22 @@ jobs:
               wmi_tpm_present = $wmiPresent
               manufacturer = $tpmManufacturer
               spec_version = $tpmSpecVersion
-              get_tpm_error = $getTpmError
-              tpmtool_present = $tpmToolPresent
-              tpmtool_output = $tpmToolOutput
             }
-            secure_boot = [ordered]@{
-              supported = $secureBootSupported
-              enabled = $secureBootEnabled
-              error = $secureBootError
-            }
-            claim_ceiling = @(
-              'CAPABILITY_DISCOVERY_ONLY',
-              'NO_MEASURED_BOOT_QUOTE_YET',
-              'NO_RUNTIME_ADMISSION',
-              'NO_PRODUCTION_PROMOTION',
-              'NO_POINTER_PROMOTION',
-              'NO_GLOBAL_AUTHORITY_CHANGE'
-            )
+            secure_boot = [ordered]@{ cmdlet_present=$secureBootCmdletPresent; supported=$secureBootSupported; enabled=$secureBootEnabled; error=$secureBootError }
+            tools = [ordered]@{ tpmtool_present=$tpmToolPresent }
+            probe_errors = @($errors)
+            claim_ceiling = @('CAPABILITY_DISCOVERY_ONLY','NO_MEASURED_BOOT_QUOTE_YET','NO_RUNTIME_ADMISSION','NO_PRODUCTION_PROMOTION','NO_POINTER_PROMOTION','NO_GLOBAL_AUTHORITY_CHANGE')
           }
 
           $json = $receipt | ConvertTo-Json -Depth 8
-          $receiptPath = "$env:RUNNER_TEMP\stele-hw-win\capability_receipt.json"
+          $receiptPath = "$dir\capability_receipt.json"
           [System.IO.File]::WriteAllText($receiptPath, $json + "`n", [System.Text.UTF8Encoding]::new($false))
           $hash = (Get-FileHash -Algorithm SHA256 $receiptPath).Hash.ToLowerInvariant()
-          [System.IO.File]::WriteAllText("$env:RUNNER_TEMP\stele-hw-win\capability_receipt.sha256", "$hash  capability_receipt.json`n", [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText("$dir\capability_receipt.sha256", "$hash  capability_receipt.json`n", [System.Text.UTF8Encoding]::new($false))
           Get-Content $receiptPath
 
       - name: Upload Windows capability receipt
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stele-windows-tpm-capability-v1
