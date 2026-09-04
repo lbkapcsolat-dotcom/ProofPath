@@ -51,7 +51,7 @@ jobs:
           printf 'MANTYL_TARBALL_SHA256=%s\n' "$TARBALL_SHA256" | tee -a "$GITHUB_ENV"
           npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
           printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" | tee -a "$GITHUB_ENV"
-          "$TOOL/install/node_modules/.bin/mantyl" --version || true
+          "$TOOL/install/node_modules/.bin/mantyl" --version
 
       - name: Create clean synthetic repository
         shell: bash
@@ -97,9 +97,8 @@ jobs:
           printf 'SYNTH_REPO=%s\n' "$SRC" | tee -a "$GITHUB_ENV"
           printf 'SYNTH_COMMIT=%s\n' "$SYNTH_COMMIT" | tee -a "$GITHUB_ENV"
           printf 'SYNTH_TREE=%s\n' "$(git rev-parse HEAD^{tree})" | tee -a "$GITHUB_ENV"
-          git status --porcelain
 
-      - name: Scan verify generate and probe passport schema
+      - name: Verify generate and exact passport schema bind
         shell: bash
         run: |
           set -euo pipefail
@@ -113,25 +112,40 @@ jobs:
           PASSPORT_BYTES="$(wc -c < "$PASSPORT" | tr -d ' ')"
           GENERATE_DIGEST="$(sed -nE 's/.*digest[[:space:]]+([0-9a-f]{64}).*/\1/p' generate.log | tail -1)"
           test "${#GENERATE_DIGEST}" -eq 64
-          printf 'PASSPORT_SCHEMA_JSON_BEGIN\n'
-          cat "$PASSPORT"
-          printf 'PASSPORT_SCHEMA_JSON_END\n'
-          printf 'PASSPORT_64HEX_PATHS_BEGIN\n'
-          node - <<'NODE'
+          eval "$(node - <<'NODE'
           const fs = require('fs');
           const p = JSON.parse(fs.readFileSync(process.env.SYNTH_REPO+'/.mantyl/passport.json','utf8'));
-          function walk(v, path) {
-            if (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)) console.log(`${path}=${v}`);
-            else if (Array.isArray(v)) v.forEach((x,i)=>walk(x, `${path}[${i}]`));
-            else if (v && typeof v === 'object') Object.entries(v).forEach(([k,x])=>walk(x, path ? `${path}.${k}` : k));
+          const vals = {
+            PASSPORT_SCHEMA_VERSION: p.schemaVersion,
+            PASSPORT_DIGEST_PATH: 'integrity.passportDigest',
+            PASSPORT_DIGEST: p.integrity?.passportDigest,
+            EVIDENCE_DIGEST: p.integrity?.evidenceDigest,
+            FILE_MANIFEST_DIGEST: p.integrity?.fileManifestDigest,
+            CONFIG_DIGEST: p.run?.configDigest,
+            PASSPORT_COMMIT: p.run?.commit,
+            TOOL_VERSION_IN_PASSPORT: p.run?.toolVersion
+          };
+          for (const [k,v] of Object.entries(vals)) {
+            if (typeof v !== 'string' || !v.length) process.exit(2);
+            console.log(`${k}=${JSON.stringify(v)}`);
           }
-          walk(p, '');
           NODE
-          printf 'PASSPORT_64HEX_PATHS_END\n'
+          )"
+          test "$PASSPORT_DIGEST" = "$GENERATE_DIGEST"
+          test "$PASSPORT_COMMIT" = "$SYNTH_COMMIT"
+          test "$TOOL_VERSION_IN_PASSPORT" = "$MANTYL_VERSION"
           printf 'PASSPORT_PATH=%s\n' "$PASSPORT" | tee -a "$GITHUB_ENV"
           printf 'PASSPORT_SHA256=%s\n' "$PASSPORT_SHA256" | tee -a "$GITHUB_ENV"
           printf 'PASSPORT_BYTES=%s\n' "$PASSPORT_BYTES" | tee -a "$GITHUB_ENV"
           printf 'MANTYL_GENERATE_DIGEST=%s\n' "$GENERATE_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_SCHEMA_VERSION=%s\n' "$PASSPORT_SCHEMA_VERSION" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_DIGEST_PATH=%s\n' "$PASSPORT_DIGEST_PATH" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_DIGEST=%s\n' "$PASSPORT_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'EVIDENCE_DIGEST=%s\n' "$EVIDENCE_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'FILE_MANIFEST_DIGEST=%s\n' "$FILE_MANIFEST_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'CONFIG_DIGEST=%s\n' "$CONFIG_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_COMMIT=%s\n' "$PASSPORT_COMMIT" | tee -a "$GITHUB_ENV"
+          printf 'TOOL_VERSION_IN_PASSPORT=%s\n' "$TOOL_VERSION_IN_PASSPORT" | tee -a "$GITHUB_ENV"
 
       - name: Independent clean receive replay
         shell: bash
@@ -167,26 +181,40 @@ jobs:
           printf 'NEGATIVE_FILE=src/value.txt\n' | tee -a "$GITHUB_ENV"
           printf 'NEGATIVE_BEFORE_SHA256=%s\n' "$BEFORE" | tee -a "$GITHUB_ENV"
           printf 'NEGATIVE_AFTER_SHA256=%s\n' "$AFTER" | tee -a "$GITHUB_ENV"
-          test "$NEG_EXIT" -ne 0
+          test "$NEG_EXIT" -eq 7
 
-      - name: Normalize bounded ALPHA receipt
+      - name: Normalize final ALPHA receipt
         shell: bash
         run: |
           set -euo pipefail
           RECEIPT="$RUNNER_TEMP/mantyl-alpha-canary/receipt.json"
           node - <<'NODE' > "$RECEIPT"
+          const digestEqual = process.env.PASSPORT_DIGEST === process.env.MANTYL_GENERATE_DIGEST;
+          const commitEqual = process.env.PASSPORT_COMMIT === process.env.SYNTH_COMMIT;
+          const cleanOk = Number(process.env.CLEAN_RECEIVE_EXIT) === 0;
+          const negativeOk = Number(process.env.NEGATIVE_RECEIVE_EXIT) === 7;
           const r = {
             gate: 'MANTYL_PASSPORT_DIGEST_SCHEMA_BIND_AND_ALPHA_RECEIPT_NORMALIZER_V1',
             timestamp_utc: new Date().toISOString(),
             runtime: 'github-actions/ubuntu-24.04',
+            zero_spend_path: 'public-repository-github-actions + free-local-mantyl-cli',
             mantyl_version: process.env.MANTYL_VERSION,
             registry_integrity: process.env.MANTYL_REGISTRY_INTEGRITY,
             package_tarball_sha256: process.env.MANTYL_TARBALL_SHA256,
             synthetic_commit: process.env.SYNTH_COMMIT,
             synthetic_tree: process.env.SYNTH_TREE,
+            passport_schema_version: process.env.PASSPORT_SCHEMA_VERSION,
             passport_sha256: process.env.PASSPORT_SHA256,
             passport_bytes: Number(process.env.PASSPORT_BYTES),
+            passport_digest_path: process.env.PASSPORT_DIGEST_PATH,
+            passport_digest: process.env.PASSPORT_DIGEST,
             mantyl_generate_digest: process.env.MANTYL_GENERATE_DIGEST,
+            passport_digest_matches_generate: digestEqual,
+            evidence_digest: process.env.EVIDENCE_DIGEST,
+            file_manifest_digest: process.env.FILE_MANIFEST_DIGEST,
+            config_digest: process.env.CONFIG_DIGEST,
+            passport_commit: process.env.PASSPORT_COMMIT,
+            passport_commit_matches_synthetic: commitEqual,
             clean_receive_exit: Number(process.env.CLEAN_RECEIVE_EXIT),
             negative_receive_exit: Number(process.env.NEGATIVE_RECEIVE_EXIT),
             negative_file: process.env.NEGATIVE_FILE,
@@ -196,10 +224,13 @@ jobs:
             paid_layer_used: false,
             authority_promotion: false,
             global_bind: false,
+            runtime_admission: false,
             production_readiness_claim: false,
-            verdict: Number(process.env.CLEAN_RECEIVE_EXIT) === 0 && Number(process.env.NEGATIVE_RECEIVE_EXIT) !== 0 ? 'PASS_BOUNDED_SCHEMA_PROBE' : 'HOLD'
+            verdict: digestEqual && commitEqual && cleanOk && negativeOk ? 'PASS_BOUNDED' : 'HOLD'
           };
           process.stdout.write(JSON.stringify(r, null, 2)+'\n');
           NODE
           cat "$RECEIPT"
-          printf 'RECEIPT_SHA256=%s\n' "$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          RECEIPT_SHA256="$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          printf 'RECEIPT_SHA256=%s\n' "$RECEIPT_SHA256"
+          test "$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.verdict)' "$RECEIPT")" = "PASS_BOUNDED"
