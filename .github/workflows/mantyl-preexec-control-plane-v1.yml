@@ -1,0 +1,433 @@
+name: Mantyl Preexec Control Plane V1
+
+on:
+  push:
+    branches:
+      - alpha/mantyl-preexec-control-plane-v1
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  MANTYL_VERSION: "0.5.0"
+  EXPECTED_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
+  MAX_RECEIPT_AGE_SECONDS: "900"
+  GRANT_TTL_SECONDS: "300"
+
+jobs:
+  produce_receipt:
+    name: Produce fresh bounded Mantyl receipt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      receipt_sha256: ${{ steps.receipt.outputs.receipt_sha256 }}
+      synthetic_commit: ${{ steps.receipt.outputs.synthetic_commit }}
+      synthetic_tree: ${{ steps.receipt.outputs.synthetic_tree }}
+    steps:
+      - name: Runtime and package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          git --version
+          docker --version
+          ROOT="$RUNNER_TEMP/mantyl-preexec"
+          TOOL="$ROOT/tool"
+          mkdir -p "$TOOL"
+          cd "$TOOL"
+          test "$(npm view "mantyl@$MANTYL_VERSION" version)" = "$MANTYL_VERSION"
+          test "$(npm view "mantyl@$MANTYL_VERSION" dist.integrity)" = "$EXPECTED_INTEGRITY"
+          npm pack "mantyl@$MANTYL_VERSION" --json > pack.json
+          TARBALL="$(node -e 'console.log(require("./pack.json")[0].filename)')"
+          test "$(node -e 'console.log(require("./pack.json")[0].integrity)')" = "$EXPECTED_INTEGRITY"
+          TARBALL_SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
+          printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" >> "$GITHUB_ENV"
+          printf 'MANTYL_TARBALL_SHA256=%s\n' "$TARBALL_SHA256" >> "$GITHUB_ENV"
+
+      - name: Create synthetic work unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-preexec"
+          SRC="$ROOT/source"
+          mkdir -p "$SRC/src"
+          cd "$SRC"
+          cat > package.json <<'JSON'
+          {"name":"alpha-mantyl-preexec-v1","version":"1.0.0","private":true,"type":"module","scripts":{"build":"node build.mjs","test":"node test.mjs"}}
+          JSON
+          printf 'ALPHA\n' > src/value.txt
+          cat > build.mjs <<'JS'
+          import fs from 'node:fs';
+          fs.mkdirSync('dist', {recursive:true});
+          fs.writeFileSync('dist/result.txt','ALPHA_PREEXEC_CONTROL_PLANE_V1\n');
+          console.log('BUILD_OK');
+          JS
+          cat > test.mjs <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          assert.equal(fs.readFileSync('src/value.txt','utf8'),'ALPHA\n');
+          console.log('TEST_OK');
+          JS
+          git init -b main
+          git config user.name 'ALPHA Preexec Canary'
+          git config user.email 'canary@example.invalid'
+          "$MANTYL_BIN" init
+          git add package.json build.mjs test.mjs src/value.txt mantyl.config.json
+          GIT_AUTHOR_DATE='2026-09-04T00:00:00Z' GIT_COMMITTER_DATE='2026-09-04T00:00:00Z' git commit -m 'Synthetic preexec work unit'
+          printf 'SYNTH_REPO=%s\n' "$SRC" >> "$GITHUB_ENV"
+
+      - name: Mantyl verify and generate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SYNTH_REPO"
+          "$MANTYL_BIN" scan
+          "$MANTYL_BIN" verify
+          "$MANTYL_BIN" generate | tee "$RUNNER_TEMP/mantyl-preexec/generate.log"
+
+      - name: Normalize source receipt
+        id: receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-preexec"
+          SRC="$SYNTH_REPO"
+          PASSPORT="$SRC/.mantyl/passport.json"
+          RECEIPT="$ROOT/source-receipt.json"
+          export SYNTH_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
+          export SYNTH_TREE="$(git -C "$SRC" rev-parse HEAD^{tree})"
+          export PASSPORT_SHA256="$(sha256sum "$PASSPORT" | awk '{print $1}')"
+          export PASSPORT_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.passportDigest)' "$PASSPORT")"
+          export EVIDENCE_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.evidenceDigest)' "$PASSPORT")"
+          export FILE_MANIFEST_DIGEST="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.integrity.fileManifestDigest)' "$PASSPORT")"
+          node - <<'NODE' > "$RECEIPT"
+          const r={
+            gate:'MANTYL_PREEXEC_SOURCE_RECEIPT_V1',
+            timestamp_utc:new Date().toISOString(),
+            workflow_run_id:process.env.GITHUB_RUN_ID,
+            workflow_sha:process.env.GITHUB_SHA,
+            mantyl_version:process.env.MANTYL_VERSION,
+            registry_integrity:process.env.EXPECTED_INTEGRITY,
+            package_tarball_sha256:process.env.MANTYL_TARBALL_SHA256,
+            synthetic_commit:process.env.SYNTH_COMMIT,
+            synthetic_tree:process.env.SYNTH_TREE,
+            passport_sha256:process.env.PASSPORT_SHA256,
+            passport_digest:process.env.PASSPORT_DIGEST,
+            evidence_digest:process.env.EVIDENCE_DIGEST,
+            file_manifest_digest:process.env.FILE_MANIFEST_DIGEST,
+            verification_passed:true,
+            clean_receive_required:false,
+            paid_layer_used:false,
+            authority_promotion:false,
+            global_bind:false,
+            production_readiness_claim:false,
+            verdict:'PASS_BOUNDED'
+          };
+          process.stdout.write(JSON.stringify(r,null,2)+'\n');
+          NODE
+          RECEIPT_SHA256="$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          printf 'receipt_sha256=%s\n' "$RECEIPT_SHA256" >> "$GITHUB_OUTPUT"
+          printf 'synthetic_commit=%s\n' "$SYNTH_COMMIT" >> "$GITHUB_OUTPUT"
+          printf 'synthetic_tree=%s\n' "$SYNTH_TREE" >> "$GITHUB_OUTPUT"
+          cat "$RECEIPT"
+          printf 'SOURCE_RECEIPT_SHA256=%s\n' "$RECEIPT_SHA256"
+
+      - name: Upload source receipt and exact work unit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-preexec-source
+          path: |
+            ${{ runner.temp }}/mantyl-preexec/source-receipt.json
+            ${{ runner.temp }}/mantyl-preexec/source
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: true
+
+  admission_gate:
+    name: Mandatory bounded admission gate
+    needs: produce_receipt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      grant_sha256: ${{ steps.gate.outputs.grant_sha256 }}
+      grant_nonce: ${{ steps.gate.outputs.grant_nonce }}
+    steps:
+      - name: Download source receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-preexec-source
+          path: ${{ runner.temp }}/mantyl-preexec-gate/source
+
+      - name: Validate receipt and issue scoped grant
+        id: gate
+        shell: bash
+        env:
+          EXPECTED_RECEIPT_SHA256: ${{ needs.produce_receipt.outputs.receipt_sha256 }}
+          EXPECTED_COMMIT: ${{ needs.produce_receipt.outputs.synthetic_commit }}
+          EXPECTED_TREE: ${{ needs.produce_receipt.outputs.synthetic_tree }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-preexec-gate"
+          RECEIPT="$ROOT/source/source-receipt.json"
+          GRANT="$ROOT/grant.json"
+          test -s "$RECEIPT"
+          ACTUAL_SHA="$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          test "$ACTUAL_SHA" = "$EXPECTED_RECEIPT_SHA256"
+          export RECEIPT GRANT ACTUAL_SHA
+          node - <<'NODE'
+          const fs=require('fs'), crypto=require('crypto');
+          const r=JSON.parse(fs.readFileSync(process.env.RECEIPT,'utf8'));
+          const now=Date.now();
+          const age=(now-Date.parse(r.timestamp_utc))/1000;
+          const required=[
+            r.gate==='MANTYL_PREEXEC_SOURCE_RECEIPT_V1',
+            r.verdict==='PASS_BOUNDED',
+            r.verification_passed===true,
+            r.workflow_run_id===process.env.GITHUB_RUN_ID,
+            r.workflow_sha===process.env.GITHUB_SHA,
+            r.synthetic_commit===process.env.EXPECTED_COMMIT,
+            r.synthetic_tree===process.env.EXPECTED_TREE,
+            r.mantyl_version===process.env.MANTYL_VERSION,
+            r.registry_integrity===process.env.EXPECTED_INTEGRITY,
+            r.paid_layer_used===false,
+            r.authority_promotion===false,
+            r.global_bind===false,
+            r.production_readiness_claim===false,
+            Number.isFinite(age) && age>=0 && age<=Number(process.env.MAX_RECEIPT_AGE_SECONDS)
+          ];
+          if(!required.every(Boolean)) process.exit(73);
+          const nonce=crypto.randomBytes(32).toString('hex');
+          const issued=new Date();
+          const expires=new Date(issued.getTime()+Number(process.env.GRANT_TTL_SECONDS)*1000);
+          const g={
+            gate:'MANTYL_PREEXEC_GRANT_V1',
+            source_receipt_sha256:process.env.ACTUAL_SHA,
+            workflow_run_id:process.env.GITHUB_RUN_ID,
+            workflow_sha:process.env.GITHUB_SHA,
+            synthetic_commit:r.synthetic_commit,
+            synthetic_tree:r.synthetic_tree,
+            scope:'SYNTHETIC_PROTECTED_PAYLOAD_V1',
+            nonce,
+            issued_at:issued.toISOString(),
+            expires_at:expires.toISOString(),
+            authority:'NONE',
+            github_permissions:'NONE',
+            external_publish:false,
+            paid_layer_used:false,
+            verdict:'ADMIT_BOUNDED'
+          };
+          fs.writeFileSync(process.env.GRANT,JSON.stringify(g,null,2)+'\n');
+          NODE
+          GRANT_SHA256="$(sha256sum "$GRANT" | awk '{print $1}')"
+          GRANT_NONCE="$(node -e 'const g=require(process.argv[1]);process.stdout.write(g.nonce)' "$GRANT")"
+          printf 'grant_sha256=%s\n' "$GRANT_SHA256" >> "$GITHUB_OUTPUT"
+          printf 'grant_nonce=%s\n' "$GRANT_NONCE" >> "$GITHUB_OUTPUT"
+          cat "$GRANT"
+          printf 'GRANT_SHA256=%s\n' "$GRANT_SHA256"
+
+      - name: Upload scoped grant
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-preexec-grant
+          path: ${{ runner.temp }}/mantyl-preexec-gate/grant.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  protected_payload:
+    name: Protected payload behind mandatory gate
+    needs: [produce_receipt, admission_gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download source receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-preexec-source
+          path: ${{ runner.temp }}/payload/source
+      - name: Download scoped grant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-preexec-grant
+          path: ${{ runner.temp }}/payload/grant
+
+      - name: Verify grant and execute payload exactly once
+        shell: bash
+        env:
+          EXPECTED_RECEIPT_SHA256: ${{ needs.produce_receipt.outputs.receipt_sha256 }}
+          EXPECTED_COMMIT: ${{ needs.produce_receipt.outputs.synthetic_commit }}
+          EXPECTED_TREE: ${{ needs.produce_receipt.outputs.synthetic_tree }}
+          EXPECTED_GRANT_SHA256: ${{ needs.admission_gate.outputs.grant_sha256 }}
+          EXPECTED_NONCE: ${{ needs.admission_gate.outputs.grant_nonce }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/payload"
+          RECEIPT="$ROOT/source/source-receipt.json"
+          GRANT="$ROOT/grant/grant.json"
+          LEDGER="$ROOT/consumed-nonces.txt"
+          ACTUAL_RECEIPT_SHA="$(sha256sum "$RECEIPT" | awk '{print $1}')"
+          ACTUAL_GRANT_SHA="$(sha256sum "$GRANT" | awk '{print $1}')"
+          test "$ACTUAL_RECEIPT_SHA" = "$EXPECTED_RECEIPT_SHA256"
+          test "$ACTUAL_GRANT_SHA" = "$EXPECTED_GRANT_SHA256"
+          export RECEIPT GRANT LEDGER ACTUAL_RECEIPT_SHA
+          node - <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync(process.env.RECEIPT,'utf8'));
+          const g=JSON.parse(fs.readFileSync(process.env.GRANT,'utf8'));
+          const now=Date.now();
+          const valid=[
+            g.gate==='MANTYL_PREEXEC_GRANT_V1',g.verdict==='ADMIT_BOUNDED',
+            g.source_receipt_sha256===process.env.ACTUAL_RECEIPT_SHA,
+            g.workflow_run_id===process.env.GITHUB_RUN_ID,g.workflow_sha===process.env.GITHUB_SHA,
+            g.synthetic_commit===process.env.EXPECTED_COMMIT,g.synthetic_tree===process.env.EXPECTED_TREE,
+            g.scope==='SYNTHETIC_PROTECTED_PAYLOAD_V1',g.nonce===process.env.EXPECTED_NONCE,
+            g.authority==='NONE',g.github_permissions==='NONE',g.external_publish===false,g.paid_layer_used===false,
+            Date.parse(g.issued_at)<=now && now<=Date.parse(g.expires_at),
+            r.synthetic_commit===g.synthetic_commit,r.synthetic_tree===g.synthetic_tree
+          ];
+          if(!valid.every(Boolean)) process.exit(73);
+          let used=[]; try{used=fs.readFileSync(process.env.LEDGER,'utf8').trim().split(/\n/).filter(Boolean)}catch{}
+          if(used.includes(g.nonce)) process.exit(74);
+          fs.appendFileSync(process.env.LEDGER,g.nonce+'\n');
+          NODE
+          printf 'PROTECTED_PAYLOAD_EXECUTED\n' > "$ROOT/payload-result.txt"
+          test "$(cat "$ROOT/payload-result.txt")" = 'PROTECTED_PAYLOAD_EXECUTED'
+          printf 'PAYLOAD_EXECUTION=PASS_AFTER_VALID_GRANT\n'
+
+  adversarial_matrix:
+    name: Fail-closed adversarial matrix
+    needs: [produce_receipt, admission_gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download source and grant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: mantyl-preexec-*
+          path: ${{ runner.temp }}/matrix
+          merge-multiple: true
+
+      - name: Run 7-case fail-closed matrix
+        shell: bash
+        env:
+          EXPECTED_RECEIPT_SHA256: ${{ needs.produce_receipt.outputs.receipt_sha256 }}
+          EXPECTED_COMMIT: ${{ needs.produce_receipt.outputs.synthetic_commit }}
+          EXPECTED_TREE: ${{ needs.produce_receipt.outputs.synthetic_tree }}
+          EXPECTED_GRANT_SHA256: ${{ needs.admission_gate.outputs.grant_sha256 }}
+          EXPECTED_NONCE: ${{ needs.admission_gate.outputs.grant_nonce }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/matrix"
+          RECEIPT="$ROOT/source-receipt.json"
+          GRANT="$ROOT/grant.json"
+          test -s "$RECEIPT" && test -s "$GRANT"
+          export RECEIPT GRANT
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const receipt=JSON.parse(fs.readFileSync(process.env.RECEIPT,'utf8'));
+          const grant=JSON.parse(fs.readFileSync(process.env.GRANT,'utf8'));
+          const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
+          const receiptText=fs.readFileSync(process.env.RECEIPT,'utf8');
+          const grantText=fs.readFileSync(process.env.GRANT,'utf8');
+          function issue(r,text){
+            const age=(Date.now()-Date.parse(r.timestamp_utc))/1000;
+            return r.gate==='MANTYL_PREEXEC_SOURCE_RECEIPT_V1' && r.verdict==='PASS_BOUNDED' && r.verification_passed===true &&
+              r.workflow_run_id===process.env.GITHUB_RUN_ID && r.workflow_sha===process.env.GITHUB_SHA &&
+              r.synthetic_commit===process.env.EXPECTED_COMMIT && r.synthetic_tree===process.env.EXPECTED_TREE &&
+              r.mantyl_version===process.env.MANTYL_VERSION && r.registry_integrity===process.env.EXPECTED_INTEGRITY &&
+              r.paid_layer_used===false && r.authority_promotion===false && r.global_bind===false && r.production_readiness_claim===false &&
+              Number.isFinite(age)&&age>=0&&age<=Number(process.env.MAX_RECEIPT_AGE_SECONDS) && sha(text)===process.env.EXPECTED_RECEIPT_SHA256;
+          }
+          function verify(r,rtext,g,gtext,ledger){
+            const now=Date.now();
+            const ok=sha(rtext)===process.env.EXPECTED_RECEIPT_SHA256 && sha(gtext)===process.env.EXPECTED_GRANT_SHA256 &&
+              g.gate==='MANTYL_PREEXEC_GRANT_V1'&&g.verdict==='ADMIT_BOUNDED'&&g.source_receipt_sha256===sha(rtext)&&
+              g.workflow_run_id===process.env.GITHUB_RUN_ID&&g.workflow_sha===process.env.GITHUB_SHA&&
+              g.synthetic_commit===process.env.EXPECTED_COMMIT&&g.synthetic_tree===process.env.EXPECTED_TREE&&
+              g.scope==='SYNTHETIC_PROTECTED_PAYLOAD_V1'&&g.nonce===process.env.EXPECTED_NONCE&&
+              g.authority==='NONE'&&g.github_permissions==='NONE'&&g.external_publish===false&&g.paid_layer_used===false&&
+              Date.parse(g.issued_at)<=now&&now<=Date.parse(g.expires_at)&&r.synthetic_commit===g.synthetic_commit&&r.synthetic_tree===g.synthetic_tree;
+            if(!ok||ledger.has(g.nonce)) return false; ledger.add(g.nonce); return true;
+          }
+          const results={};
+          results.CLEAN_VALID=verify(receipt,receiptText,grant,grantText,new Set())===true;
+          results.DIRECT_BYPASS_NO_GRANT=verify(receipt,receiptText,{},'{}',new Set())===false;
+          const tampered={...receipt,verification_passed:false}; const tamperedText=JSON.stringify(tampered,null,2)+'\n';
+          results.TAMPERED_RECEIPT=issue(tampered,tamperedText)===false;
+          const wrong={...receipt,synthetic_commit:'0'.repeat(40)}; const wrongText=JSON.stringify(wrong,null,2)+'\n';
+          results.WRONG_COMMIT=issue(wrong,wrongText)===false;
+          const stale={...receipt,timestamp_utc:new Date(Date.now()-3600_000).toISOString()}; const staleText=JSON.stringify(stale,null,2)+'\n';
+          results.STALE_RECEIPT=issue(stale,staleText)===false;
+          const forged={...grant,scope:'FORGED_SCOPE'}; const forgedText=JSON.stringify(forged,null,2)+'\n';
+          results.FORGED_GRANT=verify(receipt,receiptText,forged,forgedText,new Set())===false;
+          const ledger=new Set(); const first=verify(receipt,receiptText,grant,grantText,ledger); const second=verify(receipt,receiptText,grant,grantText,ledger);
+          results.REPLAYED_NONCE=first===true&&second===false;
+          console.log(JSON.stringify(results,null,2));
+          if(!Object.values(results).every(Boolean)) process.exit(75);
+          console.log(`ADVERSARIAL_MATRIX_PASS=${Object.keys(results).length}/${Object.keys(results).length}`);
+          NODE
+
+  final_receipt:
+    name: Normalize final control-plane receipt
+    needs: [produce_receipt, admission_gate, protected_payload, adversarial_matrix]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all predecessor jobs success and normalize receipt
+        shell: bash
+        env:
+          PRODUCE_RESULT: ${{ needs.produce_receipt.result }}
+          GATE_RESULT: ${{ needs.admission_gate.result }}
+          PAYLOAD_RESULT: ${{ needs.protected_payload.result }}
+          MATRIX_RESULT: ${{ needs.adversarial_matrix.result }}
+          SOURCE_RECEIPT_SHA256: ${{ needs.produce_receipt.outputs.receipt_sha256 }}
+          GRANT_SHA256: ${{ needs.admission_gate.outputs.grant_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$PRODUCE_RESULT" = success
+          test "$GATE_RESULT" = success
+          test "$PAYLOAD_RESULT" = success
+          test "$MATRIX_RESULT" = success
+          RECEIPT="$RUNNER_TEMP/mantyl-preexec-control-plane-receipt.json"
+          node - <<'NODE' > "$RECEIPT"
+          const r={
+            gate:'MANTYL_CROSS_HOST_RECEIPT_CANONICAL_PERSISTENCE_AND_PREEXEC_FAIL_CLOSED_GATE_V1',
+            timestamp_utc:new Date().toISOString(),
+            workflow_run_id:process.env.GITHUB_RUN_ID,
+            workflow_sha:process.env.GITHUB_SHA,
+            source_receipt_sha256:process.env.SOURCE_RECEIPT_SHA256,
+            grant_sha256:process.env.GRANT_SHA256,
+            mandatory_gate_inside_frozen_wrapper:true,
+            protected_payload_requires_gate_job:true,
+            direct_bypass_without_grant_denied:true,
+            tampered_receipt_denied:true,
+            wrong_commit_denied:true,
+            stale_receipt_denied:true,
+            forged_grant_denied:true,
+            replayed_nonce_denied:true,
+            least_privilege_github_permissions:'NONE',
+            paid_layer_used:false,
+            authority_promotion:false,
+            global_bind:false,
+            production_readiness_claim:false,
+            runtime_admission:'TRUE_BOUNDED_SYNTHETIC_WRAPPER_ONLY',
+            claim_ceiling:'Frozen wrapper only; does not prevent execution outside this wrapper and is not global authority.',
+            verdict:'PASS_BOUNDED'
+          };
+          process.stdout.write(JSON.stringify(r,null,2)+'\n');
+          NODE
+          cat "$RECEIPT"
+          printf 'FINAL_RECEIPT_SHA256=%s\n' "$(sha256sum "$RECEIPT" | awk '{print $1}')"
+
+      - name: Upload final control-plane receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-preexec-control-plane-receipt
+          path: ${{ runner.temp }}/mantyl-preexec-control-plane-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
