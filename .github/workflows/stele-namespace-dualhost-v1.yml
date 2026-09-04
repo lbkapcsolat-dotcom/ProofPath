@@ -1,0 +1,136 @@
+name: stele-namespace-dualhost-v1
+
+on:
+  push:
+    branches:
+      - stele-namespace-dualhost-v1
+    paths:
+      - .github/workflows/stele-namespace-dualhost-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  namespace-dualhost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated canary branch
+        uses: actions/checkout@v4
+
+      - name: Pin Node 22.16.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Reconstruct and verify frozen hardening package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat stele-dualhost/package.b64.part00 stele-dualhost/package.b64.part01 stele-dualhost/package.b64.part02 stele-dualhost/package.b64.part03 stele-dualhost/package.b64.part04 stele-dualhost/package.b64.part05 stele-dualhost/package.b64.part06 stele-dualhost/package.b64.part07 stele-dualhost/package.b64.part08 > /tmp/stele-package.b64
+          base64 -d /tmp/stele-package.b64 > /tmp/stele-package.zip
+          echo '7cf0336241c4891c5f5808b2c0495d0bd64869b749ca32d7952677991a66b20e  /tmp/stele-package.zip' | sha256sum -c -
+          rm -rf /tmp/stele-pkg
+          mkdir -p /tmp/stele-pkg
+          unzip -q /tmp/stele-package.zip -d /tmp/stele-pkg
+          test "$(node --version)" = 'v22.16.0'
+          sudo -n true
+
+      - name: Capture host namespace baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$(readlink /proc/self/ns/mnt)" > /tmp/host_mnt_ns
+          printf '%s\n' "$(readlink /proc/self/ns/pid)" > /tmp/host_pid_ns
+          printf '%s\n' "$(readlink /proc/self/ns/net)" > /tmp/host_net_ns
+          command -v unshare
+          command -v ip
+          command -v jq
+
+      - name: Execute frozen guard inside mount PID and network namespaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_BIN="$(command -v node)"
+          cat > /tmp/stele-ns-run.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          NODE_BIN="$1"
+          PKG="$2"
+          INSIDE_MNT="$(readlink /proc/self/ns/mnt)"
+          INSIDE_PID="$(readlink /proc/self/ns/pid)"
+          INSIDE_NET="$(readlink /proc/self/ns/net)"
+          SELF_PID="$$"
+          DEFAULT_ROUTE_COUNT="$(ip route show default | wc -l)"
+          test "$SELF_PID" -eq 1
+          test "$DEFAULT_ROUTE_COUNT" -eq 0
+          mkdir -p /tmp/stele-ns-mount-marker
+          mount -t tmpfs -o size=4m tmpfs /tmp/stele-ns-mount-marker
+          printf 'namespace-only\n' > /tmp/stele-ns-mount-marker/marker
+          jq -n \
+            --arg mnt "$INSIDE_MNT" \
+            --arg pid "$INSIDE_PID" \
+            --arg net "$INSIDE_NET" \
+            --argjson self_pid "$SELF_PID" \
+            --argjson default_route_count "$DEFAULT_ROUTE_COUNT" \
+            '{inside_mnt_ns:$mnt,inside_pid_ns:$pid,inside_net_ns:$net,inside_pid:$self_pid,default_route_count:$default_route_count}' \
+            > /tmp/namespace_inside.json
+          cd "$PKG"
+          "$NODE_BIN" --test test/*.test.mjs > /tmp/second_host_tests.tap
+          "$NODE_BIN" scripts/run_hardening_matrix.mjs > /tmp/hardening_matrix_second_host.json
+          "$NODE_BIN" scripts/run_replay.mjs > /tmp/replay_second_host.json
+          EOS
+          chmod 0755 /tmp/stele-ns-run.sh
+          sudo env PATH="$PATH" unshare \
+            --mount --pid --net --fork --mount-proc --propagation private \
+            /bin/bash /tmp/stele-ns-run.sh "$NODE_BIN" /tmp/stele-pkg
+
+      - name: Verify namespace separation and cross-host replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST_MNT="$(cat /tmp/host_mnt_ns)"
+          HOST_PID="$(cat /tmp/host_pid_ns)"
+          HOST_NET="$(cat /tmp/host_net_ns)"
+          INSIDE_MNT="$(jq -r .inside_mnt_ns /tmp/namespace_inside.json)"
+          INSIDE_PID="$(jq -r .inside_pid_ns /tmp/namespace_inside.json)"
+          INSIDE_NET="$(jq -r .inside_net_ns /tmp/namespace_inside.json)"
+          test "$HOST_MNT" != "$INSIDE_MNT"
+          test "$HOST_PID" != "$INSIDE_PID"
+          test "$HOST_NET" != "$INSIDE_NET"
+          test "$(jq -r .inside_pid /tmp/namespace_inside.json)" = '1'
+          test "$(jq -r .default_route_count /tmp/namespace_inside.json)" = '0'
+          test ! -e /tmp/stele-ns-mount-marker/marker
+          jq -e '.case_count == 57 and .pass_count == 57 and .fail_count == 0 and .unauthorized_execution_failures == 0' /tmp/hardening_matrix_second_host.json
+          jq -e '.admitted == true and .first.ok == true and .first.execution_count == 1 and .replay.ok == false and .replay.reason == "CAPABILITY_REPLAYED" and .replay.execution_count == 1 and .decision.runtime_admission == false and .decision.production_readiness == false and .decision.automatic_promotion == false and .decision.external_actuation == false' /tmp/replay_second_host.json
+          echo '25b0fa5e9d5255f3584dbd8aa110e85c9fce7a198786cb98f981a2d843488d01  /tmp/replay_second_host.json' | sha256sum -c -
+          TEST_SHA="$(sha256sum /tmp/second_host_tests.tap | awk '{print $1}')"
+          MATRIX_SHA="$(sha256sum /tmp/hardening_matrix_second_host.json | awk '{print $1}')"
+          REPLAY_SHA="$(sha256sum /tmp/replay_second_host.json | awk '{print $1}')"
+          jq -n \
+            --arg schema 'STELE_NAMESPACE_CAPABLE_SECOND_HOST_SANDBOX_CROSS_REPLAY_AND_DUAL_HOST_ENFORCEMENT_V1' \
+            --arg runner 'github-hosted-ubuntu-24.04' \
+            --arg node "$(node --version)" \
+            --arg package_sha256 '7cf0336241c4891c5f5808b2c0495d0bd64869b749ca32d7952677991a66b20e' \
+            --arg host_mnt_ns "$HOST_MNT" --arg inside_mnt_ns "$INSIDE_MNT" \
+            --arg host_pid_ns "$HOST_PID" --arg inside_pid_ns "$INSIDE_PID" \
+            --arg host_net_ns "$HOST_NET" --arg inside_net_ns "$INSIDE_NET" \
+            --arg test_sha256 "$TEST_SHA" --arg matrix_sha256 "$MATRIX_SHA" --arg replay_sha256 "$REPLAY_SHA" \
+            --arg git_sha "$GITHUB_SHA" \
+            '{schema:$schema,verdict:"PASS_BOUNDED_SECOND_HOST_NAMESPACE_ENFORCEMENT",runner:$runner,node:$node,package_sha256:$package_sha256,namespaces:{mount:{host:$host_mnt_ns,inside:$inside_mnt_ns,separated:true},pid:{host:$host_pid_ns,inside:$inside_pid_ns,separated:true,inside_pid_1:true},network:{host:$host_net_ns,inside:$inside_net_ns,separated:true,default_route_count:0}},mount_marker_host_visible_after_exit:false,hardening_matrix:{cases:57,pass:57,fail:0,unauthorized_execution_failures:0,sha256:$matrix_sha256},cross_host_replay:{host1_sha256:"25b0fa5e9d5255f3584dbd8aa110e85c9fce7a198786cb98f981a2d843488d01",host2_sha256:$replay_sha256,byte_exact:true},test_output_sha256:$test_sha256,git_sha:$git_sha,runtime_admission:false,production_readiness:false,external_actuation:false}' \
+            > /tmp/second_host_namespace_receipt.json
+          sha256sum /tmp/second_host_namespace_receipt.json /tmp/hardening_matrix_second_host.json /tmp/replay_second_host.json /tmp/second_host_tests.tap > /tmp/second_host_hashes.sha256
+
+      - name: Upload bounded second-host receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stele-namespace-dualhost-v1-receipts
+          path: |
+            /tmp/second_host_namespace_receipt.json
+            /tmp/namespace_inside.json
+            /tmp/hardening_matrix_second_host.json
+            /tmp/replay_second_host.json
+            /tmp/second_host_tests.tap
+            /tmp/second_host_hashes.sha256
+          if-no-files-found: error
+          retention-days: 7
