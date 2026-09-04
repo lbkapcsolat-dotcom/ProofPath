@@ -99,33 +99,39 @@ jobs:
           printf 'SYNTH_TREE=%s\n' "$(git rev-parse HEAD^{tree})" | tee -a "$GITHUB_ENV"
           git status --porcelain
 
-      - name: Scan verify and generate passport
+      - name: Scan verify generate and probe passport schema
         shell: bash
         run: |
           set -euo pipefail
           cd "$SYNTH_REPO"
           "$MANTYL_BIN" scan
           "$MANTYL_BIN" verify
-          "$MANTYL_BIN" generate
+          "$MANTYL_BIN" generate | tee generate.log
           PASSPORT="$SYNTH_REPO/.mantyl/passport.json"
           test -s "$PASSPORT"
           PASSPORT_SHA256="$(sha256sum "$PASSPORT" | awk '{print $1}')"
           PASSPORT_BYTES="$(wc -c < "$PASSPORT" | tr -d ' ')"
-          EMBEDDED_DIGEST="$(node - <<'NODE'
-          const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync(process.env.SYNTH_REPO+'/.mantyl/passport.json','utf8'));
-          const keys=['digest','passportDigest','passport_digest'];
-          let out='';
-          for (const k of keys) if (typeof p[k] === 'string') { out=p[k]; break; }
-          if (!out && p.integrity && typeof p.integrity.digest === 'string') out=p.integrity.digest;
-          process.stdout.write(out || 'NOT_FOUND');
+          GENERATE_DIGEST="$(sed -nE 's/.*digest[[:space:]]+([0-9a-f]{64}).*/\1/p' generate.log | tail -1)"
+          test "${#GENERATE_DIGEST}" -eq 64
+          printf 'PASSPORT_SCHEMA_JSON_BEGIN\n'
+          cat "$PASSPORT"
+          printf 'PASSPORT_SCHEMA_JSON_END\n'
+          printf 'PASSPORT_64HEX_PATHS_BEGIN\n'
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync(process.env.SYNTH_REPO+'/.mantyl/passport.json','utf8'));
+          function walk(v, path) {
+            if (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)) console.log(`${path}=${v}`);
+            else if (Array.isArray(v)) v.forEach((x,i)=>walk(x, `${path}[${i}]`));
+            else if (v && typeof v === 'object') Object.entries(v).forEach(([k,x])=>walk(x, path ? `${path}.${k}` : k));
+          }
+          walk(p, '');
           NODE
-          )"
+          printf 'PASSPORT_64HEX_PATHS_END\n'
           printf 'PASSPORT_PATH=%s\n' "$PASSPORT" | tee -a "$GITHUB_ENV"
           printf 'PASSPORT_SHA256=%s\n' "$PASSPORT_SHA256" | tee -a "$GITHUB_ENV"
           printf 'PASSPORT_BYTES=%s\n' "$PASSPORT_BYTES" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_EMBEDDED_DIGEST=%s\n' "$EMBEDDED_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_SHA256=%s\nPASSPORT_BYTES=%s\nPASSPORT_EMBEDDED_DIGEST=%s\n' "$PASSPORT_SHA256" "$PASSPORT_BYTES" "$EMBEDDED_DIGEST"
+          printf 'MANTYL_GENERATE_DIGEST=%s\n' "$GENERATE_DIGEST" | tee -a "$GITHUB_ENV"
 
       - name: Independent clean receive replay
         shell: bash
@@ -170,10 +176,9 @@ jobs:
           RECEIPT="$RUNNER_TEMP/mantyl-alpha-canary/receipt.json"
           node - <<'NODE' > "$RECEIPT"
           const r = {
-            gate: 'MANTYL_ZERO_SPEND_CLOUD_DOCKER_EXECUTION_AND_RECEIVE_REPLAY_CANARY_V1',
+            gate: 'MANTYL_PASSPORT_DIGEST_SCHEMA_BIND_AND_ALPHA_RECEIPT_NORMALIZER_V1',
             timestamp_utc: new Date().toISOString(),
             runtime: 'github-actions/ubuntu-24.04',
-            zero_spend_path: 'public-repository-github-actions + free-local-mantyl-cli',
             mantyl_version: process.env.MANTYL_VERSION,
             registry_integrity: process.env.MANTYL_REGISTRY_INTEGRITY,
             package_tarball_sha256: process.env.MANTYL_TARBALL_SHA256,
@@ -181,18 +186,18 @@ jobs:
             synthetic_tree: process.env.SYNTH_TREE,
             passport_sha256: process.env.PASSPORT_SHA256,
             passport_bytes: Number(process.env.PASSPORT_BYTES),
-            passport_embedded_digest: process.env.PASSPORT_EMBEDDED_DIGEST,
+            mantyl_generate_digest: process.env.MANTYL_GENERATE_DIGEST,
             clean_receive_exit: Number(process.env.CLEAN_RECEIVE_EXIT),
             negative_receive_exit: Number(process.env.NEGATIVE_RECEIVE_EXIT),
             negative_file: process.env.NEGATIVE_FILE,
             negative_before_sha256: process.env.NEGATIVE_BEFORE_SHA256,
             negative_after_sha256: process.env.NEGATIVE_AFTER_SHA256,
             external_publish: false,
-            mantyl_verified_paid_layer_used: false,
+            paid_layer_used: false,
             authority_promotion: false,
             global_bind: false,
             production_readiness_claim: false,
-            verdict: Number(process.env.CLEAN_RECEIVE_EXIT) === 0 && Number(process.env.NEGATIVE_RECEIVE_EXIT) !== 0 ? 'PASS_BOUNDED' : 'HOLD'
+            verdict: Number(process.env.CLEAN_RECEIVE_EXIT) === 0 && Number(process.env.NEGATIVE_RECEIVE_EXIT) !== 0 ? 'PASS_BOUNDED_SCHEMA_PROBE' : 'HOLD'
           };
           process.stdout.write(JSON.stringify(r, null, 2)+'\n');
           NODE
