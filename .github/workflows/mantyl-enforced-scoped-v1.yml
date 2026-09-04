@@ -4,10 +4,25 @@ on:
   push:
     branches:
       - alpha/mantyl-enforced-scoped-v1
+    paths-ignore:
+      - ".alpha/receipts/MANTYL_REAL_ALPHA_ENFORCED_SCOPED_RUN_*.json"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  REAL_MAIN_SHA: "5952ba59762bc9cb800e3fa82ab61748b25728c3"
+  REAL_REFERENCE_TREE: "efd70b2eccea206e9a7a51f1d115cfeb29180b89"
+  PREDECESSOR_RECEIPT_SHA: "cd38e3e4ab7950ca7bc2536958d0cc6d51a6df52c0e2214b832fb51f60aa4d77"
+  MANTYL_VERSION: "0.5.0"
+  MANTYL_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
+  POLICY_VERSION: "MANTYL_ENFORCED_SCOPED_V1"
+  SCOPE: "REFERENCE_ENGINE_EXISTING_VERIFICATION_COMMANDS_ONLY"
+  EXPECTED_REPORT_SHA: "cb6452ab0fdb2d90f797400762b2734020e4566d10571458c3fe3486ece73748"
+  EXPECTED_MANIFEST_SHA: "1236fac1bef8f780cd2bc298cd89475b79ff70c553b5d816764a1779d6ffe59d"
+  EXPECTED_CLOSURE_SHA: "c92a5d3e631dd471c2291fb99317aad7f5abce56e54bbf3a0d70b9716b2f514d"
+  GRANT_TTL_SECONDS: "900"
 
 jobs:
   contract:
@@ -15,7 +30,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Checkout exact enforcement branch commit
+      - name: Checkout exact enforcement commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
@@ -23,11 +38,292 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22.23.2"
-      - name: Verify exact Node
+      - name: Run enforcement contract suite
+        run: node --test .alpha/enforcement/enforce.test.mjs
+
+  preexec:
+    name: required-scoped-preexec-gate
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      policy_sha: ${{ steps.issue.outputs.policy_sha }}
+      grants_sha: ${{ steps.issue.outputs.grants_sha }}
+    steps:
+      - name: Checkout immutable enforcement control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.2"
+      - name: Verify exact policy, predecessor receipt, source tree and Mantyl package
         shell: bash
         run: |
           set -euo pipefail
-          test "$(node --version)" = "v22.23.2"
-      - name: Run focused enforcement contract test
+          test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          test "$(sha256sum .alpha/receipts/MANTYL_REAL_ALPHA_SHADOW_RUN_33920073045.json | awk '{print $1}')" = "$PREDECESSOR_RECEIPT_SHA"
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('.alpha/enforcement/policy.json','utf8'));
+          const ok=p.gate==='MANTYL_REAL_ALPHA_ENFORCED_SCOPED_POLICY_V1'&&p.enabled===true&&p.policy_version===process.env.POLICY_VERSION&&
+            p.source_main_sha===process.env.REAL_MAIN_SHA&&p.source_reference_engine_tree===process.env.REAL_REFERENCE_TREE&&p.predecessor_receipt_sha256===process.env.PREDECESSOR_RECEIPT_SHA&&
+            p.scope===process.env.SCOPE&&p.permitted_path==='reference_engine/**'&&p.permitted_workflow==='.github/workflows/mantyl-enforced-scoped-v1.yml'&&
+            p.mantyl_version===process.env.MANTYL_VERSION&&p.authority==='NONE'&&p.github_permissions==='CONTENTS_READ_ONLY'&&p.external_publish===false&&p.paid_layer_used===false;
+          if(!ok) process.exit(70);
+          const now=Date.now(); if(now<Date.parse(p.not_before)||now>Date.parse(p.not_after)) process.exit(71);
+          NODE
+          test "$(npm view "mantyl@$MANTYL_VERSION" version)" = "$MANTYL_VERSION"
+          test "$(npm view "mantyl@$MANTYL_VERSION" dist.integrity)" = "$MANTYL_INTEGRITY"
+      - name: Issue two one-shot least-authority grants
+        id: issue
         shell: bash
-        run: node --test .alpha/enforcement/enforce.test.mjs
+        run: |
+          set -euo pipefail
+          POLICY=.alpha/enforcement/policy.json
+          POLICY_SHA="$(sha256sum "$POLICY" | awk '{print $1}')"
+          GRANTS="$RUNNER_TEMP/grants.json"
+          export POLICY_SHA GRANTS
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const p=JSON.parse(fs.readFileSync('.alpha/enforcement/policy.json','utf8'));
+          const mk=(run)=>{const issued=new Date(),expires=new Date(issued.getTime()+Number(process.env.GRANT_TTL_SECONDS)*1000);return {
+            gate:'MANTYL_REAL_ALPHA_ENFORCED_SCOPED_GRANT_V1',run,policy_version:p.policy_version,policy_sha256:process.env.POLICY_SHA,
+            source_receipt_sha256:p.predecessor_receipt_sha256,source_main_sha:p.source_main_sha,source_reference_engine_tree:p.source_reference_engine_tree,
+            scope:p.scope,mantyl_version:p.mantyl_version,nonce:crypto.randomBytes(32).toString('hex'),issued_at:issued.toISOString(),expires_at:expires.toISOString(),
+            authority:'NONE',github_permissions:'CONTENTS_READ_ONLY',external_publish:false,paid_layer_used:false,verdict:'ADMIT_BOUNDED'};};
+          fs.writeFileSync(process.env.GRANTS,JSON.stringify({A:mk('A'),B:mk('B')},null,2)+'\n');
+          NODE
+          GRANTS_SHA="$(sha256sum "$GRANTS" | awk '{print $1}')"
+          printf 'policy_sha=%s\ngrants_sha=%s\n' "$POLICY_SHA" "$GRANTS_SHA" >> "$GITHUB_OUTPUT"
+          printf 'POLICY_SHA256=%s\nGRANTS_SHA256=%s\n' "$POLICY_SHA" "$GRANTS_SHA"
+      - name: Upload grants
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-enforced-scoped-grants
+          path: ${{ runner.temp }}/grants.json
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  canaries:
+    name: fail-closed-bypass-and-policy-canaries
+    needs: preexec
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout immutable enforcement control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.2"
+      - name: Download grants
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-enforced-scoped-grants
+          path: ${{ runner.temp }}/gate
+      - name: Prove fail-closed denial matrix and emergency disable
+        shell: bash
+        env:
+          EXPECTED_GRANTS_SHA: ${{ needs.preexec.outputs.grants_sha }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$RUNNER_TEMP/gate/grants.json" | awk '{print $1}')" = "$EXPECTED_GRANTS_SHA"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { evaluateAdmission } from './.alpha/enforcement/enforce.mjs';
+          const policy=JSON.parse(fs.readFileSync('.alpha/enforcement/policy.json','utf8'));
+          const grants=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/gate/grants.json','utf8'));
+          const expected={receipt_sha256:process.env.PREDECESSOR_RECEIPT_SHA,source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,policy_version:process.env.POLICY_VERSION,scope:process.env.SCOPE,mantyl_version:process.env.MANTYL_VERSION};
+          const now=new Date().toISOString();
+          const check=(label,grant,p,used,reason)=>{const r=evaluateAdmission({grant,policy:p,expected,now,usedNonces:used});if(r.ok||r.reason!==reason)throw new Error(label+': '+JSON.stringify(r));console.log(label+'='+reason);};
+          check('MISSING_GRANT_DENIED',null,policy,new Set(),'MISSING_GRANT');
+          check('EMERGENCY_DISABLE_DENIED',grants.A,{...policy,enabled:false},new Set(),'POLICY_DISABLED');
+          check('STALE_POLICY_DENIED',grants.A,{...policy,not_after:'2000-01-01T00:00:00.000Z'},new Set(),'POLICY_STALE');
+          check('WRONG_POLICY_VERSION_DENIED',{...grants.A,policy_version:'MANTYL_ENFORCED_SCOPED_V0'},policy,new Set(),'WRONG_POLICY_VERSION');
+          check('WRONG_MANTYL_VERSION_DENIED',{...grants.A,mantyl_version:'0.4.9'},policy,new Set(),'WRONG_MANTYL_VERSION');
+          check('WRONG_SOURCE_TREE_DENIED',{...grants.A,source_reference_engine_tree:'0'.repeat(40)},policy,new Set(),'WRONG_SOURCE_TREE');
+          check('WRONG_SCOPE_DENIED',{...grants.A,scope:'UNSCOPED_EXECUTION'},policy,new Set(),'WRONG_SCOPE');
+          check('WRONG_RECEIPT_DENIED',{...grants.A,source_receipt_sha256:'0'.repeat(64)},policy,new Set(),'WRONG_RECEIPT');
+          check('REPLAYED_NONCE_DENIED',grants.A,policy,new Set([grants.A.nonce]),'REPLAYED_NONCE');
+          let payloadExecuted=false;
+          const missing=evaluateAdmission({grant:null,policy,expected,now,usedNonces:new Set()});
+          if(missing.ok) payloadExecuted=true;
+          if(payloadExecuted) throw new Error('BYPASS_EXECUTED');
+          console.log('NO_VALID_GRANT_NO_EXECUTION=PASS');
+          NODE
+
+  payload_a:
+    name: required-gate-real-payload-A
+    needs: [preexec, canaries]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      normalized_sha: ${{ steps.run.outputs.normalized_sha }}
+    steps:
+      - name: Checkout enforcement control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout exact real source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          path: real
+          persist-credentials: false
+      - name: Set up exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.2"
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Download grants
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-enforced-scoped-grants
+          path: ${{ runner.temp }}/gate
+      - name: REQUIRED pre-exec grant admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';import {evaluateAdmission} from './control/.alpha/enforcement/enforce.mjs';
+          const policy=JSON.parse(fs.readFileSync('./control/.alpha/enforcement/policy.json','utf8'));const grants=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/gate/grants.json','utf8'));
+          const expected={receipt_sha256:process.env.PREDECESSOR_RECEIPT_SHA,source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,policy_version:process.env.POLICY_VERSION,scope:process.env.SCOPE,mantyl_version:process.env.MANTYL_VERSION};
+          const r=evaluateAdmission({grant:grants.A,policy,expected,now:new Date().toISOString(),usedNonces:new Set()});if(!r.ok)throw new Error(r.reason);fs.writeFileSync(process.env.RUNNER_TEMP+'/grant-A-admitted','1');console.log('GRANT_A='+r.reason);
+          NODE
+      - name: Execute exact real payload only after admission
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/grant-A-admitted"
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          cd real/reference_engine
+          python -m pytest -q
+          python scripts/run_reference_closure.py --out /tmp/ref-A
+          python scripts/run_adversarial_closure.py --out /tmp/adv-A
+          R="$(sha256sum /tmp/adv-A/run_a/report.json | awk '{print $1}')"; M="$(sha256sum /tmp/adv-A/run_a/manifest.sha256 | awk '{print $1}')"; C="$(sha256sum /tmp/adv-A/closure_report.json | awk '{print $1}')"
+          test "$R" = "$EXPECTED_REPORT_SHA"; test "$M" = "$EXPECTED_MANIFEST_SHA"; test "$C" = "$EXPECTED_CLOSURE_SHA"
+          printf '{"main":"%s","tree":"%s","report":"%s","manifest":"%s","closure":"%s","policy_version":"%s","scope":"%s","mantyl":"%s"}\n' "$REAL_MAIN_SHA" "$REAL_REFERENCE_TREE" "$R" "$M" "$C" "$POLICY_VERSION" "$SCOPE" "$MANTYL_VERSION" > "$RUNNER_TEMP/norm-A.json"
+          SHA="$(sha256sum "$RUNNER_TEMP/norm-A.json" | awk '{print $1}')"; printf 'normalized_sha=%s\n' "$SHA" >> "$GITHUB_OUTPUT"; echo NORMALIZED_A_SHA256=$SHA
+      - name: Upload normalized A
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-enforced-normalized-A
+          path: ${{ runner.temp }}/norm-A.json
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  payload_b:
+    name: independent-required-gate-real-payload-B
+    needs: [preexec, canaries]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      normalized_sha: ${{ steps.run.outputs.normalized_sha }}
+    steps:
+      - name: Checkout enforcement control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout exact real source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          path: real
+          persist-credentials: false
+      - name: Set up exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.2"
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Download grants
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-enforced-scoped-grants
+          path: ${{ runner.temp }}/gate
+      - name: REQUIRED independent pre-exec grant admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';import {evaluateAdmission} from './control/.alpha/enforcement/enforce.mjs';
+          const policy=JSON.parse(fs.readFileSync('./control/.alpha/enforcement/policy.json','utf8'));const grants=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/gate/grants.json','utf8'));
+          const expected={receipt_sha256:process.env.PREDECESSOR_RECEIPT_SHA,source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,policy_version:process.env.POLICY_VERSION,scope:process.env.SCOPE,mantyl_version:process.env.MANTYL_VERSION};
+          const r=evaluateAdmission({grant:grants.B,policy,expected,now:new Date().toISOString(),usedNonces:new Set()});if(!r.ok)throw new Error(r.reason);fs.writeFileSync(process.env.RUNNER_TEMP+'/grant-B-admitted','1');console.log('GRANT_B='+r.reason);
+          NODE
+      - name: Execute independent exact real payload only after admission
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/grant-B-admitted"
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          cd real/reference_engine
+          python -m pytest -q
+          python scripts/run_reference_closure.py --out /tmp/ref-B
+          python scripts/run_adversarial_closure.py --out /tmp/adv-B
+          R="$(sha256sum /tmp/adv-B/run_a/report.json | awk '{print $1}')"; M="$(sha256sum /tmp/adv-B/run_a/manifest.sha256 | awk '{print $1}')"; C="$(sha256sum /tmp/adv-B/closure_report.json | awk '{print $1}')"
+          test "$R" = "$EXPECTED_REPORT_SHA"; test "$M" = "$EXPECTED_MANIFEST_SHA"; test "$C" = "$EXPECTED_CLOSURE_SHA"
+          printf '{"main":"%s","tree":"%s","report":"%s","manifest":"%s","closure":"%s","policy_version":"%s","scope":"%s","mantyl":"%s"}\n' "$REAL_MAIN_SHA" "$REAL_REFERENCE_TREE" "$R" "$M" "$C" "$POLICY_VERSION" "$SCOPE" "$MANTYL_VERSION" > "$RUNNER_TEMP/norm-B.json"
+          SHA="$(sha256sum "$RUNNER_TEMP/norm-B.json" | awk '{print $1}')"; printf 'normalized_sha=%s\n' "$SHA" >> "$GITHUB_OUTPUT"; echo NORMALIZED_B_SHA256=$SHA
+      - name: Upload normalized B
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-enforced-normalized-B
+          path: ${{ runner.temp }}/norm-B.json
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  final:
+    name: scoped-authority-fence-verdict
+    needs: [contract, preexec, canaries, payload_a, payload_b]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Compare independent normalized payload receipts
+        shell: bash
+        env:
+          A_SHA: ${{ needs.payload_a.outputs.normalized_sha }}
+          B_SHA: ${{ needs.payload_b.outputs.normalized_sha }}
+          POLICY_SHA: ${{ needs.preexec.outputs.policy_sha }}
+          GRANTS_SHA: ${{ needs.preexec.outputs.grants_sha }}
+        run: |
+          set -euo pipefail
+          test "$A_SHA" = "$B_SHA"
+          RECEIPT="$RUNNER_TEMP/final.json"
+          node - <<'NODE' > "$RECEIPT"
+          const r={gate:'MANTYL_REAL_ALPHA_ENFORCED_SCOPED_WORKFLOW_AND_AUTHORITY_FENCE_V1',timestamp_utc:new Date().toISOString(),workflow_run_id:process.env.GITHUB_RUN_ID,workflow_sha:process.env.GITHUB_SHA,
+            source_main_sha:process.env.REAL_MAIN_SHA,source_reference_engine_tree:process.env.REAL_REFERENCE_TREE,predecessor_receipt_sha256:process.env.PREDECESSOR_RECEIPT_SHA,
+            policy_version:process.env.POLICY_VERSION,policy_sha256:process.env.POLICY_SHA,scoped_grants_sha256:process.env.GRANTS_SHA,mantyl_version:process.env.MANTYL_VERSION,scope:process.env.SCOPE,
+            contract_tests_passed:true,required_scoped_gate_within_workflow:true,no_valid_grant_no_execution_within_workflow:true,bypass_without_grant_denied_within_workflow:true,
+            emergency_disable_fail_closed:true,stale_policy_denied:true,wrong_policy_version_denied:true,wrong_mantyl_version_denied:true,wrong_source_tree_denied:true,wrong_scope_denied:true,replayed_nonce_denied:true,
+            independent_second_runner:true,normalized_payload_equality:true,normalized_payload_sha256:process.env.A_SHA,least_authority:'CONTENTS_READ_ONLY',external_publish:false,paid_layer_used:false,
+            repository_ruleset_present:false,branch_protection_present:false,repository_level_bypass_prevention:false,authority_promotion:false,global_bind:false,production_readiness_claim:false,
+            claim_ceiling:'Required scoped gate is enforced inside this dedicated ProofPath reference_engine workflow. Repository-level mandatory enforcement is not established because branch protection/ruleset is absent and cannot be mutated by the current GitHub integration.',
+            verdict:'HOLD_GITHUB_BRANCH_PROTECTION_AUTHORITY_FENCE'};process.stdout.write(JSON.stringify(r,null,2)+'\n');
+          NODE
+          cat "$RECEIPT"
+          echo FINAL_ENFORCED_SCOPED_RECEIPT_SHA256=$(sha256sum "$RECEIPT" | awk '{print $1}')
+      - name: Upload final bounded receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-enforced-scoped-final
+          path: ${{ runner.temp }}/final.json
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
