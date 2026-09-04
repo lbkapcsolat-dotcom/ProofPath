@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$SYNTH_REPO"
-          "$MANTYL_BIN" scan .
+          "$MANTYL_BIN" scan
           "$MANTYL_BIN" verify
           "$MANTYL_BIN" generate
           PASSPORT="$SYNTH_REPO/.mantyl/passport.json"
