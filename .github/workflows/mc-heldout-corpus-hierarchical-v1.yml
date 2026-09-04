@@ -1,0 +1,49 @@
+name: MC Heldout Corpus Hierarchical V1
+
+on:
+  push:
+    branches:
+      - alpha/mc-heldout-corpus-hierarchical-v1
+    paths:
+      - .github/workflows/mc-heldout-corpus-hierarchical-v1.yml
+      - scripts/mc_heldout_corpus_hierarchical_v1.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heldout-corpus-hierarchical-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ProofPath
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.3.1'
+          python -m pip install 'transformers==4.45.2' 'safetensors==0.4.5' 'huggingface_hub==0.25.2' 'numpy==1.26.4'
+          mkdir -p outputs/mc_heldout_hierarchical
+
+      - name: Run heldout corpus hierarchical audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/mc_heldout_corpus_hierarchical_v1.py
+
+      - name: Upload hierarchical evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-heldout-corpus-hierarchical-v1
+          path: outputs/mc_heldout_hierarchical/
+          if-no-files-found: error
+          retention-days: 7
