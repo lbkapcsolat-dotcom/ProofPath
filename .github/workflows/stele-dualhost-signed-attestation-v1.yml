@@ -1,0 +1,127 @@
+name: stele-dualhost-signed-attestation-v1
+
+on:
+  push:
+    branches:
+      - stele-namespace-dualhost-v1
+    paths:
+      - .github/workflows/stele-dualhost-signed-attestation-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  host2-signed-attestation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated canary branch
+        uses: actions/checkout@v4
+
+      - name: Pin Node 22.16.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Reconstruct and verify frozen package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat stele-dualhost/package.b64.part00 stele-dualhost/package.b64.part01 stele-dualhost/package.b64.part02 stele-dualhost/package.b64.part03 stele-dualhost/package.b64.part04 stele-dualhost/package.b64.part05 stele-dualhost/package.b64.part06 stele-dualhost/package.b64.part07 stele-dualhost/package.b64.part08 > /tmp/stele-package.b64
+          base64 -d /tmp/stele-package.b64 > /tmp/stele-package.zip
+          echo '7cf0336241c4891c5f5808b2c0495d0bd64869b749ca32d7952677991a66b20e  /tmp/stele-package.zip' | sha256sum -c -
+          rm -rf /tmp/stele-pkg
+          mkdir -p /tmp/stele-pkg
+          unzip -q /tmp/stele-package.zip -d /tmp/stele-pkg
+          test "$(node --version)" = 'v22.16.0'
+          sudo -n true
+
+      - name: Capture host namespace baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          readlink /proc/self/ns/mnt > /tmp/host_mnt_ns
+          readlink /proc/self/ns/pid > /tmp/host_pid_ns
+          readlink /proc/self/ns/net > /tmp/host_net_ns
+          command -v unshare
+          command -v ip
+          command -v jq
+
+      - name: Fresh Host2 namespace execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_BIN="$(command -v node)"
+          cat > /tmp/stele-attest-ns-run.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          NODE_BIN="$1"
+          PKG="$2"
+          INSIDE_MNT="$(readlink /proc/self/ns/mnt)"
+          INSIDE_PID="$(readlink /proc/self/ns/pid)"
+          INSIDE_NET="$(readlink /proc/self/ns/net)"
+          SELF_PID="$$"
+          DEFAULT_ROUTE_COUNT="$(ip route show default | wc -l)"
+          test "$SELF_PID" -eq 1
+          test "$DEFAULT_ROUTE_COUNT" -eq 0
+          mkdir -p /tmp/stele-attest-mount-marker
+          mount -t tmpfs -o size=4m tmpfs /tmp/stele-attest-mount-marker
+          printf 'namespace-only\n' > /tmp/stele-attest-mount-marker/marker
+          jq -n --arg mnt "$INSIDE_MNT" --arg pid "$INSIDE_PID" --arg net "$INSIDE_NET" --argjson self_pid "$SELF_PID" --argjson default_route_count "$DEFAULT_ROUTE_COUNT" '{inside_mnt_ns:$mnt,inside_pid_ns:$pid,inside_net_ns:$net,inside_pid:$self_pid,default_route_count:$default_route_count}' > /tmp/namespace_inside_attestation.json
+          cd "$PKG"
+          "$NODE_BIN" --test test/*.test.mjs > /tmp/host2_tests_attestation.tap
+          "$NODE_BIN" scripts/run_hardening_matrix.mjs > /tmp/host2_matrix_attestation.json
+          "$NODE_BIN" scripts/run_replay.mjs > /tmp/host2_replay_attestation.json
+          EOS
+          chmod 0755 /tmp/stele-attest-ns-run.sh
+          sudo env PATH="$PATH" unshare --mount --pid --net --fork --mount-proc --propagation private /bin/bash /tmp/stele-attest-ns-run.sh "$NODE_BIN" /tmp/stele-pkg
+
+      - name: Verify Host2 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '# tests 48' /tmp/host2_tests_attestation.tap
+          grep -q '# pass 48' /tmp/host2_tests_attestation.tap
+          grep -q '# fail 0' /tmp/host2_tests_attestation.tap
+          echo '1cd201f8af1a5ac6890cbeb8c56b23e9ea27e0f11bb6e4a790312cefc090ffc8  /tmp/host2_matrix_attestation.json' | sha256sum -c -
+          echo '25b0fa5e9d5255f3584dbd8aa110e85c9fce7a198786cb98f981a2d843488d01  /tmp/host2_replay_attestation.json' | sha256sum -c -
+          jq -e '.case_count == 57 and .pass_count == 57 and .fail_count == 0 and .unauthorized_execution_failures == 0' /tmp/host2_matrix_attestation.json
+          jq -e '.admitted == true and .replay.reason == "CAPABILITY_REPLAYED" and .replay.execution_count == 1 and .decision.runtime_admission == false and .decision.production_readiness == false and .decision.automatic_promotion == false and .decision.external_actuation == false' /tmp/host2_replay_attestation.json
+          test "$(jq -r .inside_pid /tmp/namespace_inside_attestation.json)" = '1'
+          test "$(jq -r .default_route_count /tmp/namespace_inside_attestation.json)" = '0'
+          test "$(cat /tmp/host_mnt_ns)" != "$(jq -r .inside_mnt_ns /tmp/namespace_inside_attestation.json)"
+          test "$(cat /tmp/host_pid_ns)" != "$(jq -r .inside_pid_ns /tmp/namespace_inside_attestation.json)"
+          test "$(cat /tmp/host_net_ns)" != "$(jq -r .inside_net_ns /tmp/namespace_inside_attestation.json)"
+          test ! -e /tmp/stele-attest-mount-marker/marker
+
+      - name: Sign Host2 attestation with ephemeral Ed25519 key
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/host2_matrix_attestation.json /tmp/hardening_matrix_second_host.json
+          cp /tmp/host2_replay_attestation.json /tmp/replay_second_host.json
+          cp /tmp/namespace_inside_attestation.json /tmp/namespace_inside.json
+          HOST_MNT_NS="$(cat /tmp/host_mnt_ns)" HOST_PID_NS="$(cat /tmp/host_pid_ns)" HOST_NET_NS="$(cat /tmp/host_net_ns)" node stele-dualhost/sign_host2.mjs
+          ! grep -q 'PRIVATE KEY' /tmp/host2_attestation.json
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs'; import crypto from 'node:crypto'; import {canonicalJson} from './stele-dualhost/attestor.mjs';
+          const a=JSON.parse(fs.readFileSync('/tmp/host2_attestation.json','utf8'));
+          const ok=crypto.verify(null,Buffer.from(canonicalJson(a.payload)),crypto.createPublicKey(a.public_key_pem),Buffer.from(a.signature_base64,'base64'));
+          if(!ok) throw new Error('HOST2_SIGNATURE_VERIFY_FAILED');
+          NODE
+          sha256sum /tmp/host2_attestation.json /tmp/host2_attestation_summary.json /tmp/host2_matrix_attestation.json /tmp/host2_replay_attestation.json /tmp/namespace_inside_attestation.json > /tmp/host2_attestation_hashes.sha256
+
+      - name: Upload Host2 signed attestation receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stele-dualhost-signed-attestation-v1-host2
+          path: |
+            /tmp/host2_attestation.json
+            /tmp/host2_attestation_summary.json
+            /tmp/host2_attestation_hashes.sha256
+            /tmp/host2_matrix_attestation.json
+            /tmp/host2_replay_attestation.json
+            /tmp/namespace_inside_attestation.json
+            /tmp/host2_tests_attestation.tap
+          if-no-files-found: error
+          retention-days: 7
