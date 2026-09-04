@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ProofPath School Evidence Coach</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">CSC Back-to-School Hackathon 2026 · Assignment Mode</p>
+      <h1>School Evidence Coach</h1>
+      <p class="lead">A student-facing reasoning aid for checking whether a source passage supports, contradicts, or is insufficient for a school assignment claim.</p>
+    </header>
+
+    <section class="card">
+      <label for="claim">Assignment claim</label>
+      <textarea id="claim" placeholder="Example: School gardens improve student science engagement."></textarea>
+      <label for="evidence">Evidence passage</label>
+      <textarea id="evidence" placeholder="Paste a short source passage here."></textarea>
+      <button id="assess">Assess evidence</button>
+    </section>
+
+    <section id="result" class="card result" aria-live="polite">
+      <h2>Result</h2>
+      <p class="muted">Enter a claim and evidence passage to begin.</p>
+    </section>
+
+    <section class="card compact">
+      <h2>Claim ceiling</h2>
+      <p><strong>EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY</strong></p>
+      <p>This tool does not certify truth, replace a teacher, or verify a source's authority. It helps students keep uncertainty visible and decide what evidence to seek next.</p>
+    </section>
+  </main>
+  <script src="engine.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
