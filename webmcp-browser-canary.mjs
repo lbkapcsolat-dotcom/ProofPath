@@ -31,7 +31,7 @@ try {
     const tools = await context.getTools();
     const analyzeEvidence = tools.find((candidate) => candidate?.name === "analyze_evidence");
     if (!analyzeEvidence) {
-      throw new Error(`analyze_evidence not discovered: ${JSON.stringify(tools)}`);
+      throw new Error(`analyze_evidence not discovered: ${JSON.stringify(tools.map((tool) => tool?.name))}`);
     }
 
     const normalRaw = await context.executeTool(
@@ -47,7 +47,7 @@ try {
       producer,
       discovery,
       execution,
-      tools,
+      toolNames: tools.map((tool) => tool?.name),
       normalRaw: String(normalRaw),
       blockedRaw: String(blockedRaw),
     };
@@ -56,6 +56,7 @@ try {
   assert.equal(result.producer, true);
   assert.equal(result.discovery, true);
   assert.equal(result.execution, true);
+  assert.ok(result.toolNames.includes("analyze_evidence"));
   assert.match(result.normalRaw, /SUPPORTED/);
   assert.match(result.blockedRaw, /BLOCK|Add evidence first/);
   console.log(JSON.stringify({ status: "PASS_WEBMCP_BROWSER_RUNTIME", ...result }, null, 2));
