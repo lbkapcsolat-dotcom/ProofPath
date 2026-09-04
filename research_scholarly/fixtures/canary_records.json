@@ -1,0 +1,166 @@
+{
+  "schema": "proofpath.scholarly_verifier.fixture.v1",
+  "retrieved_at": "2026-08-26T15:13:12Z",
+  "engine_canaries": [
+    {
+      "engine": "sider_openalex",
+      "status": "PASS_BOUNDED_WITH_RESOLVER_GAP",
+      "notes": [
+        "Broad OpenAlex discovery returned current scholarly records.",
+        "Direct DOI lookup for 10.1111/faf.70079 returned an error.",
+        "A title-keyword retry missed the exact target, so DOI resolution cannot be treated as infallible."
+      ]
+    },
+    {
+      "engine": "scispace",
+      "status": "PASS",
+      "notes": ["Semantic search resolved the 2026 Fish and Fisheries agentic-AI evaluation with DOI metadata."]
+    },
+    {
+      "engine": "scholar_gateway",
+      "status": "PASS_BOUNDED_FRESHNESS",
+      "notes": ["Peer-reviewed passage evidence and provenance returned successfully.", "Corpus freshness disclosure: May 2026."]
+    },
+    {
+      "engine": "alphaxiv",
+      "status": "PASS",
+      "notes": ["Direct PDF page retrieval succeeded for arXiv:2608.13867v1, including methods, claims, references, and data availability."]
+    },
+    {
+      "engine": "scite",
+      "status": "PASS",
+      "notes": ["Full-text excerpts/citation context returned for 10.1111/faf.70079.", "Retraction negative control returned explicit editorial notices."]
+    },
+    {
+      "engine": "amass",
+      "status": "PASS_DOMAIN_PRIMARY",
+      "notes": ["BiomedCore resolved DOI 10.2147/BTT.S429411 to PMID 38260716 with retraction status and journal-quality metadata."]
+    }
+  ],
+  "records": [
+    {
+      "engine": "scispace",
+      "ids": {"doi": "10.1111/faf.70079"},
+      "title": "Automating Ecological and Fisheries Modelling With Agentic AI",
+      "year": 2026,
+      "peer_reviewed": true,
+      "editorial_status": ["clear"]
+    },
+    {
+      "engine": "scholar_gateway",
+      "ids": {"doi": "https://doi.org/10.1111/faf.70079"},
+      "title": "Automating Ecological and Fisheries Modelling With Agentic AI",
+      "year": 2026,
+      "peer_reviewed": true,
+      "editorial_status": ["clear"]
+    },
+    {
+      "engine": "scite",
+      "ids": {"doi": "10.1111/FAF.70079"},
+      "title": "Automating Ecological and Fisheries Modelling With Agentic AI",
+      "year": 2026,
+      "peer_reviewed": true,
+      "editorial_status": ["clear"]
+    },
+    {
+      "engine": "sider_openalex",
+      "ids": {"openalex": "W7203621245", "arxiv": "2608.13867v1"},
+      "title": "Engineering Reliable Coding Agents: Evaluating and Operating the System Around the Model",
+      "year": 2026,
+      "peer_reviewed": false,
+      "editorial_status": ["clear"]
+    },
+    {
+      "engine": "alphaxiv",
+      "ids": {"arxiv": "arXiv:2608.13867"},
+      "title": "Engineering Reliable Coding Agents: Evaluating and Operating the System Around the Model",
+      "year": 2026,
+      "peer_reviewed": false,
+      "editorial_status": ["clear"]
+    },
+    {
+      "engine": "scite",
+      "ids": {"doi": "10.1016/S0140-6736(97)11096-0"},
+      "title": "RETRACTED: Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children",
+      "year": 1998,
+      "peer_reviewed": true,
+      "editorial_status": ["retracted", "correction", "erratum", "expression_of_concern"]
+    },
+    {
+      "engine": "amass",
+      "ids": {"doi": "10.2147/BTT.S429411", "pmid": "38260716"},
+      "title": "Recent Advancements in Reducing the Off-Target Effect of CRISPR-Cas9 Genome Editing",
+      "year": 2024,
+      "peer_reviewed": true,
+      "editorial_status": ["clear"]
+    }
+  ],
+  "evidence": [
+    {
+      "ref": "faf_gateway_passage",
+      "engine": "scholar_gateway",
+      "subject_alias": "doi:10.1111/faf.70079",
+      "kind": "passage",
+      "locator": "10.1111/faf.70079_0002",
+      "content": "frozen-evidence-v1|scholar_gateway|doi:10.1111/faf.70079|passage|10.1111/faf.70079_0002",
+      "content_sha256": "a749f6b10e298e478b625c333f318d06f8f5383d99f5dfdb321c8a9230d3980b"
+    },
+    {
+      "ref": "faf_scite_passage",
+      "engine": "scite",
+      "subject_alias": "doi:10.1111/faf.70079",
+      "kind": "fulltext",
+      "locator": "scite:10.1111/faf.70079:fulltextExcerpts",
+      "content": "frozen-evidence-v1|scite|doi:10.1111/faf.70079|fulltext|scite:10.1111/faf.70079:fulltextExcerpts",
+      "content_sha256": "6c1179c656c299b82c962dfde8db58f71288ae7b93f0acb46af1c737f10e7c45"
+    },
+    {
+      "ref": "er_agent_alphaxiv_page2",
+      "engine": "alphaxiv",
+      "subject_alias": "arxiv:2608.13867",
+      "kind": "fulltext",
+      "locator": "arxiv:2608.13867v1:page:2",
+      "content": "frozen-evidence-v1|alphaxiv|arxiv:2608.13867|fulltext|arxiv:2608.13867v1:page:2",
+      "content_sha256": "0122cf64dd0354915c5be291d708b257c64bbf1f9c7fc07e3128a19fd0e0bcf6"
+    },
+    {
+      "ref": "amass_abstract_only",
+      "engine": "amass",
+      "subject_alias": "doi:10.2147/btt.s429411",
+      "kind": "abstract",
+      "locator": "amass:AMBC_RSwefj3ZzWIIpXH4xNRQAsMaFuT:abstract",
+      "content": "frozen-evidence-v1|amass|doi:10.2147/btt.s429411|abstract|amass:AMBC_RSwefj3ZzWIIpXH4xNRQAsMaFuT:abstract",
+      "content_sha256": "dcdc0646930addf758067079397c0d2d8083d7009739fb6da39bd0121390bbbb"
+    }
+  ],
+  "claims": [
+    {
+      "id": "C1",
+      "text": "Agentic AI modelling performance can vary across tasks and repeated runs, so scientific use requires explicit reliability evaluation.",
+      "subject_alias": "doi:10.1111/faf.70079",
+      "evidence_refs": ["faf_gateway_passage", "faf_scite_passage"],
+      "min_independent_engines": 2
+    },
+    {
+      "id": "C2",
+      "text": "Coding-agent reliability depends on the surrounding system and not only on model capability.",
+      "subject_alias": "arxiv:2608.13867v1",
+      "evidence_refs": ["er_agent_alphaxiv_page2"],
+      "min_independent_engines": 2
+    },
+    {
+      "id": "C3",
+      "text": "The 1998 Wakefield Lancet paper is admissible as positive scientific evidence.",
+      "subject_alias": "doi:10.1016/s0140-6736(97)11096-0",
+      "evidence_refs": [],
+      "min_independent_engines": 1
+    },
+    {
+      "id": "C4",
+      "text": "CRISPR-Cas9 off-target effects remain an important challenge.",
+      "subject_alias": "doi:10.2147/btt.s429411",
+      "evidence_refs": ["amass_abstract_only"],
+      "min_independent_engines": 2
+    }
+  ]
+}

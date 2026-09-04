@@ -1,0 +1,9 @@
+[project]
+name = "alpha-full-6d-reference-engine"
+version = "0.1.0"
+description = "Deterministic reference implementation of the ALPHA FULL 6D machine contract"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,49 @@
+{
+  "schema": "ALPHA_ADVERSARIAL_INVARIANT_MATRIX_V1",
+  "engine_contract": "ALPHA_FULL_6D_MACHINE_CONTRACT_FORMAL_SPEC_V1",
+  "seed": 27904,
+  "families": [
+    {
+      "id": "I01_UNKNOWN_NOT_MISSING",
+      "case_count": 256,
+      "property": "Unknown current state must never collapse to MISSING under numeric metamorphisms.",
+      "metamorphism": "Vary all bounded numeric gap fields while current_known remains false.",
+      "expected": "HOLD_PRECONDITION + gap_type UNKNOWN + severity null"
+    },
+    {
+      "id": "I03_HOLD_DOMINATES_SCORE",
+      "case_count": 288,
+      "property": "Any failed hard guard must dominate any attainable priority score.",
+      "metamorphism": "Inflate all six dimensions and confidence while one guard is false.",
+      "expected": "HOLD at precedence-selected guard + score null"
+    },
+    {
+      "id": "I05_AUTHORITY_FAIL_CLOSED",
+      "case_count": 256,
+      "property": "Read-only or malformed authority cannot be bypassed by payload utility.",
+      "metamorphism": "Vary score payloads and authority mutations/malformed authority modes.",
+      "expected": "HOLD_AUTHORITY or HOLD_SCHEMA before module score"
+    },
+    {
+      "id": "I09_STATE_TRANSITION_PROOF",
+      "case_count": 256,
+      "property": "State transitions cannot manufacture verification or skip/backtrack lifecycle or authority stages.",
+      "metamorphism": "Generate lifecycle, verification, authority, evidence and actor-scope transitions.",
+      "expected": "Only evidence-backed adjacent legal transitions PASS"
+    },
+    {
+      "id": "I08_BATCH_REQUIRED_FAIL_CLOSED",
+      "case_count": 256,
+      "property": "One required HOLD blocks full PASS and job ordering/optional jobs cannot change required result.",
+      "metamorphism": "Permute jobs, add optional HOLD jobs, and inject duplicate required identities.",
+      "expected": "Permutation-invariant fail-closed aggregate; duplicate identity HOLD"
+    },
+    {
+      "id": "I12_NBA_SMALLEST_SAFE",
+      "case_count": 288,
+      "property": "NBA chooses only the smallest safe effective action class and is permutation/unsafe-insertion invariant.",
+      "metamorphism": "Permute candidates, add unsafe/arbitrary higher-score actions, and inject duplicate action identities.",
+      "expected": "Stable smallest-safe selection; duplicate identity HOLD"
+    }
+  ]
+}
