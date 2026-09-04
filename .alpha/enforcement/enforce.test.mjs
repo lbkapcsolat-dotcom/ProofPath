@@ -50,7 +50,48 @@ function validFixture() {
   };
 }
 
+function expectDeny(mutator, reason) {
+  const f = validFixture();
+  mutator(f);
+  assert.deepEqual(evaluateAdmission(f), { ok: false, reason });
+}
+
 test('exact valid grant admits the exact governed reference_engine scope', () => {
-  const result = evaluateAdmission(validFixture());
-  assert.deepEqual(result, { ok: true, reason: 'ADMIT_BOUNDED' });
+  assert.deepEqual(evaluateAdmission(validFixture()), { ok: true, reason: 'ADMIT_BOUNDED' });
+});
+
+test('missing grant is denied before execution', () => {
+  expectDeny(f => { f.grant = null; }, 'MISSING_GRANT');
+});
+
+test('emergency-disabled policy is fail-closed', () => {
+  expectDeny(f => { f.policy.enabled = false; }, 'POLICY_DISABLED');
+});
+
+test('stale policy is denied', () => {
+  expectDeny(f => { f.now = '2027-01-01T00:00:00.000Z'; }, 'POLICY_STALE');
+});
+
+test('wrong policy version is denied', () => {
+  expectDeny(f => { f.grant.policy_version = 'MANTYL_ENFORCED_SCOPED_V0'; }, 'WRONG_POLICY_VERSION');
+});
+
+test('replayed nonce is denied', () => {
+  expectDeny(f => { f.usedNonces.add('nonce-A'); }, 'REPLAYED_NONCE');
+});
+
+test('wrong source tree is denied', () => {
+  expectDeny(f => { f.grant.source_reference_engine_tree = '0000000000000000000000000000000000000000'; }, 'WRONG_SOURCE_TREE');
+});
+
+test('wrong scope is denied', () => {
+  expectDeny(f => { f.grant.scope = 'UNSCOPED_EXECUTION'; }, 'WRONG_SCOPE');
+});
+
+test('wrong Mantyl version is denied', () => {
+  expectDeny(f => { f.grant.mantyl_version = '0.4.9'; }, 'WRONG_MANTYL_VERSION');
+});
+
+test('stale grant is denied', () => {
+  expectDeny(f => { f.now = '2026-09-04T21:26:00.000Z'; }, 'GRANT_STALE');
 });
