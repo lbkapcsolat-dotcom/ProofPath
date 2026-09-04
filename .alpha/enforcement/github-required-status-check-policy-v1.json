@@ -1,0 +1,31 @@
+{
+  "gate": "GITHUB_REQUIRED_STATUS_CHECK_AND_BRANCH_PROTECTION_BIND_V1",
+  "enabled": true,
+  "policy_version": "GITHUB_REQUIRED_STATUS_CHECK_BIND_V1",
+  "not_before": "2026-09-04T21:40:00.000Z",
+  "not_after": "2026-12-31T23:59:59.000Z",
+  "base_branch": "main",
+  "source_main_sha": "5952ba59762bc9cb800e3fa82ab61748b25728c3",
+  "source_reference_engine_tree": "efd70b2eccea206e9a7a51f1d115cfeb29180b89",
+  "predecessor_receipt_sha256": "2675f42aff3fab48b62b755f13988059b8a1130140ccd2316bdc8c595bb27f32",
+  "required_check": "scoped-authority-fence-verdict",
+  "governed_path": "reference_engine/**",
+  "normal_pr_semantics": "out-of-scope changes pass without governed payload execution; any reference_engine tree change requires explicit policy rollover",
+  "protected_control_paths": [
+    ".github/workflows/github-required-status-check-bind-v1.yml",
+    ".alpha/enforcement/github-required-status-check-policy-v1.json",
+    ".alpha/receipts/MANTYL_REAL_ALPHA_ENFORCED_SCOPED_RUN_33921798286.json"
+  ],
+  "least_authority": "CONTENTS_READ_ONLY",
+  "external_publish": false,
+  "paid_layer_used": false,
+  "emergency_admin_recovery": "repository administrator may deliberately disable or edit branch protection/ruleset; this is outside ALPHA execution authority and must be followed by fresh protection readback",
+  "authority_promotion_requires": [
+    "main protected=true",
+    "required status check scoped-authority-fence-verdict",
+    "direct push bypass denied for normal actors",
+    "workflow removal cannot merge without required check success",
+    "fresh branch protection or repository ruleset readback",
+    "fresh successful check-run readback"
+  ]
+}
