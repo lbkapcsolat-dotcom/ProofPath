@@ -1,0 +1,200 @@
+name: Mantyl Zero Spend Canary V1
+
+on:
+  push:
+    branches:
+      - alpha/mantyl-zero-spend-canary-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MANTYL_VERSION: "0.5.0"
+      EXPECTED_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
+    steps:
+      - name: Runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node --version
+          npm --version
+          git --version
+          docker --version
+
+      - name: Pin and verify Mantyl package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
+          TOOL="$ROOT/tool"
+          mkdir -p "$TOOL"
+          cd "$TOOL"
+          REGISTRY_VERSION="$(npm view "mantyl@$MANTYL_VERSION" version)"
+          REGISTRY_INTEGRITY="$(npm view "mantyl@$MANTYL_VERSION" dist.integrity)"
+          test "$REGISTRY_VERSION" = "$MANTYL_VERSION"
+          test "$REGISTRY_INTEGRITY" = "$EXPECTED_INTEGRITY"
+          npm pack "mantyl@$MANTYL_VERSION" --json > pack.json
+          TARBALL="$(node -e 'console.log(require("./pack.json")[0].filename)')"
+          PACK_VERSION="$(node -e 'console.log(require("./pack.json")[0].version)')"
+          PACK_INTEGRITY="$(node -e 'console.log(require("./pack.json")[0].integrity)')"
+          test "$PACK_VERSION" = "$MANTYL_VERSION"
+          test "$PACK_INTEGRITY" = "$EXPECTED_INTEGRITY"
+          TARBALL_SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          printf 'MANTYL_VERSION=%s\n' "$MANTYL_VERSION" | tee -a "$GITHUB_ENV"
+          printf 'MANTYL_REGISTRY_INTEGRITY=%s\n' "$REGISTRY_INTEGRITY" | tee -a "$GITHUB_ENV"
+          printf 'MANTYL_TARBALL_SHA256=%s\n' "$TARBALL_SHA256" | tee -a "$GITHUB_ENV"
+          npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
+          printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" | tee -a "$GITHUB_ENV"
+          "$TOOL/install/node_modules/.bin/mantyl" --version || true
+
+      - name: Create clean synthetic repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
+          SRC="$ROOT/source"
+          mkdir -p "$SRC/src"
+          cd "$SRC"
+          cat > package.json <<'JSON'
+          {
+            "name": "alpha-mantyl-canary-v1",
+            "version": "1.0.0",
+            "private": true,
+            "type": "module",
+            "scripts": {
+              "build": "node build.mjs",
+              "test": "node test.mjs"
+            }
+          }
+          JSON
+          printf 'ALPHA\n' > src/value.txt
+          cat > build.mjs <<'JS'
+          import fs from 'node:fs';
+          fs.mkdirSync('dist', { recursive: true });
+          fs.writeFileSync('dist/result.txt', 'ALPHA_MANTYL_CANARY_V1\n');
+          console.log('BUILD_OK');
+          JS
+          cat > test.mjs <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          assert.equal(fs.readFileSync('src/value.txt', 'utf8'), 'ALPHA\n');
+          console.log('TEST_OK');
+          JS
+          git init -b main
+          git config user.name 'ALPHA Mantyl Canary'
+          git config user.email 'canary@example.invalid'
+          "$MANTYL_BIN" doctor || true
+          timeout 30s "$MANTYL_BIN" init
+          git add package.json build.mjs test.mjs src/value.txt mantyl.config.json
+          git commit -m 'Synthetic Mantyl canary baseline'
+          SYNTH_COMMIT="$(git rev-parse HEAD)"
+          printf 'SYNTH_REPO=%s\n' "$SRC" | tee -a "$GITHUB_ENV"
+          printf 'SYNTH_COMMIT=%s\n' "$SYNTH_COMMIT" | tee -a "$GITHUB_ENV"
+          printf 'SYNTH_TREE=%s\n' "$(git rev-parse HEAD^{tree})" | tee -a "$GITHUB_ENV"
+          git status --porcelain
+
+      - name: Scan verify and generate passport
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SYNTH_REPO"
+          "$MANTYL_BIN" scan .
+          "$MANTYL_BIN" verify
+          "$MANTYL_BIN" generate
+          PASSPORT="$SYNTH_REPO/.mantyl/passport.json"
+          test -s "$PASSPORT"
+          PASSPORT_SHA256="$(sha256sum "$PASSPORT" | awk '{print $1}')"
+          PASSPORT_BYTES="$(wc -c < "$PASSPORT" | tr -d ' ')"
+          EMBEDDED_DIGEST="$(node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync(process.env.SYNTH_REPO+'/.mantyl/passport.json','utf8'));
+          const keys=['digest','passportDigest','passport_digest'];
+          let out='';
+          for (const k of keys) if (typeof p[k] === 'string') { out=p[k]; break; }
+          if (!out && p.integrity && typeof p.integrity.digest === 'string') out=p.integrity.digest;
+          process.stdout.write(out || 'NOT_FOUND');
+          NODE
+          )"
+          printf 'PASSPORT_PATH=%s\n' "$PASSPORT" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_SHA256=%s\n' "$PASSPORT_SHA256" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_BYTES=%s\n' "$PASSPORT_BYTES" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_EMBEDDED_DIGEST=%s\n' "$EMBEDDED_DIGEST" | tee -a "$GITHUB_ENV"
+          printf 'PASSPORT_SHA256=%s\nPASSPORT_BYTES=%s\nPASSPORT_EMBEDDED_DIGEST=%s\n' "$PASSPORT_SHA256" "$PASSPORT_BYTES" "$EMBEDDED_DIGEST"
+
+      - name: Independent clean receive replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
+          SECOND="$ROOT/recipient"
+          git clone --quiet "$SYNTH_REPO" "$SECOND"
+          cd "$SECOND"
+          test "$(git rev-parse HEAD)" = "$SYNTH_COMMIT"
+          set +e
+          "$MANTYL_BIN" receive --passport "$PASSPORT_PATH"
+          CLEAN_EXIT=$?
+          set -e
+          printf 'CLEAN_RECEIVE_EXIT=%s\n' "$CLEAN_EXIT" | tee -a "$GITHUB_ENV"
+          test "$CLEAN_EXIT" -eq 0
+          printf 'RECIPIENT_REPO=%s\n' "$SECOND" | tee -a "$GITHUB_ENV"
+
+      - name: One-byte one-file negative canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RECIPIENT_REPO"
+          BEFORE="$(sha256sum src/value.txt | awk '{print $1}')"
+          printf 'B' | dd of=src/value.txt bs=1 seek=0 count=1 conv=notrunc status=none
+          AFTER="$(sha256sum src/value.txt | awk '{print $1}')"
+          test "$BEFORE" != "$AFTER"
+          set +e
+          "$MANTYL_BIN" receive --passport "$PASSPORT_PATH"
+          NEG_EXIT=$?
+          set -e
+          printf 'NEGATIVE_RECEIVE_EXIT=%s\n' "$NEG_EXIT" | tee -a "$GITHUB_ENV"
+          printf 'NEGATIVE_FILE=src/value.txt\n' | tee -a "$GITHUB_ENV"
+          printf 'NEGATIVE_BEFORE_SHA256=%s\n' "$BEFORE" | tee -a "$GITHUB_ENV"
+          printf 'NEGATIVE_AFTER_SHA256=%s\n' "$AFTER" | tee -a "$GITHUB_ENV"
+          test "$NEG_EXIT" -ne 0
+
+      - name: Normalize bounded ALPHA receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          RECEIPT="$RUNNER_TEMP/mantyl-alpha-canary/receipt.json"
+          node - <<'NODE' > "$RECEIPT"
+          const r = {
+            gate: 'MANTYL_ZERO_SPEND_CLOUD_DOCKER_EXECUTION_AND_RECEIVE_REPLAY_CANARY_V1',
+            timestamp_utc: new Date().toISOString(),
+            runtime: 'github-actions/ubuntu-24.04',
+            zero_spend_path: 'public-repository-github-actions + free-local-mantyl-cli',
+            mantyl_version: process.env.MANTYL_VERSION,
+            registry_integrity: process.env.MANTYL_REGISTRY_INTEGRITY,
+            package_tarball_sha256: process.env.MANTYL_TARBALL_SHA256,
+            synthetic_commit: process.env.SYNTH_COMMIT,
+            synthetic_tree: process.env.SYNTH_TREE,
+            passport_sha256: process.env.PASSPORT_SHA256,
+            passport_bytes: Number(process.env.PASSPORT_BYTES),
+            passport_embedded_digest: process.env.PASSPORT_EMBEDDED_DIGEST,
+            clean_receive_exit: Number(process.env.CLEAN_RECEIVE_EXIT),
+            negative_receive_exit: Number(process.env.NEGATIVE_RECEIVE_EXIT),
+            negative_file: process.env.NEGATIVE_FILE,
+            negative_before_sha256: process.env.NEGATIVE_BEFORE_SHA256,
+            negative_after_sha256: process.env.NEGATIVE_AFTER_SHA256,
+            external_publish: false,
+            mantyl_verified_paid_layer_used: false,
+            authority_promotion: false,
+            global_bind: false,
+            production_readiness_claim: false,
+            verdict: Number(process.env.CLEAN_RECEIVE_EXIT) === 0 && Number(process.env.NEGATIVE_RECEIVE_EXIT) !== 0 ? 'PASS_BOUNDED' : 'HOLD'
+          };
+          process.stdout.write(JSON.stringify(r, null, 2)+'\n');
+          NODE
+          cat "$RECEIPT"
+          printf 'RECEIPT_SHA256=%s\n' "$(sha256sum "$RECEIPT" | awk '{print $1}')"
