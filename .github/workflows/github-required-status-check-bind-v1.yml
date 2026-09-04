@@ -1,0 +1,260 @@
+name: GitHub Required Status Check Bind V1
+
+on:
+  push:
+    branches:
+      - alpha/github-required-status-check-bind-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  REAL_MAIN_SHA: "5952ba59762bc9cb800e3fa82ab61748b25728c3"
+  REAL_REFERENCE_TREE: "efd70b2eccea206e9a7a51f1d115cfeb29180b89"
+  PREDECESSOR_RECEIPT_SHA: "2675f42aff3fab48b62b755f13988059b8a1130140ccd2316bdc8c595bb27f32"
+  POLICY_VERSION: "GITHUB_REQUIRED_STATUS_CHECK_BIND_V1"
+  REQUIRED_CHECK: "scoped-authority-fence-verdict"
+  EXPECTED_REPORT_SHA: "cb6452ab0fdb2d90f797400762b2734020e4566d10571458c3fe3486ece73748"
+  EXPECTED_MANIFEST_SHA: "1236fac1bef8f780cd2bc298cd89475b79ff70c553b5d816764a1779d6ffe59d"
+  EXPECTED_CLOSURE_SHA: "c92a5d3e631dd471c2291fb99317aad7f5abce56e54bbf3a0d70b9716b2f514d"
+  BOOTSTRAP_HEAD: "alpha/github-required-status-check-bind-v1"
+
+jobs:
+  preflight:
+    name: branch-fence-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout candidate with full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+
+      - name: Verify policy, predecessor receipt, source and scoped path guard
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          POLICY=.alpha/enforcement/github-required-status-check-policy-v1.json
+          RECEIPT=.alpha/receipts/MANTYL_REAL_ALPHA_ENFORCED_SCOPED_RUN_33921798286.json
+          test -s "$POLICY"
+          test -s "$RECEIPT"
+          test "$(sha256sum "$RECEIPT" | awk '{print $1}')" = "$PREDECESSOR_RECEIPT_SHA"
+
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          else
+            BASE="$REAL_MAIN_SHA"
+          fi
+          test "$BASE" = "$REAL_MAIN_SHA"
+          test "$(git rev-parse "$BASE:reference_engine")" = "$REAL_REFERENCE_TREE"
+          git diff --name-only "$BASE"...HEAD | sort > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+
+          python - <<'PY'
+          import json, os, pathlib, sys
+          from datetime import datetime, timezone
+
+          policy = json.loads(pathlib.Path('.alpha/enforcement/github-required-status-check-policy-v1.json').read_text())
+          receipt = json.loads(pathlib.Path('.alpha/receipts/MANTYL_REAL_ALPHA_ENFORCED_SCOPED_RUN_33921798286.json').read_text())
+          changed = [x for x in pathlib.Path(os.environ['RUNNER_TEMP'] + '/changed.txt').read_text().splitlines() if x]
+          expected_control = {
+              '.github/workflows/github-required-status-check-bind-v1.yml',
+              '.alpha/enforcement/github-required-status-check-policy-v1.json',
+              '.alpha/receipts/MANTYL_REAL_ALPHA_ENFORCED_SCOPED_RUN_33921798286.json',
+          }
+
+          required_policy = (
+              policy.get('gate') == 'GITHUB_REQUIRED_STATUS_CHECK_AND_BRANCH_PROTECTION_BIND_V1' and
+              policy.get('enabled') is True and
+              policy.get('policy_version') == os.environ['POLICY_VERSION'] and
+              policy.get('base_branch') == 'main' and
+              policy.get('source_main_sha') == os.environ['REAL_MAIN_SHA'] and
+              policy.get('source_reference_engine_tree') == os.environ['REAL_REFERENCE_TREE'] and
+              policy.get('predecessor_receipt_sha256') == os.environ['PREDECESSOR_RECEIPT_SHA'] and
+              policy.get('required_check') == os.environ['REQUIRED_CHECK'] and
+              policy.get('governed_path') == 'reference_engine/**' and
+              set(policy.get('protected_control_paths', [])) == expected_control and
+              policy.get('least_authority') == 'CONTENTS_READ_ONLY' and
+              policy.get('external_publish') is False and
+              policy.get('paid_layer_used') is False
+          )
+          if not required_policy:
+              raise SystemExit('POLICY_CONTRACT_MISMATCH')
+
+          now = datetime.now(timezone.utc)
+          start = datetime.fromisoformat(policy['not_before'].replace('Z', '+00:00'))
+          end = datetime.fromisoformat(policy['not_after'].replace('Z', '+00:00'))
+          if not (start <= now <= end):
+              raise SystemExit('POLICY_TIME_BOUNDARY_DENY')
+
+          required_receipt = (
+              receipt.get('gate') == 'MANTYL_REAL_ALPHA_ENFORCED_SCOPED_WORKFLOW_AND_AUTHORITY_FENCE_V1' and
+              receipt.get('source_main_sha') == os.environ['REAL_MAIN_SHA'] and
+              receipt.get('source_reference_engine_tree') == os.environ['REAL_REFERENCE_TREE'] and
+              receipt.get('required_scoped_gate_within_workflow') is True and
+              receipt.get('no_valid_grant_no_execution_within_workflow') is True and
+              receipt.get('bypass_without_grant_denied_within_workflow') is True and
+              receipt.get('independent_second_runner') is True and
+              receipt.get('normalized_payload_equality') is True and
+              receipt.get('least_authority') == 'CONTENTS_READ_ONLY' and
+              receipt.get('external_publish') is False and
+              receipt.get('paid_layer_used') is False and
+              receipt.get('authority_promotion') is False and
+              receipt.get('global_bind') is False and
+              receipt.get('verdict') == 'HOLD_GITHUB_BRANCH_PROTECTION_AUTHORITY_FENCE'
+          )
+          if not required_receipt:
+              raise SystemExit('PREDECESSOR_RECEIPT_CONTRACT_MISMATCH')
+
+          event = os.environ.get('GITHUB_EVENT_NAME')
+          head = os.environ.get('PR_HEAD_REF', '')
+          control_changed = set(changed) & expected_control
+          reference_changed = [p for p in changed if p == 'reference_engine' or p.startswith('reference_engine/')]
+          other_changed = [p for p in changed if p not in expected_control and p not in reference_changed]
+
+          if reference_changed:
+              raise SystemExit('REFERENCE_ENGINE_CHANGE_REQUIRES_POLICY_ROLLOVER')
+
+          if event == 'pull_request' and control_changed:
+              bootstrap_ok = (
+                  head == os.environ['BOOTSTRAP_HEAD'] and
+                  set(changed) == expected_control and
+                  not other_changed
+              )
+              if not bootstrap_ok:
+                  raise SystemExit('CONTROL_PLANE_MUTATION_DENIED')
+              print('BOOTSTRAP_BIND_EXCEPTION=PASS_ONCE')
+          elif event == 'pull_request' and other_changed:
+              print('OUT_OF_SCOPE_PR=PASS_NO_GOVERNED_EXECUTION')
+          elif event == 'push':
+              if not set(changed).issubset(expected_control):
+                  raise SystemExit('BOOTSTRAP_PUSH_SCOPE_VIOLATION')
+              print('BOOTSTRAP_PUSH_SCOPE=PASS')
+
+          print('PREDECESSOR_RECEIPT=PASS')
+          print('POLICY=PASS')
+          print('REFERENCE_ENGINE_TREE=UNCHANGED_EXACT')
+          PY
+
+  replay_a:
+    name: exact-reference-engine-replay-A
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      normalized_sha: ${{ steps.payload.outputs.normalized_sha }}
+    steps:
+      - name: Checkout exact governed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          persist-credentials: false
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Replay exact governed payload A
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REAL_MAIN_SHA"
+          test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          cd reference_engine
+          python -m pytest -q
+          python scripts/run_reference_closure.py --out /tmp/ref-A
+          python scripts/run_adversarial_closure.py --out /tmp/adv-A
+          R="$(sha256sum /tmp/adv-A/run_a/report.json | awk '{print $1}')"
+          M="$(sha256sum /tmp/adv-A/run_a/manifest.sha256 | awk '{print $1}')"
+          C="$(sha256sum /tmp/adv-A/closure_report.json | awk '{print $1}')"
+          test "$R" = "$EXPECTED_REPORT_SHA"
+          test "$M" = "$EXPECTED_MANIFEST_SHA"
+          test "$C" = "$EXPECTED_CLOSURE_SHA"
+          printf '{"main":"%s","tree":"%s","report":"%s","manifest":"%s","closure":"%s"}\n' "$REAL_MAIN_SHA" "$REAL_REFERENCE_TREE" "$R" "$M" "$C" > "$RUNNER_TEMP/norm-A.json"
+          SHA="$(sha256sum "$RUNNER_TEMP/norm-A.json" | awk '{print $1}')"
+          echo "normalized_sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "NORMALIZED_A_SHA256=$SHA"
+
+  replay_b:
+    name: exact-reference-engine-replay-B
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      normalized_sha: ${{ steps.payload.outputs.normalized_sha }}
+    steps:
+      - name: Checkout exact governed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REAL_MAIN_SHA }}
+          persist-credentials: false
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11.16"
+      - name: Replay exact governed payload B
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REAL_MAIN_SHA"
+          test "$(git rev-parse HEAD:reference_engine)" = "$REAL_REFERENCE_TREE"
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          cd reference_engine
+          python -m pytest -q
+          python scripts/run_reference_closure.py --out /tmp/ref-B
+          python scripts/run_adversarial_closure.py --out /tmp/adv-B
+          R="$(sha256sum /tmp/adv-B/run_a/report.json | awk '{print $1}')"
+          M="$(sha256sum /tmp/adv-B/run_a/manifest.sha256 | awk '{print $1}')"
+          C="$(sha256sum /tmp/adv-B/closure_report.json | awk '{print $1}')"
+          test "$R" = "$EXPECTED_REPORT_SHA"
+          test "$M" = "$EXPECTED_MANIFEST_SHA"
+          test "$C" = "$EXPECTED_CLOSURE_SHA"
+          printf '{"main":"%s","tree":"%s","report":"%s","manifest":"%s","closure":"%s"}\n' "$REAL_MAIN_SHA" "$REAL_REFERENCE_TREE" "$R" "$M" "$C" > "$RUNNER_TEMP/norm-B.json"
+          SHA="$(sha256sum "$RUNNER_TEMP/norm-B.json" | awk '{print $1}')"
+          echo "normalized_sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "NORMALIZED_B_SHA256=$SHA"
+
+  verdict:
+    name: scoped-authority-fence-verdict
+    if: always()
+    needs: [preflight, replay_a, replay_b]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Enforce all prerequisite checks and independent replay equality
+        shell: bash
+        env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          A_RESULT: ${{ needs.replay_a.result }}
+          B_RESULT: ${{ needs.replay_b.result }}
+          A_SHA: ${{ needs.replay_a.outputs.normalized_sha }}
+          B_SHA: ${{ needs.replay_b.outputs.normalized_sha }}
+        run: |
+          set -euo pipefail
+          test "$PREFLIGHT_RESULT" = "success"
+          test "$A_RESULT" = "success"
+          test "$B_RESULT" = "success"
+          test -n "$A_SHA"
+          test "$A_SHA" = "$B_SHA"
+          echo "REQUIRED_STATUS_CHECK=scoped-authority-fence-verdict"
+          echo "PREDECESSOR_ENFORCED_GATE=PASS"
+          echo "EXACT_REFERENCE_ENGINE_REPLAY_A=PASS"
+          echo "EXACT_REFERENCE_ENGINE_REPLAY_B=PASS"
+          echo "INDEPENDENT_REPLAY_EQUALITY=PASS"
+          echo "LEAST_AUTHORITY=CONTENTS_READ_ONLY"
+          echo "ZERO_SPEND=TRUE"
+          echo "STATUS_CHECK_READY_FOR_BRANCH_PROTECTION_BIND=TRUE"
