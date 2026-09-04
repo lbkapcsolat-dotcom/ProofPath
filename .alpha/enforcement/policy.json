@@ -1,0 +1,19 @@
+{
+  "gate": "MANTYL_REAL_ALPHA_ENFORCED_SCOPED_POLICY_V1",
+  "enabled": true,
+  "policy_version": "MANTYL_ENFORCED_SCOPED_V1",
+  "not_before": "2026-09-04T21:00:00.000Z",
+  "not_after": "2026-12-31T23:59:59.000Z",
+  "source_main_sha": "5952ba59762bc9cb800e3fa82ab61748b25728c3",
+  "source_reference_engine_tree": "efd70b2eccea206e9a7a51f1d115cfeb29180b89",
+  "predecessor_receipt_sha256": "cd38e3e4ab7950ca7bc2536958d0cc6d51a6df52c0e2214b832fb51f60aa4d77",
+  "scope": "REFERENCE_ENGINE_EXISTING_VERIFICATION_COMMANDS_ONLY",
+  "permitted_path": "reference_engine/**",
+  "permitted_workflow": ".github/workflows/mantyl-enforced-scoped-v1.yml",
+  "mantyl_version": "0.5.0",
+  "authority": "NONE",
+  "github_permissions": "CONTENTS_READ_ONLY",
+  "external_publish": false,
+  "paid_layer_used": false,
+  "emergency_disable_semantics": "enabled=false => DENY_ALL"
+}
