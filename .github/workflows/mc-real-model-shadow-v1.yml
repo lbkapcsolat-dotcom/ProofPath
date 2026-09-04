@@ -1,0 +1,304 @@
+name: MC Real Model Shadow V1
+
+on:
+  push:
+    branches:
+      - alpha/mc-real-model-shadow-v1
+    paths:
+      - .github/workflows/mc-real-model-shadow-v1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-model-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ProofPath
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned CPU runtime and community MC package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.3.1'
+          python -m pip install 'numpy==1.26.4'
+          mkdir -p vendor outputs/mc_real_shadow
+          python -m pip download --no-deps 'memory-caching==0.1.0' -d vendor
+          python -m pip install --no-deps vendor/memory_caching-0.1.0-py3-none-any.whl
+          sha256sum vendor/memory_caching-0.1.0-py3-none-any.whl | tee outputs/mc_real_shadow/package_sha256.txt
+          python - <<'PY'
+          import importlib.metadata as md
+          import torch
+          print('memory-caching', md.version('memory-caching'))
+          print('torch', torch.__version__)
+          print('cuda_available', torch.cuda.is_available())
+          PY
+
+      - name: Run real tiny-model inference and shadow controller bind
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import copy, csv, glob, hashlib, importlib.metadata as md, json, math, os, statistics, time
+          from pathlib import Path
+          import torch
+          from memory_caching.models import TinyMemoryCachingLM, ByteTokenizer
+
+          OUT = Path('outputs/mc_real_shadow')
+          OUT.mkdir(parents=True, exist_ok=True)
+          SEED = 20260905
+          torch.manual_seed(SEED)
+          torch.set_num_threads(1)
+
+          vocab_size = 256
+          d_model = 32
+          num_heads = 4
+          segment_size = 8
+          seq_len = 96
+          tau = 0.90
+          prompt = (
+              'Memory caching keeps recurrent computation while preserving selected historical memory. '
+              'This is a fixed byte-level inference trace for a zero-spend shadow-controller audit.'
+          )
+          tokenizer = ByteTokenizer(vocab_limit=vocab_size)
+          ids = tokenizer.encode(prompt, max_tokens=seq_len)
+          if len(ids) < seq_len:
+              ids = (ids * ((seq_len + len(ids) - 1)//len(ids)))[:seq_len]
+          tokens = torch.tensor([ids], dtype=torch.long)
+
+          # Community tiny model. Randomly initialized, intentionally UNTRAINED.
+          grm = TinyMemoryCachingLM(
+              vocab_size=vocab_size,
+              d_model=d_model,
+              num_heads=num_heads,
+              backend='linear',
+              aggregation='grm',
+              segment_size=segment_size,
+              segmentation='constant',
+              state_init_mode='checkpoint',
+              ssc_top_k=2,
+          ).eval()
+          base_state = copy.deepcopy(grm.state_dict())
+
+          with torch.no_grad():
+              emb = grm.embed(tokens)
+              mc_out, inspect_rows = grm.mc.inspect(emb)
+              logits_grm = grm(tokens)
+
+          # Shadow controller reads actual router weights from the real forward inspection.
+          # It never changes the live forward path.
+          shadow_rows = []
+          for i, row in enumerate(inspect_rows):
+              weights = [float(x) for x in row.get('router_weights', [])]
+              cached_count = int(row.get('cached_count', 0))
+              if cached_count <= 0 or len(weights) <= 1:
+                  rec_k = 0
+                  cached_mass = 0.0
+                  target_reached = True
+              else:
+                  cached = weights[:cached_count]
+                  s = sum(cached)
+                  if s <= 0:
+                      rec_k = 0
+                      cached_mass = 0.0
+                      target_reached = False
+                  else:
+                      norm = sorted((w/s for w in cached), reverse=True)
+                      cum = 0.0
+                      rec_k = 0
+                      for w in norm:
+                          rec_k += 1
+                          cum += w
+                          if cum + 1e-12 >= tau:
+                              break
+                      cached_mass = cum
+                      target_reached = cum + 1e-12 >= tau
+              shadow_rows.append({
+                  'token_index': i,
+                  'cached_count': cached_count,
+                  'live_router_weights': weights,
+                  'shadow_tau': tau,
+                  'shadow_recommended_k': rec_k,
+                  'shadow_cached_mass': cached_mass,
+                  'shadow_target_reached': target_reached,
+              })
+
+          nonzero_recs = [r['shadow_recommended_k'] for r in shadow_rows if r['cached_count'] > 0]
+          shadow_mean_k = statistics.mean(nonzero_recs) if nonzero_recs else 0.0
+          shadow_mean_fraction = statistics.mean(
+              [r['shadow_recommended_k']/r['cached_count'] for r in shadow_rows if r['cached_count'] > 0]
+          ) if nonzero_recs else 0.0
+
+          # Actual SSC inference sweep using IDENTICAL model parameters and input.
+          max_cached = max((int(r.get('cached_count',0)) for r in inspect_rows), default=1)
+          k_values = sorted(set([1, 2, 4, 8, max_cached]))
+          variants = {}
+          full_logits = None
+          full_k = max(k_values)
+
+          def build_ssc(k: int):
+              m = TinyMemoryCachingLM(
+                  vocab_size=vocab_size,
+                  d_model=d_model,
+                  num_heads=num_heads,
+                  backend='linear',
+                  aggregation='ssc',
+                  segment_size=segment_size,
+                  segmentation='constant',
+                  state_init_mode='checkpoint',
+                  ssc_top_k=k,
+              ).eval()
+              m.load_state_dict(base_state, strict=True)
+              return m
+
+          # Run full-k first as output reference.
+          full_model = build_ssc(full_k)
+          with torch.no_grad():
+              for _ in range(2):
+                  _ = full_model(tokens)
+              t0 = time.perf_counter()
+              full_runs = [full_model(tokens) for _ in range(5)]
+              t1 = time.perf_counter()
+              full_logits = full_runs[-1]
+          variants[str(full_k)] = {
+              'k': full_k,
+              'mean_latency_ms': (t1-t0)/5*1000,
+              'mean_abs_logit_delta_vs_full': 0.0,
+              'max_abs_logit_delta_vs_full': 0.0,
+              'top1_token_agreement_vs_full': 1.0,
+          }
+
+          for kval in k_values:
+              if kval == full_k:
+                  continue
+              model = build_ssc(kval)
+              with torch.no_grad():
+                  for _ in range(2):
+                      _ = model(tokens)
+                  t0 = time.perf_counter()
+                  runs = [model(tokens) for _ in range(5)]
+                  t1 = time.perf_counter()
+                  logits = runs[-1]
+              delta = (logits - full_logits).abs()
+              agree = (logits.argmax(dim=-1) == full_logits.argmax(dim=-1)).float().mean().item()
+              variants[str(kval)] = {
+                  'k': kval,
+                  'mean_latency_ms': (t1-t0)/5*1000,
+                  'mean_abs_logit_delta_vs_full': float(delta.mean().item()),
+                  'max_abs_logit_delta_vs_full': float(delta.max().item()),
+                  'top1_token_agreement_vs_full': float(agree),
+              }
+
+          # Two exact replays on the pinned model/input.
+          replay_model = build_ssc(2)
+          with torch.no_grad():
+              r1 = replay_model(tokens)
+              r2 = replay_model(tokens)
+          exact_replay = bool(torch.equal(r1, r2))
+          replay_max_delta = float((r1-r2).abs().max().item())
+
+          wheel = glob.glob('vendor/memory_caching-0.1.0-py3-none-any.whl')[0]
+          wheel_sha = hashlib.sha256(Path(wheel).read_bytes()).hexdigest()
+          input_sha = hashlib.sha256(tokens.numpy().tobytes()).hexdigest()
+          grm_logits_sha = hashlib.sha256(logits_grm.detach().numpy().tobytes()).hexdigest()
+          replay_sha = hashlib.sha256(r1.detach().numpy().tobytes()).hexdigest()
+
+          receipt = {
+              'gate': 'MC_REAL_MODEL_INFERENCE_TRACE_AND_CONTROLLER_SHADOW_BIND_V1',
+              'verdict': 'PASS_BOUNDED_COMMUNITY_UNTRAINED_SHADOW' if exact_replay and shadow_rows else 'HOLD',
+              'zero_spend': True,
+              'execution_surface': 'GitHub Actions public repository CPU runner',
+              'community_implementation': {
+                  'package': 'memory-caching',
+                  'version': md.version('memory-caching'),
+                  'release_tag_commit': '22a422f5f27f7863630bd534b698f7a2f788f3a3',
+                  'official_author_code': False,
+                  'trained_checkpoint': False,
+                  'wheel_sha256': wheel_sha,
+              },
+              'runtime': {
+                  'torch': torch.__version__,
+                  'device': 'cpu',
+                  'seed': SEED,
+                  'threads': torch.get_num_threads(),
+              },
+              'model': {
+                  'family': 'TinyMemoryCachingLM',
+                  'backend': 'linear',
+                  'd_model': d_model,
+                  'num_heads': num_heads,
+                  'segment_size': segment_size,
+                  'sequence_length': seq_len,
+                  'vocab_size': vocab_size,
+                  'parameter_count': sum(p.numel() for p in grm.parameters()),
+              },
+              'input_sha256': input_sha,
+              'grm_logits_sha256': grm_logits_sha,
+              'trace': {
+                  'rows': len(inspect_rows),
+                  'max_cached_count': max_cached,
+                  'first_row_keys': sorted(inspect_rows[0].keys()) if inspect_rows else [],
+                  'shadow_tau': tau,
+                  'shadow_mean_recommended_k': shadow_mean_k,
+                  'shadow_mean_active_fraction': shadow_mean_fraction,
+                  'shadow_rows': shadow_rows,
+              },
+              'ssc_sweep': variants,
+              'replay': {
+                  'k': 2,
+                  'exact_tensor_equality': exact_replay,
+                  'max_abs_delta': replay_max_delta,
+                  'output_sha256': replay_sha,
+              },
+              'claim_ceiling': {
+                  'real_inference': True,
+                  'trained_model_quality': False,
+                  'paper_parity': False,
+                  'official_author_implementation': False,
+                  'production_latency_claim': False,
+                  'shadow_controller_actuated': False,
+              },
+          }
+          receipt_bytes = json.dumps(receipt, sort_keys=True, indent=2).encode()
+          receipt['receipt_sha256_pre_field'] = hashlib.sha256(receipt_bytes).hexdigest()
+          (OUT/'receipt.json').write_text(json.dumps(receipt, sort_keys=True, indent=2), encoding='utf-8')
+
+          with (OUT/'shadow_trace.csv').open('w', newline='', encoding='utf-8') as f:
+              w = csv.DictWriter(f, fieldnames=['token_index','cached_count','shadow_tau','shadow_recommended_k','shadow_cached_mass','shadow_target_reached'])
+              w.writeheader()
+              for r in shadow_rows:
+                  w.writerow({k:r[k] for k in w.fieldnames})
+
+          print('VERDICT', receipt['verdict'])
+          print('PARAMETER_COUNT', receipt['model']['parameter_count'])
+          print('TRACE_ROWS', len(inspect_rows))
+          print('MAX_CACHED_COUNT', max_cached)
+          print('FIRST_ROW_KEYS', receipt['trace']['first_row_keys'])
+          print('SHADOW_MEAN_K', shadow_mean_k)
+          print('SHADOW_MEAN_ACTIVE_FRACTION', shadow_mean_fraction)
+          print('SSC_SWEEP', json.dumps(variants, sort_keys=True))
+          print('REPLAY_EXACT', exact_replay)
+          print('REPLAY_MAX_DELTA', replay_max_delta)
+          print('WHEEL_SHA256', wheel_sha)
+          print('INPUT_SHA256', input_sha)
+          print('REPLAY_OUTPUT_SHA256', replay_sha)
+          print('RECEIPT_SHA256_PRE_FIELD', receipt['receipt_sha256_pre_field'])
+          PY
+
+      - name: Upload real shadow evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-real-model-shadow-v1
+          path: outputs/mc_real_shadow/
+          if-no-files-found: error
+          retention-days: 7
