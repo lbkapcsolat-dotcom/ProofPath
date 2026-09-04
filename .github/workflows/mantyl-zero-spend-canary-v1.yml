@@ -9,29 +9,35 @@ on:
 permissions:
   contents: read
 
+env:
+  MANTYL_VERSION: "0.5.0"
+  EXPECTED_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
+
 jobs:
-  canary:
+  host_a:
+    name: Host A produce passport evidence bundle
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      MANTYL_VERSION: "0.5.0"
-      EXPECTED_INTEGRITY: "sha512-hQI/oLTU0er9fuAc2uLsUB2mmptXrqW1S1psFe/0js0gK3w80eupiVBTWysag5V62unV9LYJuF6Va5VPdfh5Eg=="
     steps:
-      - name: Runtime identity
+      - name: Host A runtime identity
         shell: bash
         run: |
           set -euo pipefail
-          printf 'UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'HOST_A_UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'HOST_A_HOSTNAME=%s\n' "$(hostname)"
+          printf 'HOST_A_RUNNER_NAME=%s\n' "$RUNNER_NAME"
+          printf 'HOST_A_RUNNER_OS=%s\n' "$RUNNER_OS"
+          printf 'HOST_A_RUNNER_ARCH=%s\n' "$RUNNER_ARCH"
           node --version
           npm --version
           git --version
           docker --version
 
-      - name: Pin and verify Mantyl package identity
+      - name: Host A pin Mantyl package identity
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
+          ROOT="$RUNNER_TEMP/mantyl-cross-host"
           TOOL="$ROOT/tool"
           mkdir -p "$TOOL"
           cd "$TOOL"
@@ -46,24 +52,22 @@ jobs:
           test "$PACK_VERSION" = "$MANTYL_VERSION"
           test "$PACK_INTEGRITY" = "$EXPECTED_INTEGRITY"
           TARBALL_SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
-          printf 'MANTYL_VERSION=%s\n' "$MANTYL_VERSION" | tee -a "$GITHUB_ENV"
-          printf 'MANTYL_REGISTRY_INTEGRITY=%s\n' "$REGISTRY_INTEGRITY" | tee -a "$GITHUB_ENV"
-          printf 'MANTYL_TARBALL_SHA256=%s\n' "$TARBALL_SHA256" | tee -a "$GITHUB_ENV"
+          printf 'MANTYL_TARBALL_SHA256=%s\n' "$TARBALL_SHA256" >> "$GITHUB_ENV"
           npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
-          printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" | tee -a "$GITHUB_ENV"
+          printf 'MANTYL_BIN=%s\n' "$TOOL/install/node_modules/.bin/mantyl" >> "$GITHUB_ENV"
           "$TOOL/install/node_modules/.bin/mantyl" --version
 
-      - name: Create clean synthetic repository
+      - name: Host A create synthetic repository
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
+          ROOT="$RUNNER_TEMP/mantyl-cross-host"
           SRC="$ROOT/source"
           mkdir -p "$SRC/src"
           cd "$SRC"
           cat > package.json <<'JSON'
           {
-            "name": "alpha-mantyl-canary-v1",
+            "name": "alpha-mantyl-cross-host-canary-v1",
             "version": "1.0.0",
             "private": true,
             "type": "module",
@@ -77,7 +81,7 @@ jobs:
           cat > build.mjs <<'JS'
           import fs from 'node:fs';
           fs.mkdirSync('dist', { recursive: true });
-          fs.writeFileSync('dist/result.txt', 'ALPHA_MANTYL_CANARY_V1\n');
+          fs.writeFileSync('dist/result.txt', 'ALPHA_MANTYL_CROSS_HOST_V1\n');
           console.log('BUILD_OK');
           JS
           cat > test.mjs <<'JS'
@@ -87,150 +91,345 @@ jobs:
           console.log('TEST_OK');
           JS
           git init -b main
-          git config user.name 'ALPHA Mantyl Canary'
+          git config user.name 'ALPHA Mantyl Cross Host Canary'
           git config user.email 'canary@example.invalid'
           "$MANTYL_BIN" doctor || true
           timeout 30s "$MANTYL_BIN" init
           git add package.json build.mjs test.mjs src/value.txt mantyl.config.json
-          git commit -m 'Synthetic Mantyl canary baseline'
-          SYNTH_COMMIT="$(git rev-parse HEAD)"
-          printf 'SYNTH_REPO=%s\n' "$SRC" | tee -a "$GITHUB_ENV"
-          printf 'SYNTH_COMMIT=%s\n' "$SYNTH_COMMIT" | tee -a "$GITHUB_ENV"
-          printf 'SYNTH_TREE=%s\n' "$(git rev-parse HEAD^{tree})" | tee -a "$GITHUB_ENV"
+          GIT_AUTHOR_DATE='2026-09-04T00:00:00Z' GIT_COMMITTER_DATE='2026-09-04T00:00:00Z' git commit -m 'Synthetic Mantyl cross-host canary baseline'
+          printf 'SYNTH_REPO=%s\n' "$SRC" >> "$GITHUB_ENV"
 
-      - name: Verify generate and exact passport schema bind
+      - name: Host A verify generate and bind
         shell: bash
         run: |
           set -euo pipefail
-          cd "$SYNTH_REPO"
+          ROOT="$RUNNER_TEMP/mantyl-cross-host"
+          SRC="$ROOT/source"
+          GENLOG="$ROOT/generate.log"
+          cd "$SRC"
           "$MANTYL_BIN" scan
           "$MANTYL_BIN" verify
-          "$MANTYL_BIN" generate | tee generate.log
-          PASSPORT="$SYNTH_REPO/.mantyl/passport.json"
+          "$MANTYL_BIN" generate | tee "$GENLOG"
+          PASSPORT="$SRC/.mantyl/passport.json"
           test -s "$PASSPORT"
+          SYNTH_COMMIT="$(git rev-parse HEAD)"
+          SYNTH_TREE="$(git rev-parse HEAD^{tree})"
           PASSPORT_SHA256="$(sha256sum "$PASSPORT" | awk '{print $1}')"
           PASSPORT_BYTES="$(wc -c < "$PASSPORT" | tr -d ' ')"
-          GENERATE_DIGEST="$(sed -nE 's/.*digest[[:space:]]+([0-9a-f]{64}).*/\1/p' generate.log | tail -1)"
+          GENERATE_DIGEST="$(sed -nE 's/.*digest[[:space:]]+([0-9a-f]{64}).*/\1/p' "$GENLOG" | tail -1)"
           test "${#GENERATE_DIGEST}" -eq 64
-          eval "$(node - <<'NODE'
+          export SYNTH_COMMIT GENERATE_DIGEST
+          node - <<'NODE'
           const fs = require('fs');
           const p = JSON.parse(fs.readFileSync(process.env.SYNTH_REPO+'/.mantyl/passport.json','utf8'));
-          const vals = {
-            PASSPORT_SCHEMA_VERSION: p.schemaVersion,
-            PASSPORT_DIGEST_PATH: 'integrity.passportDigest',
-            PASSPORT_DIGEST: p.integrity?.passportDigest,
-            EVIDENCE_DIGEST: p.integrity?.evidenceDigest,
-            FILE_MANIFEST_DIGEST: p.integrity?.fileManifestDigest,
-            CONFIG_DIGEST: p.run?.configDigest,
-            PASSPORT_COMMIT: p.run?.commit,
-            TOOL_VERSION_IN_PASSPORT: p.run?.toolVersion
-          };
-          for (const [k,v] of Object.entries(vals)) {
-            if (typeof v !== 'string' || !v.length) process.exit(2);
-            console.log(`${k}=${JSON.stringify(v)}`);
-          }
+          if (p.integrity?.passportDigest !== process.env.GENERATE_DIGEST) process.exit(2);
+          if (p.run?.commit !== process.env.SYNTH_COMMIT) process.exit(3);
+          if (p.run?.toolVersion !== process.env.MANTYL_VERSION) process.exit(4);
           NODE
-          )"
-          test "$PASSPORT_DIGEST" = "$GENERATE_DIGEST"
+          printf 'SYNTH_COMMIT=%s\n' "$SYNTH_COMMIT" >> "$GITHUB_ENV"
+          printf 'SYNTH_TREE=%s\n' "$SYNTH_TREE" >> "$GITHUB_ENV"
+          printf 'GENERATE_DIGEST=%s\n' "$GENERATE_DIGEST" >> "$GITHUB_ENV"
+          printf 'PASSPORT_SHA256=%s\n' "$PASSPORT_SHA256" >> "$GITHUB_ENV"
+          printf 'PASSPORT_BYTES=%s\n' "$PASSPORT_BYTES" >> "$GITHUB_ENV"
+
+      - name: Host A package exact transfer bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-cross-host"
+          SRC="$ROOT/source"
+          TRANSFER="$ROOT/transfer"
+          mkdir -p "$TRANSFER"
+          PASSPORT="$SRC/.mantyl/passport.json"
+          HOST_A_HOSTNAME="$(hostname)"
+          HOST_A_RUNNER_NAME="$RUNNER_NAME"
+          HOST_A_RUNNER_OS="$RUNNER_OS"
+          HOST_A_RUNNER_ARCH="$RUNNER_ARCH"
+          PASSPORT_DIGEST="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.integrity.passportDigest)' "$PASSPORT")"
+          EVIDENCE_DIGEST="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.integrity.evidenceDigest)' "$PASSPORT")"
+          FILE_MANIFEST_DIGEST="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.integrity.fileManifestDigest)' "$PASSPORT")"
+          CONFIG_DIGEST="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.run.configDigest)' "$PASSPORT")"
+          PASSPORT_COMMIT="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.run.commit)' "$PASSPORT")"
+          PASSPORT_SCHEMA_VERSION="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.schemaVersion)' "$PASSPORT")"
+          TOOL_VERSION_IN_PASSPORT="$(node -e 'const p=require(process.argv[1]); process.stdout.write(p.run.toolVersion)' "$PASSPORT")"
           test "$PASSPORT_COMMIT" = "$SYNTH_COMMIT"
           test "$TOOL_VERSION_IN_PASSPORT" = "$MANTYL_VERSION"
-          printf 'PASSPORT_PATH=%s\n' "$PASSPORT" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_SHA256=%s\n' "$PASSPORT_SHA256" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_BYTES=%s\n' "$PASSPORT_BYTES" | tee -a "$GITHUB_ENV"
-          printf 'MANTYL_GENERATE_DIGEST=%s\n' "$GENERATE_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_SCHEMA_VERSION=%s\n' "$PASSPORT_SCHEMA_VERSION" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_DIGEST_PATH=%s\n' "$PASSPORT_DIGEST_PATH" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_DIGEST=%s\n' "$PASSPORT_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'EVIDENCE_DIGEST=%s\n' "$EVIDENCE_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'FILE_MANIFEST_DIGEST=%s\n' "$FILE_MANIFEST_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'CONFIG_DIGEST=%s\n' "$CONFIG_DIGEST" | tee -a "$GITHUB_ENV"
-          printf 'PASSPORT_COMMIT=%s\n' "$PASSPORT_COMMIT" | tee -a "$GITHUB_ENV"
-          printf 'TOOL_VERSION_IN_PASSPORT=%s\n' "$TOOL_VERSION_IN_PASSPORT" | tee -a "$GITHUB_ENV"
-
-      - name: Independent clean receive replay
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$RUNNER_TEMP/mantyl-alpha-canary"
-          SECOND="$ROOT/recipient"
-          git clone --quiet "$SYNTH_REPO" "$SECOND"
-          cd "$SECOND"
-          test "$(git rev-parse HEAD)" = "$SYNTH_COMMIT"
-          set +e
-          "$MANTYL_BIN" receive --passport "$PASSPORT_PATH"
-          CLEAN_EXIT=$?
-          set -e
-          printf 'CLEAN_RECEIVE_EXIT=%s\n' "$CLEAN_EXIT" | tee -a "$GITHUB_ENV"
-          test "$CLEAN_EXIT" -eq 0
-          printf 'RECIPIENT_REPO=%s\n' "$SECOND" | tee -a "$GITHUB_ENV"
-
-      - name: One-byte one-file negative canary
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$RECIPIENT_REPO"
-          BEFORE="$(sha256sum src/value.txt | awk '{print $1}')"
-          printf 'B' | dd of=src/value.txt bs=1 seek=0 count=1 conv=notrunc status=none
-          AFTER="$(sha256sum src/value.txt | awk '{print $1}')"
-          test "$BEFORE" != "$AFTER"
-          set +e
-          "$MANTYL_BIN" receive --passport "$PASSPORT_PATH"
-          NEG_EXIT=$?
-          set -e
-          printf 'NEGATIVE_RECEIVE_EXIT=%s\n' "$NEG_EXIT" | tee -a "$GITHUB_ENV"
-          printf 'NEGATIVE_FILE=src/value.txt\n' | tee -a "$GITHUB_ENV"
-          printf 'NEGATIVE_BEFORE_SHA256=%s\n' "$BEFORE" | tee -a "$GITHUB_ENV"
-          printf 'NEGATIVE_AFTER_SHA256=%s\n' "$AFTER" | tee -a "$GITHUB_ENV"
-          test "$NEG_EXIT" -eq 7
-
-      - name: Normalize final ALPHA receipt
-        shell: bash
-        run: |
-          set -euo pipefail
-          RECEIPT="$RUNNER_TEMP/mantyl-alpha-canary/receipt.json"
-          node - <<'NODE' > "$RECEIPT"
-          const digestEqual = process.env.PASSPORT_DIGEST === process.env.MANTYL_GENERATE_DIGEST;
-          const commitEqual = process.env.PASSPORT_COMMIT === process.env.SYNTH_COMMIT;
-          const cleanOk = Number(process.env.CLEAN_RECEIVE_EXIT) === 0;
-          const negativeOk = Number(process.env.NEGATIVE_RECEIVE_EXIT) === 7;
+          cd "$ROOT"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf "$TRANSFER/source-bundle.tar" source
+          BUNDLE_SHA256="$(sha256sum "$TRANSFER/source-bundle.tar" | awk '{print $1}')"
+          export HOST_A_HOSTNAME HOST_A_RUNNER_NAME HOST_A_RUNNER_OS HOST_A_RUNNER_ARCH
+          export PASSPORT_DIGEST EVIDENCE_DIGEST FILE_MANIFEST_DIGEST CONFIG_DIGEST PASSPORT_COMMIT PASSPORT_SCHEMA_VERSION TOOL_VERSION_IN_PASSPORT BUNDLE_SHA256
+          node - <<'NODE' > "$TRANSFER/host-a-metadata.json"
           const r = {
-            gate: 'MANTYL_PASSPORT_DIGEST_SCHEMA_BIND_AND_ALPHA_RECEIPT_NORMALIZER_V1',
-            timestamp_utc: new Date().toISOString(),
+            gate: 'MANTYL_SECOND_HOST_CROSS_REPLAY_AND_RECEIPT_EQUIVALENCE_V1',
+            role: 'HOST_A',
             runtime: 'github-actions/ubuntu-24.04',
-            zero_spend_path: 'public-repository-github-actions + free-local-mantyl-cli',
+            hostname: process.env.HOST_A_HOSTNAME,
+            runner_name: process.env.HOST_A_RUNNER_NAME,
+            runner_os: process.env.HOST_A_RUNNER_OS,
+            runner_arch: process.env.HOST_A_RUNNER_ARCH,
             mantyl_version: process.env.MANTYL_VERSION,
-            registry_integrity: process.env.MANTYL_REGISTRY_INTEGRITY,
+            registry_integrity: process.env.EXPECTED_INTEGRITY,
             package_tarball_sha256: process.env.MANTYL_TARBALL_SHA256,
             synthetic_commit: process.env.SYNTH_COMMIT,
             synthetic_tree: process.env.SYNTH_TREE,
             passport_schema_version: process.env.PASSPORT_SCHEMA_VERSION,
             passport_sha256: process.env.PASSPORT_SHA256,
             passport_bytes: Number(process.env.PASSPORT_BYTES),
-            passport_digest_path: process.env.PASSPORT_DIGEST_PATH,
+            passport_digest_path: 'integrity.passportDigest',
             passport_digest: process.env.PASSPORT_DIGEST,
-            mantyl_generate_digest: process.env.MANTYL_GENERATE_DIGEST,
-            passport_digest_matches_generate: digestEqual,
             evidence_digest: process.env.EVIDENCE_DIGEST,
             file_manifest_digest: process.env.FILE_MANIFEST_DIGEST,
             config_digest: process.env.CONFIG_DIGEST,
             passport_commit: process.env.PASSPORT_COMMIT,
-            passport_commit_matches_synthetic: commitEqual,
-            clean_receive_exit: Number(process.env.CLEAN_RECEIVE_EXIT),
-            negative_receive_exit: Number(process.env.NEGATIVE_RECEIVE_EXIT),
-            negative_file: process.env.NEGATIVE_FILE,
+            tool_version_in_passport: process.env.TOOL_VERSION_IN_PASSPORT,
+            bundle_sha256: process.env.BUNDLE_SHA256,
+            synthetic_only: true,
+            paid_layer_used: false,
+            authority_promotion: false,
+            global_bind: false,
+            runtime_admission: false,
+            production_readiness_claim: false
+          };
+          process.stdout.write(JSON.stringify(r, null, 2)+'\n');
+          NODE
+          cat "$TRANSFER/host-a-metadata.json"
+          printf 'HOST_A_BUNDLE_SHA256=%s\n' "$BUNDLE_SHA256"
+
+      - name: Host A upload exact bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-host-a-bundle
+          path: |
+            ${{ runner.temp }}/mantyl-cross-host/transfer/source-bundle.tar
+            ${{ runner.temp }}/mantyl-cross-host/transfer/host-a-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  host_b:
+    name: Host B independent receive replay
+    needs: host_a
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Host B runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'HOST_B_UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'HOST_B_HOSTNAME=%s\n' "$(hostname)"
+          printf 'HOST_B_RUNNER_NAME=%s\n' "$RUNNER_NAME"
+          printf 'HOST_B_RUNNER_OS=%s\n' "$RUNNER_OS"
+          printf 'HOST_B_RUNNER_ARCH=%s\n' "$RUNNER_ARCH"
+          node --version
+          npm --version
+          git --version
+          docker --version
+
+      - name: Host B download Host A bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: mantyl-host-a-bundle
+          path: ${{ runner.temp }}/mantyl-cross-host-transfer
+
+      - name: Host B verify transfer identity and extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRANSFER="$RUNNER_TEMP/mantyl-cross-host-transfer"
+          BUNDLE="$TRANSFER/source-bundle.tar"
+          META="$TRANSFER/host-a-metadata.json"
+          test -s "$BUNDLE"
+          test -s "$META"
+          EXPECTED_BUNDLE_SHA256="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.bundle_sha256)' "$META")"
+          ACTUAL_BUNDLE_SHA256="$(sha256sum "$BUNDLE" | awk '{print $1}')"
+          test "$ACTUAL_BUNDLE_SHA256" = "$EXPECTED_BUNDLE_SHA256"
+          HOST_A_HOSTNAME="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.hostname)' "$META")"
+          HOST_B_HOSTNAME="$(hostname)"
+          test "$HOST_A_HOSTNAME" != "$HOST_B_HOSTNAME"
+          ROOT="$RUNNER_TEMP/mantyl-cross-host-b"
+          mkdir -p "$ROOT"
+          tar -xf "$BUNDLE" -C "$ROOT"
+          SRC="$ROOT/source"
+          test -d "$SRC/.git"
+          test -s "$SRC/.mantyl/passport.json"
+          printf 'HOST_A_META=%s\n' "$META" >> "$GITHUB_ENV"
+          printf 'HOST_B_SRC=%s\n' "$SRC" >> "$GITHUB_ENV"
+          printf 'HOST_A_HOSTNAME=%s\n' "$HOST_A_HOSTNAME" >> "$GITHUB_ENV"
+          printf 'HOST_B_HOSTNAME=%s\n' "$HOST_B_HOSTNAME" >> "$GITHUB_ENV"
+          printf 'HOST_B_BUNDLE_SHA256=%s\n' "$ACTUAL_BUNDLE_SHA256" >> "$GITHUB_ENV"
+
+      - name: Host B independently pin Mantyl package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/mantyl-cross-host-b"
+          TOOL="$ROOT/tool"
+          mkdir -p "$TOOL"
+          cd "$TOOL"
+          REGISTRY_VERSION="$(npm view "mantyl@$MANTYL_VERSION" version)"
+          REGISTRY_INTEGRITY="$(npm view "mantyl@$MANTYL_VERSION" dist.integrity)"
+          test "$REGISTRY_VERSION" = "$MANTYL_VERSION"
+          test "$REGISTRY_INTEGRITY" = "$EXPECTED_INTEGRITY"
+          npm pack "mantyl@$MANTYL_VERSION" --json > pack.json
+          TARBALL="$(node -e 'console.log(require("./pack.json")[0].filename)')"
+          PACK_INTEGRITY="$(node -e 'console.log(require("./pack.json")[0].integrity)')"
+          test "$PACK_INTEGRITY" = "$EXPECTED_INTEGRITY"
+          HOST_B_TARBALL_SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          HOST_A_TARBALL_SHA256="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.package_tarball_sha256)' "$HOST_A_META")"
+          test "$HOST_B_TARBALL_SHA256" = "$HOST_A_TARBALL_SHA256"
+          npm install --prefix "$TOOL/install" "$TOOL/$TARBALL"
+          MANTYL_BIN="$TOOL/install/node_modules/.bin/mantyl"
+          "$MANTYL_BIN" --version
+          printf 'HOST_B_TARBALL_SHA256=%s\n' "$HOST_B_TARBALL_SHA256" >> "$GITHUB_ENV"
+          printf 'MANTYL_BIN=%s\n' "$MANTYL_BIN" >> "$GITHUB_ENV"
+
+      - name: Host B cross-host digest commit manifest equivalence
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASSPORT="$HOST_B_SRC/.mantyl/passport.json"
+          HOST_B_PASSPORT_SHA256="$(sha256sum "$PASSPORT" | awk '{print $1}')"
+          HOST_B_COMMIT="$(git -C "$HOST_B_SRC" rev-parse HEAD)"
+          HOST_B_TREE="$(git -C "$HOST_B_SRC" rev-parse HEAD^{tree})"
+          export PASSPORT HOST_B_PASSPORT_SHA256 HOST_B_COMMIT HOST_B_TREE
+          node - <<'NODE'
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync(process.env.HOST_A_META, 'utf8'));
+          const p = JSON.parse(fs.readFileSync(process.env.PASSPORT, 'utf8'));
+          const checks = {
+            passport_sha256: process.env.HOST_B_PASSPORT_SHA256 === m.passport_sha256,
+            passport_digest: p.integrity?.passportDigest === m.passport_digest,
+            evidence_digest: p.integrity?.evidenceDigest === m.evidence_digest,
+            file_manifest_digest: p.integrity?.fileManifestDigest === m.file_manifest_digest,
+            config_digest: p.run?.configDigest === m.config_digest,
+            passport_commit: p.run?.commit === m.passport_commit,
+            git_commit: process.env.HOST_B_COMMIT === m.synthetic_commit,
+            git_tree: process.env.HOST_B_TREE === m.synthetic_tree,
+            tool_version: p.run?.toolVersion === m.mantyl_version
+          };
+          console.log(JSON.stringify(checks, null, 2));
+          if (!Object.values(checks).every(Boolean)) process.exit(7);
+          NODE
+          printf 'HOST_B_PASSPORT_SHA256=%s\n' "$HOST_B_PASSPORT_SHA256" >> "$GITHUB_ENV"
+          printf 'HOST_B_COMMIT=%s\n' "$HOST_B_COMMIT" >> "$GITHUB_ENV"
+          printf 'HOST_B_TREE=%s\n' "$HOST_B_TREE" >> "$GITHUB_ENV"
+
+      - name: Host B independent clean receive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$HOST_B_SRC"
+          set +e
+          "$MANTYL_BIN" receive --passport "$HOST_B_SRC/.mantyl/passport.json"
+          CLEAN_EXIT=$?
+          set -e
+          printf 'HOST_B_CLEAN_EXIT=%s\n' "$CLEAN_EXIT" >> "$GITHUB_ENV"
+          test "$CLEAN_EXIT" -eq 0
+
+      - name: Host B independent negative mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$HOST_B_SRC"
+          BEFORE="$(sha256sum src/value.txt | awk '{print $1}')"
+          printf 'B' | dd of=src/value.txt bs=1 seek=0 count=1 conv=notrunc status=none
+          AFTER="$(sha256sum src/value.txt | awk '{print $1}')"
+          test "$BEFORE" != "$AFTER"
+          set +e
+          "$MANTYL_BIN" receive --passport "$HOST_B_SRC/.mantyl/passport.json"
+          NEG_EXIT=$?
+          set -e
+          printf 'HOST_B_NEGATIVE_EXIT=%s\n' "$NEG_EXIT" >> "$GITHUB_ENV"
+          printf 'NEGATIVE_BEFORE_SHA256=%s\n' "$BEFORE" >> "$GITHUB_ENV"
+          printf 'NEGATIVE_AFTER_SHA256=%s\n' "$AFTER" >> "$GITHUB_ENV"
+          test "$NEG_EXIT" -eq 7
+
+      - name: Normalize cross-host receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          RECEIPT="$RUNNER_TEMP/mantyl-cross-host-receipt.json"
+          export RECEIPT
+          node - <<'NODE' > "$RECEIPT"
+          const fs = require('fs');
+          const m = JSON.parse(fs.readFileSync(process.env.HOST_A_META, 'utf8'));
+          const hostDistinct = process.env.HOST_A_HOSTNAME !== process.env.HOST_B_HOSTNAME;
+          const packageEqual = process.env.HOST_B_TARBALL_SHA256 === m.package_tarball_sha256;
+          const bundleEqual = process.env.HOST_B_BUNDLE_SHA256 === m.bundle_sha256;
+          const passportShaEqual = process.env.HOST_B_PASSPORT_SHA256 === m.passport_sha256;
+          const commitEqual = process.env.HOST_B_COMMIT === m.synthetic_commit;
+          const treeEqual = process.env.HOST_B_TREE === m.synthetic_tree;
+          const cleanOk = Number(process.env.HOST_B_CLEAN_EXIT) === 0;
+          const negativeOk = Number(process.env.HOST_B_NEGATIVE_EXIT) === 7;
+          const all = hostDistinct && packageEqual && bundleEqual && passportShaEqual && commitEqual && treeEqual && cleanOk && negativeOk;
+          const r = {
+            gate: 'MANTYL_SECOND_HOST_CROSS_REPLAY_AND_RECEIPT_EQUIVALENCE_V1',
+            timestamp_utc: new Date().toISOString(),
+            host_a: {
+              runtime: m.runtime,
+              hostname: m.hostname,
+              runner_name: m.runner_name,
+              runner_os: m.runner_os,
+              runner_arch: m.runner_arch
+            },
+            host_b: {
+              runtime: 'github-actions/ubuntu-24.04',
+              hostname: process.env.HOST_B_HOSTNAME,
+              runner_name: process.env.RUNNER_NAME,
+              runner_os: process.env.RUNNER_OS,
+              runner_arch: process.env.RUNNER_ARCH
+            },
+            host_identity_distinct: hostDistinct,
+            artifact_transport: 'github-actions-artifact',
+            synthetic_only: true,
+            mantyl_version: process.env.MANTYL_VERSION,
+            registry_integrity: process.env.EXPECTED_INTEGRITY,
+            host_a_package_tarball_sha256: m.package_tarball_sha256,
+            host_b_package_tarball_sha256: process.env.HOST_B_TARBALL_SHA256,
+            package_identity_equal: packageEqual,
+            host_a_bundle_sha256: m.bundle_sha256,
+            host_b_bundle_sha256: process.env.HOST_B_BUNDLE_SHA256,
+            bundle_identity_equal: bundleEqual,
+            passport_schema_version: m.passport_schema_version,
+            passport_digest_path: m.passport_digest_path,
+            passport_digest: m.passport_digest,
+            evidence_digest: m.evidence_digest,
+            file_manifest_digest: m.file_manifest_digest,
+            config_digest: m.config_digest,
+            host_a_passport_sha256: m.passport_sha256,
+            host_b_passport_sha256: process.env.HOST_B_PASSPORT_SHA256,
+            passport_file_identity_equal: passportShaEqual,
+            host_a_commit: m.synthetic_commit,
+            host_b_commit: process.env.HOST_B_COMMIT,
+            commit_equal: commitEqual,
+            host_a_tree: m.synthetic_tree,
+            host_b_tree: process.env.HOST_B_TREE,
+            tree_equal: treeEqual,
+            clean_receive_exit: Number(process.env.HOST_B_CLEAN_EXIT),
+            negative_receive_exit: Number(process.env.HOST_B_NEGATIVE_EXIT),
             negative_before_sha256: process.env.NEGATIVE_BEFORE_SHA256,
             negative_after_sha256: process.env.NEGATIVE_AFTER_SHA256,
-            external_publish: false,
             paid_layer_used: false,
             authority_promotion: false,
             global_bind: false,
             runtime_admission: false,
             production_readiness_claim: false,
-            verdict: digestEqual && commitEqual && cleanOk && negativeOk ? 'PASS_BOUNDED' : 'HOLD'
+            verdict: all ? 'PASS_BOUNDED' : 'HOLD'
           };
           process.stdout.write(JSON.stringify(r, null, 2)+'\n');
           NODE
           cat "$RECEIPT"
           RECEIPT_SHA256="$(sha256sum "$RECEIPT" | awk '{print $1}')"
-          printf 'RECEIPT_SHA256=%s\n' "$RECEIPT_SHA256"
+          printf 'CROSS_HOST_RECEIPT_SHA256=%s\n' "$RECEIPT_SHA256"
           test "$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.verdict)' "$RECEIPT")" = "PASS_BOUNDED"
+
+      - name: Upload cross-host receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mantyl-cross-host-receipt
+          path: ${{ runner.temp }}/mantyl-cross-host-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
