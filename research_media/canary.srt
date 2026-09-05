@@ -1,0 +1,7 @@
+1
+00:00:00,400 --> 00:00:02,600
+ProofPath media verification
+
+2
+00:00:03,200 --> 00:00:05,500
+Render. Cut. Audio. Captions. QC.
