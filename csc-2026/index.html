@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>School Evidence Coach</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#17212b;background:#f6f8fb}
+body{max-width:860px;margin:auto;padding:24px}
+main{background:white;padding:24px;border-radius:16px;box-shadow:0 8px 28px #0001}
+textarea{width:100%;min-height:92px;margin:6px 0 16px;padding:12px;border:1px solid #bac4ce;border-radius:10px}
+button{padding:12px 18px;border:0;border-radius:10px;background:#173b63;color:white;font-weight:700}
+.result{margin-top:20px;padding:16px;border-left:6px solid #607d8b;background:#f2f6fa}
+small{color:#51606e}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e8eef5;font-weight:700}
+</style>
+</head>
+<body>
+<main>
+<h1>School Evidence Coach</h1>
+<p>Compare an assignment claim with one piece of evidence. The coach returns a bounded evidence relationship, not a truth certificate.</p>
+<label for="claim"><strong>Assignment claim</strong></label>
+<textarea id="claim" placeholder="e.g. Our school garden reduced cafeteria food waste."></textarea>
+<label for="evidence"><strong>Evidence excerpt</strong></label>
+<textarea id="evidence" placeholder="Paste a short source excerpt or observation."></textarea>
+<button id="check">Check evidence relationship</button>
+<section id="out" class="result" hidden aria-live="polite"></section>
+<hr>
+<small>CSC 2026 event-window educational delta. Claim ceiling: EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY. AI-assisted implementation disclosed in README_CSC.md.</small>
+</main>
+<script src="./coach.js"></script>
+</body>
+</html>
