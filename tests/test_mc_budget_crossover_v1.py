@@ -4,6 +4,7 @@ from mc_budget_crossover_v1 import (
     PREREGISTERED_BUDGETS,
     first_wrap_step,
     cross_eval_metrics,
+    within_replay_tolerance,
 )
 
 
@@ -25,3 +26,8 @@ def test_cross_eval_metrics_recover_native_deltas_and_interaction():
     assert math.isclose(got['on_trained_knockout_penalty'], 0.02, abs_tol=1e-12)
     assert math.isclose(got['off_trained_activation_penalty'], 0.06, abs_tol=1e-12)
     assert math.isclose(got['interaction_contrast'], 0.08, abs_tol=1e-12)
+
+
+def test_cross_runner_replay_accepts_tiny_fp_drift_but_rejects_effect_sized_change():
+    assert within_replay_tolerance(2.2027082881708253, 2.2027083144790827)
+    assert not within_replay_tolerance(2.2028, 2.2027083144790827)
