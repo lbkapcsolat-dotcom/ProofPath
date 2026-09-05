@@ -1,0 +1,147 @@
+name: Research Math P3-P12 Assurance
+
+on:
+  push:
+    branches:
+      - research-math-p0-verifier
+    paths:
+      - "research_math/orchestrator/**"
+      - ".github/workflows/research-math-p3.yml"
+      - ".github/workflows/research-math-p0.yml"
+      - ".github/workflows/research-math-p12-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  math-assurance:
+    name: P3-P12 High-Assurance Math Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Record source identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 --version
+          echo "source_sha=$GITHUB_SHA"
+
+      - name: P3 claim authority router contract
+        run: |
+          set -euo pipefail
+          python3 research_math/orchestrator/test_claim_router.py
+
+      - name: P4-P10 assurance contract
+        run: |
+          set -euo pipefail
+          python3 research_math/orchestrator/test_assurance_pipeline.py
+
+      - name: P11 live receipt structural contract
+        working-directory: research_math/orchestrator
+        run: |
+          set -euo pipefail
+          python3 test_live_evidence.py
+
+      - name: P12 cross-run replay structural contract
+        working-directory: research_math/orchestrator
+        run: |
+          set -euo pipefail
+          python3 test_cross_run_replay.py
+
+      - name: Build deterministic P3 report
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 research_math/orchestrator/claim_router.py \
+            research_math/orchestrator/canary_claims.json \
+            > out/math-p3-routing-report.json
+
+      - name: Build deterministic P4-P10 assurance bundle
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research_math/orchestrator python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import assurance_pipeline as ap
+          import test_assurance_pipeline as canary
+          report = ap.build_bundle({
+              'claims': canary.CLAIMS,
+              'evidence': canary.EVIDENCE,
+              'adversarial': canary.ADVERSARIAL,
+          })
+          Path('out/math-p4-p10-assurance-report.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          got = {x['id']: x['status'] for x in report['gate']['claims']}
+          expected = {
+              'ALG-PASS': 'PASS',
+              'THM-PASS': 'PASS',
+              'SAME-FAMILY': 'HOLD_INSUFFICIENT_INDEPENDENCE',
+              'COUNTEREXAMPLE': 'HOLD_COUNTEREXAMPLE_FOUND',
+              'NUM-HIGH': 'HOLD_ESCALATION_REQUIRED',
+          }
+          if got != expected:
+              raise SystemExit(f'P10 gate mismatch: {got!r} != {expected!r}')
+          print('P10 EXPECTED PASS/HOLD MATRIX = PASS')
+          PY
+
+      - name: Seal orchestration evidence
+        run: |
+          set -euo pipefail
+          sha256sum \
+            research_math/orchestrator/canary_claims.json \
+            research_math/orchestrator/test_claim_router.py \
+            research_math/orchestrator/claim_router.py \
+            research_math/orchestrator/test_assurance_pipeline.py \
+            research_math/orchestrator/assurance_pipeline.py \
+            research_math/orchestrator/test_live_evidence.py \
+            research_math/orchestrator/test_cross_run_replay.py \
+            research_math/orchestrator/live_evidence.py \
+            research_math/orchestrator/live_claims.json \
+            out/math-p3-routing-report.json \
+            out/math-p4-p10-assurance-report.json \
+            | tee out/math-assurance-sha256.txt
+          {
+            echo '## P3-P12 High-Assurance Mathematics'
+            echo "- Source SHA: $GITHUB_SHA"
+            echo '- P3 router: fail-closed; no premature mathematical PASS'
+            echo '- P4 verification DAG: deterministic'
+            echo '- P5 engine independence: policy-owned family map'
+            echo '- P5 live evidence hashes: content-verified fail-closed'
+            echo '- P6 adversarial counterexample gate: fail-closed'
+            echo '- P7 high-risk numerical escalation: rigorous enclosure required'
+            echo '- P8 theorem formalization: exact Lean target binding required'
+            echo '- P9 proof receipt: SHA-256 tamper detection'
+            echo '- P10 global gate: PASS only after every upstream gate'
+            echo '- P11 live receipt structure: source/raw/input/receipt tamper guards'
+            echo '- P12 cross-run contract: distinct run IDs + same source/input/engine/witness semantics'
+            echo '- Claim ceiling: structural tests do not substitute for the separate live replay workflow'
+            echo '```'
+            cat out/math-assurance-sha256.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve P3-P12 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-assurance-${{ github.sha }}
+          path: |
+            out/math-p3-routing-report.json
+            out/math-p4-p10-assurance-report.json
+            out/math-assurance-sha256.txt
+            research_math/orchestrator/canary_claims.json
+            research_math/orchestrator/test_claim_router.py
+            research_math/orchestrator/claim_router.py
+            research_math/orchestrator/test_assurance_pipeline.py
+            research_math/orchestrator/assurance_pipeline.py
+            research_math/orchestrator/test_live_evidence.py
+            research_math/orchestrator/test_cross_run_replay.py
+            research_math/orchestrator/live_evidence.py
+            research_math/orchestrator/live_claims.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

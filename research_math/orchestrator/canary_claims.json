@@ -1,0 +1,61 @@
+{
+  "schema": "proofpath.math_claims.v1",
+  "claims": [
+    {
+      "id": "ALG-1",
+      "text": "x^4 - 1 factors over Q as (x-1)(x+1)(x^2+1)",
+      "claim_class": "exact_algebraic",
+      "risk": "standard",
+      "domain": "Q[x]",
+      "assumptions": []
+    },
+    {
+      "id": "NUM-1",
+      "text": "A numerical approximation satisfies the requested tolerance",
+      "claim_class": "numerical_approximation",
+      "risk": "standard",
+      "domain": "real_numeric",
+      "assumptions": ["finite inputs"]
+    },
+    {
+      "id": "RIG-1",
+      "text": "The computed enclosure rigorously contains the exact value",
+      "claim_class": "rigorous_numerical",
+      "risk": "high",
+      "domain": "real_interval",
+      "assumptions": ["finite inputs"]
+    },
+    {
+      "id": "THM-1",
+      "text": "For every real x, x^2 >= 0",
+      "claim_class": "theorem",
+      "risk": "high",
+      "domain": "real",
+      "assumptions": []
+    },
+    {
+      "id": "HPC-1",
+      "text": "A parallel reduction equals the serial exact reduction",
+      "claim_class": "hpc_computation",
+      "risk": "high",
+      "domain": "integer_reduction",
+      "assumptions": ["fixed input sequence"]
+    },
+    {
+      "id": "BAD-1",
+      "text": "Unknown claim type must fail closed",
+      "claim_class": "quantum_magic",
+      "risk": "standard",
+      "domain": "unknown",
+      "assumptions": []
+    },
+    {
+      "id": "BAD-2",
+      "text": "Missing domain must fail closed",
+      "claim_class": "theorem",
+      "risk": "high",
+      "domain": "",
+      "assumptions": []
+    }
+  ]
+}
