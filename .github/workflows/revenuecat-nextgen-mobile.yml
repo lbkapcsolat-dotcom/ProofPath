@@ -1,0 +1,91 @@
+name: RevenueCat Next Gen Mobile
+
+on:
+  push:
+    branches:
+      - revenuecat-nextgen-mobile-v1
+    paths:
+      - 'mobile-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen-mobile.yml'
+  pull_request:
+    paths:
+      - 'mobile-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen-mobile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mobile-nextgen
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Record runtime identity
+        run: |
+          node --version
+          npm --version
+          git rev-parse HEAD
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck mobile app
+        run: npm run typecheck
+
+      - name: Verify zero-spend transaction guard
+        run: |
+          if grep -R "purchasePackage\|purchaseStoreProduct\|purchaseProduct" -n App.tsx src; then
+            echo "Transaction call detected in zero-spend prototype"
+            exit 1
+          fi
+          echo "PASS_ZERO_SPEND_TRANSACTION_GUARD"
+
+      - name: Read back RevenueCat current offering
+        shell: bash
+        run: |
+          set -euo pipefail
+          RC_KEY="$(grep '^EXPO_PUBLIC_REVENUECAT_API_KEY=' .env.example | cut -d= -f2-)"
+          if [[ -z "$RC_KEY" || "$RC_KEY" == "goog_example" ]]; then
+            echo "RevenueCat public SDK key is missing"
+            exit 1
+          fi
+
+          HTTP_STATUS="$(curl --silent --show-error \
+            --output /tmp/revenuecat-offerings.json \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${RC_KEY}" \
+            --header 'X-Platform: android' \
+            --header 'Accept: application/json' \
+            'https://api.revenuecat.com/v1/subscribers/proofpath-ci-readback-20260827/offerings')"
+
+          echo "RevenueCat offerings HTTP status: ${HTTP_STATUS}"
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            cat /tmp/revenuecat-offerings.json
+            exit 1
+          fi
+
+          node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/revenuecat-offerings.json', 'utf8'));
+          const offerings = Array.isArray(body.offerings) ? body.offerings : [];
+          const current = body.current_offering_id ?? null;
+          console.log(`RevenueCat current offering: ${current ?? 'NONE'}`);
+          console.log(`RevenueCat offering count: ${offerings.length}`);
+          console.log(`RevenueCat offering identifiers: ${offerings.map(o => o.identifier).join(',') || 'NONE'}`);
+          if (!current || offerings.length === 0) {
+            console.error('HOLD_NO_CURRENT_REVENUECAT_OFFERING');
+            process.exit(1);
+          }
+          console.log('PASS_REVENUECAT_OFFERING_READBACK');
+          NODE
