@@ -1,0 +1,66 @@
+name: MC Matched Training Small Model V1
+
+on:
+  push:
+    branches:
+      - alpha/mc-matched-training-smallmodel-v1
+    paths:
+      - .github/workflows/mc-matched-training-smallmodel-v1.yml
+      - scripts/mc_matched_training_v1.py
+      - tests/test_mc_matched_training_v1.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matched-training-causal-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout ProofPath
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned zero-spend CPU runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          python -m pip install 'pytest==8.3.5'
+
+      - name: Focused contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python -m pytest -q tests/test_mc_matched_training_v1.py
+
+      - name: Run 4-seed paired matched-training causal experiment and replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/mc_matched_training_v1
+          python scripts/mc_matched_training_v1.py --outdir outputs/mc_matched_training_v1
+
+      - name: Hash evidence files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d outputs/mc_matched_training_v1 ]; then
+            find outputs/mc_matched_training_v1 -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > outputs/mc_matched_training_v1/EVIDENCE_SHA256SUMS.txt || true
+          fi
+
+      - name: Upload causal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-matched-training-smallmodel-v1
+          path: outputs/mc_matched_training_v1/
+          if-no-files-found: error
+          retention-days: 7
