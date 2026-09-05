@@ -1,0 +1,23 @@
+name: CSC School Evidence Coach
+
+on:
+  push:
+    paths:
+      - 'csc-2026/**'
+      - '.github/workflows/csc-school-evidence-coach.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact event-window commit
+        uses: actions/checkout@v4
+      - name: Record runtime identity
+        run: |
+          node --version
+          git rev-parse HEAD
+      - name: Run committed CSC tests
+        run: node csc-2026/test.cjs
