@@ -1,6 +1,6 @@
 import math
 
-from mc_budget_crossover_v1 import (
+from mc_budget_crossover_v2 import (
     PREREGISTERED_BUDGETS,
     first_wrap_step,
     cross_eval_metrics,
