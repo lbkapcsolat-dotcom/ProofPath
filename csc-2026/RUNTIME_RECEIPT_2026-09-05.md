@@ -27,6 +27,12 @@ TEST_EXIT=0
 - `csc-2026/coach.js`: `4d261ec48bf0d42f9fabed18c12f47518e9d5e7741eb5ec92f2aee8225125f4a`
 - `csc-2026/test.cjs`: `9d8189d259e48c48ee6285a8aa6c11eb52a756089e9cea53cf2089245280be46`
 
+## Event-window CI follow-up
+
+- CI workflow commit installed at: `794a1f31b13abc297f761975e9c768fee38f8de3`
+- This receipt update is an event-window evidence-only change intended to trigger the committed CSC workflow on push.
+- The authoritative CI verdict remains HOLD until a fresh GitHub Actions run for the resulting commit is read back with exact commit identity and successful test step.
+
 ## Claim ceiling
 
 This receipt proves only that the four committed deterministic School Evidence Coach test cases passed in a fresh isolated cloud runtime at the tested commit. It does not by itself prove full application correctness, deployment readiness, judging eligibility, or submission acceptance.
