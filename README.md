@@ -39,3 +39,5 @@ ProofPath is a separate educational prototype and is not the Equilibrium Stabili
 For ESS public identity, the current authority is `docs/EQUILIBRIUM_STABILITY_SYSTEM_PUBLIC_IDENTITY_MANIFEST_V1.md`.
 
 Older branch names, tags, releases, commits, URLs, or labels may remain visible solely as historical provenance. They are inactive, non-authoritative, and not current ESS identity. See `docs/CURRENT_VS_HISTORICAL_PUBLIC_SURFACE_POLICY.md`.
+
+**Current-surface rule:** `main` is the only current branch authority for public ESS identity hosting in this repository. Any retained historical branch ref is provenance-only, even when it resolves to the same clean tree as `main`.
