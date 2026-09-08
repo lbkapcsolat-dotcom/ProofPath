@@ -39,6 +39,8 @@ Any earlier public identity document using a different project name is non-canon
 
 Historical branch names, tags, releases, commits, URLs, or labels may remain visible solely as provenance. They are **inactive**, **non-authoritative**, **not current ESS identity**, and do not override this manifest.
 
+`main` is the only current branch authority for public ESS identity hosting in this repository.
+
 Preservation of historical metadata is not promotion, endorsement, reactivation, runtime admission, pointer mutation, production promotion, or global bind.
 
 The detailed interpretation rule is defined in `docs/CURRENT_VS_HISTORICAL_PUBLIC_SURFACE_POLICY.md`.
