@@ -33,9 +33,15 @@ Standalone public repositories, benchmarks, datasets, demos, or competition proj
 
 This manifest is hosted in the public `ProofPath` repository for discoverability only. `ProofPath` remains a separate bounded educational prototype and is not asserted to be the ESS system root.
 
-## Supersession rule
+## Supersession and historical-metadata rule
 
-Any earlier public identity document using a different project name is non-canonical and superseded for current public identity purposes. Historical records may retain old labels solely as provenance and must not be presented as current ESS naming.
+Any earlier public identity document using a different project name is non-canonical and superseded for current public identity purposes.
+
+Historical branch names, tags, releases, commits, URLs, or labels may remain visible solely as provenance. They are **inactive**, **non-authoritative**, **not current ESS identity**, and do not override this manifest.
+
+Preservation of historical metadata is not promotion, endorsement, reactivation, runtime admission, pointer mutation, production promotion, or global bind.
+
+The detailed interpretation rule is defined in `docs/CURRENT_VS_HISTORICAL_PUBLIC_SURFACE_POLICY.md`.
 
 ## Collision-disambiguation statement
 
