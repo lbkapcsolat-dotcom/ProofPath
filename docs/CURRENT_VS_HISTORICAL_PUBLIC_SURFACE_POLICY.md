@@ -9,6 +9,8 @@ For system identity, the only current public name is **Equilibrium Stability Sys
 
 The default branch `main` and the current ESS public identity manifest define the current public naming surface.
 
+`main` is the only current branch authority for public ESS identity hosting in this repository.
+
 ## Historical metadata
 
 Older branch names, tags, releases, commits, URLs, or labels may remain visible solely to preserve provenance and reproducibility.
@@ -21,7 +23,7 @@ Such historical metadata is:
 - **NOT A RUNTIME, PRODUCTION, POINTER, OR GLOBAL-BIND AUTHORITY**;
 - **NOT EVIDENCE THAT HISTORICAL IMPLEMENTATION CONTENT IS CURRENTLY EXPOSED**.
 
-Historical branch refs that are retained for provenance may be pointed at the current clean `main` surface so that the retained ref name does not expose a separate historical implementation tree.
+Historical branch refs retained for provenance are quarantined to the current clean `main` tree when practical. A retained branch name therefore does not imply a separate active implementation lineage.
 
 ## Interpretation rule
 
