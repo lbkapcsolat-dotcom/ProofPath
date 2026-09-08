@@ -31,3 +31,11 @@ then open `http://localhost:8000`
 EDUCATIONAL_EVIDENCE_ASSESSMENT_ONLY
 
 Not a truth detector, scientific validator, medical/legal tool, or general automatic fact checker.
+
+## Public identity and historical metadata
+
+ProofPath is a separate educational prototype and is not the Equilibrium Stability System (ESS) system root.
+
+For ESS public identity, the current authority is `docs/EQUILIBRIUM_STABILITY_SYSTEM_PUBLIC_IDENTITY_MANIFEST_V1.md`.
+
+Older branch names, tags, releases, commits, URLs, or labels may remain visible solely as historical provenance. They are inactive, non-authoritative, and not current ESS identity. See `docs/CURRENT_VS_HISTORICAL_PUBLIC_SURFACE_POLICY.md`.
