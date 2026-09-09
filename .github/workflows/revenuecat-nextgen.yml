@@ -1,0 +1,57 @@
+name: RevenueCat Next Gen Android
+
+on:
+  push:
+    branches:
+      - revenuecat-nextgen-evidence-coach-pocket-v1
+    paths:
+      - 'revenuecat-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen.yml'
+  pull_request:
+    paths:
+      - 'revenuecat-nextgen/**'
+      - '.github/workflows/revenuecat-nextgen.yml'
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: revenuecat-nextgen
+        run: npm install --no-audit --no-fund
+
+      - name: Unit tests
+        working-directory: revenuecat-nextgen
+        run: npm test
+
+      - name: Secret guard
+        working-directory: revenuecat-nextgen
+        run: npm run verify:secrets
+
+      - name: Expo doctor
+        working-directory: revenuecat-nextgen
+        run: npx expo-doctor
+
+      - name: Generate Android native project
+        working-directory: revenuecat-nextgen
+        env:
+          CI: '1'
+        run: npx expo prebuild --platform android
+
+      - name: Build debug APK
+        working-directory: revenuecat-nextgen/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-coach-pocket-debug-apk
+          path: revenuecat-nextgen/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
