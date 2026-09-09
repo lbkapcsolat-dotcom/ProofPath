@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Evidence Coach Pocket",
+    "slug": "evidence-coach-pocket",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.evidencecoach.pocket",
+      "versionCode": 1
+    }
+  }
+}
