@@ -1,4 +1,5 @@
 {
+  "schema": "EARTH_BUILD_MANIFEST_V2_SNAPSHOT_ONLY",
   "artifact": "Earth Evidence",
   "competition": "NextStep Hacks 2026",
   "theme": "Earth Forward",
@@ -6,6 +7,9 @@
   "baseline_branch": "main",
   "baseline_commit": "537e276724a75b9f5f45404c550712b84f56d046",
   "development_branch": "nextstep-earth-evidence-v1",
+  "authority_status": "NONAUTHORITATIVE_SNAPSHOT_METADATA",
+  "authority_rule": "Do not use this file as proof of the live/current branch head, live commit count, current changed-file count, or current CI state. Resolve those facts from fresh GitHub provider readback and a bound evidence receipt.",
+  "supersedes_semantics": "EARTH_BUILD_MANIFEST_V1_LIVE_STATE_IMPLICATION",
   "inherited_engine": "ProofPath three-class browser softmax/logistic regression",
   "new_training_pairs": 32,
   "new_holdout_pairs": 10,
@@ -17,16 +21,48 @@
     "before/during disclosure",
     "Earth-specific benchmark and UI tests"
   ],
-  "baseline_delta": {
-    "commits_ahead": 12,
-    "new_files": 5,
-    "modified_files": 5
+  "bounded_snapshot": {
+    "source_head_commit": "c3a62a7d5f30af8cb8677ce65c0d065db08e6848",
+    "merge_base_commit": "537e276724a75b9f5f45404c550712b84f56d046",
+    "commits_ahead": 15,
+    "commits_behind": 0,
+    "changed_files": 12,
+    "added_files": 7,
+    "modified_files": 5,
+    "deleted_files": 0,
+    "byte_sha256_manifest_schema": "NEXTSTEP_BRANCH_DELTA_BYTE_SHA256_MANIFEST_V1",
+    "byte_sha256_manifest_sha256": "4c446d4dabd339046ce136015a886343794d6d16ab80327e8c9c558eb69d0d5f",
+    "fresh_remote_reproduction": {
+      "workflow": "Earth Evidence Tests",
+      "run_id": 32902622692,
+      "run_attempt": 2,
+      "bound_head_commit": "c3a62a7d5f30af8cb8677ce65c0d065db08e6848",
+      "node_runtime": "v20.20.2",
+      "earth_holdout": "PASS_10_OF_10",
+      "training_pairs": 32,
+      "ui_static_checks": "PASS",
+      "conclusion": "success"
+    },
+    "second_runtime_replay": {
+      "runtime": "Node v22.23.2",
+      "bound_head_commit": "c3a62a7d5f30af8cb8677ce65c0d065db08e6848",
+      "earth_holdout": "PASS_10_OF_10",
+      "ui_static_checks": "PASS"
+    }
   },
-  "local_verification": {
-    "earth_holdout": "PASS_10_OF_10",
-    "ui_static_checks": "PASS",
-    "method": "Node execution against reconstructed branch modules using the unchanged ProofPath classifier engine"
+  "live_authority": {
+    "branch_state": "FRESH_GITHUB_PROVIDER_READBACK_REQUIRED",
+    "ci_state": "FRESH_GITHUB_ACTIONS_READBACK_REQUIRED",
+    "evidence_receipt": "NEXTSTEP_BRANCH_DELTA_BYTE_DIFF_AND_FRESH_REPRO_RECEIPT_V1"
   },
-  "remote_ci_readback": "HOLD_NO_WORKFLOW_RUN_VISIBLE_IN_AVAILABLE_READBACK",
-  "claim_ceiling": "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY"
+  "claim_ceiling": "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY",
+  "explicit_nonclaims": [
+    "not proof of general-world environmental accuracy",
+    "not scientific validation",
+    "not climate-model capability",
+    "not judging score evidence",
+    "not prize or win evidence",
+    "not payout evidence",
+    "not production-readiness evidence"
+  ]
 }
