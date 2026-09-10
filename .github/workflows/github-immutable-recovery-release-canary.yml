@@ -1,0 +1,139 @@
+name: GitHub Immutable Recovery Release Canary
+
+on:
+  push:
+    branches:
+      - github-immutable-recovery-release-canary-v1
+    paths:
+      - 'recovery-canary/**'
+      - '.github/workflows/github-immutable-recovery-release-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PAYLOAD: recovery-canary/IMMUTABLE_RECOVERY_CANARY_V1.json
+  EXPECTED_PAYLOAD_SHA256: 7f3d228be6a37f3fb612a24fae98b89ade4f3ec91710de8b920cb243b2b201d0
+
+jobs:
+  immutable-release-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact canary commit
+        uses: actions/checkout@v4
+
+      - name: Verify pinned recovery payload
+        run: echo "${EXPECTED_PAYLOAD_SHA256}  ${PAYLOAD}" | sha256sum -c -
+
+      - name: Build release asset sidecar
+        run: |
+          cp "${PAYLOAD}" IMMUTABLE_RECOVERY_CANARY_V1.json
+          sha256sum IMMUTABLE_RECOVERY_CANARY_V1.json > IMMUTABLE_RECOVERY_CANARY_V1.json.sha256
+
+      - name: Create future recovery canary release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ess-immutable-recovery-canary-v1-${GITHUB_RUN_ID}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          gh release create "${TAG}" \
+            IMMUTABLE_RECOVERY_CANARY_V1.json \
+            IMMUTABLE_RECOVERY_CANARY_V1.json.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "ESS Immutable Recovery Canary ${GITHUB_RUN_ID}" \
+            --notes "Bounded provider-enforced immutability canary. No production promotion, no global bind."
+
+      - name: Read back immutable state or clean mutable canary
+        id: immutable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json
+          IMMUTABLE="$(jq -r '.immutable' release.json)"
+          RELEASE_ID="$(jq -r '.id' release.json)"
+          echo "immutable=${IMMUTABLE}" >> "$GITHUB_OUTPUT"
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+          if [ "${IMMUTABLE}" != "true" ]; then
+            echo "HOLD_RELEASE_IMMUTABILITY_NOT_ENABLED"
+            gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+            exit 42
+          fi
+
+      - name: Verify released asset byte identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir readback
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'IMMUTABLE_RECOVERY_CANARY_V1.json*' --dir readback
+          cd readback
+          sha256sum -c IMMUTABLE_RECOVERY_CANARY_V1.json.sha256
+          test "$(sha256sum IMMUTABLE_RECOVERY_CANARY_V1.json | awk '{print $1}')" = "${EXPECTED_PAYLOAD_SHA256}"
+
+      - name: Prove asset deletion is provider-rejected
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+          ASSET_ID="$(printf '%s' "${RELEASE_JSON}" | jq -r '.assets[] | select(.name=="IMMUTABLE_RECOVERY_CANARY_V1.json") | .id')"
+          set +e
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}"
+          RC=$?
+          set -e
+          if [ "${RC}" -eq 0 ]; then
+            echo "FAIL_PROVIDER_ALLOWED_IMMUTABLE_ASSET_DELETE"
+            exit 43
+          fi
+          echo "PASS_PROVIDER_REJECTED_ASSET_DELETE"
+
+      - name: Prove tag deletion is provider-rejected
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          set +e
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}"
+          RC=$?
+          set -e
+          if [ "${RC}" -eq 0 ]; then
+            echo "FAIL_PROVIDER_ALLOWED_IMMUTABLE_TAG_DELETE"
+            exit 44
+          fi
+          echo "PASS_PROVIDER_REJECTED_TAG_DELETE"
+
+      - name: Emit bounded canary receipt
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_ID: ${{ steps.immutable.outputs.release_id }}
+        run: |
+          mkdir -p out
+          jq -n -c \
+            --arg gate_id 'GITHUB_IMMUTABLE_RECOVERY_RELEASE_ENABLE_AND_CANARY_V1' \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg tag "${TAG}" \
+            --arg release_id "${RELEASE_ID}" \
+            --arg payload_sha256 "${EXPECTED_PAYLOAD_SHA256}" \
+            '{gate_id:$gate_id,repository:$repository,commit_sha:$commit_sha,github_run_id:$run_id,tag:$tag,release_id:$release_id,payload_sha256:$payload_sha256,immutable:true,asset_delete_probe:"REJECTED",tag_delete_probe:"REJECTED",external_actuation:false,production_write:false,pointer_promotion:false,new_global_bind:false,zero_spend:true,claim_ceiling:"PROVIDER_ENFORCED_IMMUTABLE_RECOVERY_RELEASE_CANARY_ONLY"}' \
+            > out/GITHUB_IMMUTABLE_RECOVERY_RELEASE_CANARY_V1_RECEIPT.json
+          sha256sum out/GITHUB_IMMUTABLE_RECOVERY_RELEASE_CANARY_V1_RECEIPT.json > out/GITHUB_IMMUTABLE_RECOVERY_RELEASE_CANARY_V1_RECEIPT.json.sha256
+
+      - name: Upload bounded canary receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-immutable-recovery-release-canary-${{ github.run_id }}
+          path: |
+            out/GITHUB_IMMUTABLE_RECOVERY_RELEASE_CANARY_V1_RECEIPT.json
+            out/GITHUB_IMMUTABLE_RECOVERY_RELEASE_CANARY_V1_RECEIPT.json.sha256
+          if-no-files-found: error
+          retention-days: 7
