@@ -1,0 +1,67 @@
+name: ESS V6.1 Real Repository Control Plane Canary
+
+on:
+  push:
+    branches:
+      - ess-v6-1-real-repository-control-plane-canary-v1
+    paths:
+      - 'control-plane-canary/v6_1/**'
+      - '.github/workflows/ess-v6-1-control-plane-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact canary commit
+        uses: actions/checkout@v4
+
+      - name: Record provider runtime identity
+        run: |
+          python --version || true
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+          echo "GITHUB_REF=${GITHUB_REF}"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: '.github/workflows/ess-v6-1-control-plane-canary.yml'
+
+      - name: Install pinned cryptography dependency
+        run: python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+
+      - name: Verify frozen V6.1 source SHA256
+        working-directory: control-plane-canary/v6_1
+        run: echo '19864775eeebb8a1fab2fec269ac9573a6f8463efb61244fe808c0927655ecd4  alpha_full_6d_local_control_plane_v6_1.py' | sha256sum -c -
+
+      - name: Run isolated canary tests
+        working-directory: control-plane-canary/v6_1
+        run: python test_canary.py
+
+      - name: Run bounded positive and tamper canary
+        working-directory: control-plane-canary/v6_1
+        run: python run_canary.py --receipt out/ESS_V6_1_GITHUB_ACTIONS_CANARY_RECEIPT_V1.json
+
+      - name: Verify canonical receipt and sidecar
+        working-directory: control-plane-canary/v6_1
+        run: python run_canary.py --verify-receipt out/ESS_V6_1_GITHUB_ACTIONS_CANARY_RECEIPT_V1.json
+
+      - name: Upload provider-native canary receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-v6-1-control-plane-canary-receipt-${{ github.run_id }}
+          path: |
+            control-plane-canary/v6_1/out/ESS_V6_1_GITHUB_ACTIONS_CANARY_RECEIPT_V1.json
+            control-plane-canary/v6_1/out/ESS_V6_1_GITHUB_ACTIONS_CANARY_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
