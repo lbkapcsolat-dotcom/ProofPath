@@ -25,10 +25,17 @@ jobs:
       - name: Record provider runtime identity
         run: |
           python --version || true
+          node --version
           git rev-parse HEAD
           echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
           echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
           echo "GITHUB_REF=${GITHUB_REF}"
+
+      - name: Run existing ProofPath regression suite
+        run: |
+          node tests.mjs
+          node test-ui.mjs
+          node csc-2026/test.cjs
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
