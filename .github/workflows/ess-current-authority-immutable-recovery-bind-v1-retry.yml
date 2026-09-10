@@ -1,0 +1,162 @@
+name: ESS Current Authority Immutable Recovery Bundle Bind V1 Retry
+
+on:
+  push:
+    branches:
+      - ess-current-authority-immutable-recovery-bundle-v1-retry
+    paths:
+      - 'recovery-authority/**'
+      - '.github/workflows/ess-current-authority-immutable-recovery-bind-v1-retry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  immutable-current-authority-bind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_BUNDLE_SHA256: 4510c274c85586c86fee84ebd4844982ccd6cd3b9b0149dbd8db7784e25a4665
+      EXPECTED_AUTH_INPUT_SHA256: 1d0eaaeec902ac057baffc8bdbcd5566af56424fe1ae1195b6d51e09deba413a
+      AUTH_INPUT: recovery-authority/ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json
+      TAG: ess-current-authority-recovery-a3585-boot2206-v1
+      OUT_BUNDLE: reconstructed/ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip
+    steps:
+      - name: Checkout exact bind commit
+        uses: actions/checkout@v4
+
+      - name: Record provider runtime identity
+        run: |
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+          echo "GITHUB_REF=${GITHUB_REF}"
+
+      - name: Reconstruct exact bundle from bounded text chunks
+        run: |
+          set -euo pipefail
+          test "$(find recovery-authority/parts -maxdepth 1 -name 'bundle.b64.part-*' | wc -l)" = "8"
+          mkdir -p reconstructed
+          cat recovery-authority/parts/bundle.b64.part-* > reconstructed/bundle.b64
+          base64 --decode reconstructed/bundle.b64 > "${OUT_BUNDLE}"
+          echo "${EXPECTED_BUNDLE_SHA256}  ${OUT_BUNDLE}" | sha256sum -c -
+          test "$(stat -c%s "${OUT_BUNDLE}")" = "20989"
+          unzip -t "${OUT_BUNDLE}" >/dev/null
+          test "$(unzip -Z1 "${OUT_BUNDLE}" | wc -l)" = "10"
+
+      - name: Verify authority binding input
+        run: |
+          set -euo pipefail
+          echo "${EXPECTED_AUTH_INPUT_SHA256}  ${AUTH_INPUT}" | sha256sum -c -
+          jq -e '
+            .gate_id == "ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BUNDLE_BIND_AND_EXACT_READBACK_V1" and
+            .current_authority.master == "A3585" and
+            .current_authority.boot == "BOOT2206" and
+            .support_package_drive_id == "1ZbnmUtQMZCjYRWWTvBh1fXkuLnlgVYET" and
+            .support_package_sha256 == "4510c274c85586c86fee84ebd4844982ccd6cd3b9b0149dbd8db7784e25a4665" and
+            .support_package_bytes == 20989 and
+            .support_package_members == 10 and
+            .later_support_only_bind.pointer_promotion == false and
+            .pointer_promotion == false and
+            .new_global_bind == false and
+            .zero_spend == true
+          ' "${AUTH_INPUT}" >/dev/null
+
+      - name: Prepare release assets
+        run: |
+          cp recovery-authority/ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip.sha256 reconstructed/ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip.sha256
+          cp "${AUTH_INPUT}" reconstructed/ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json
+          cp "${AUTH_INPUT}.sha256" reconstructed/ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json.sha256
+
+      - name: Create immutable recovery release or read back existing exact tag
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json 2>/dev/null; then
+            echo "mode=READBACK_ONLY" >> "$GITHUB_OUTPUT"
+          else
+            gh release create "${TAG}" \
+              reconstructed/ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip \
+              reconstructed/ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip.sha256 \
+              reconstructed/ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json \
+              reconstructed/ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json.sha256 \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${GITHUB_SHA}" \
+              --title "ESS Current Authority Immutable Recovery Bundle A3585 / BOOT2206" \
+              --notes "Provider-enforced immutable exact-byte recovery copy of the current ESS authority support package. No pointer promotion, no global bind, no production promotion."
+            echo "mode=CREATED" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify immutable release metadata and provider digests
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json
+          test "$(jq -r '.immutable' release.json)" = "true"
+          test "$(jq -r '.target_commitish' release.json)" = "${GITHUB_SHA}"
+          BUNDLE_DIGEST="$(jq -er --arg n 'ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip' '.assets[] | select(.name==$n) | .digest' release.json)"
+          AUTH_DIGEST="$(jq -er --arg n 'ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json' '.assets[] | select(.name==$n) | .digest' release.json)"
+          test "${BUNDLE_DIGEST}" = "sha256:${EXPECTED_BUNDLE_SHA256}"
+          test "${AUTH_DIGEST}" = "sha256:${EXPECTED_AUTH_INPUT_SHA256}"
+          echo "release_id=$(jq -r '.id' release.json)" >> "$GITHUB_OUTPUT"
+          echo "published_at=$(jq -r '.published_at' release.json)" >> "$GITHUB_OUTPUT"
+          echo "bundle_digest=${BUNDLE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "auth_digest=${AUTH_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Exact release download readback
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf readback
+          mkdir readback
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir readback
+          cd readback
+          sha256sum -c ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip.sha256
+          sha256sum -c ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json.sha256
+          test "$(sha256sum ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip | awk '{print $1}')" = "${EXPECTED_BUNDLE_SHA256}"
+          test "$(stat -c%s ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip)" = "20989"
+          test "$(unzip -Z1 ESS_CURRENT_AUTHORITY_RECOVERY_BUNDLE_A3585_BOOT2206.zip | wc -l)" = "10"
+          test "$(sha256sum ESS_CURRENT_AUTHORITY_BINDING_INPUT_V1.json | awk '{print $1}')" = "${EXPECTED_AUTH_INPUT_SHA256}"
+
+      - name: Emit bounded authority bind receipt
+        env:
+          RELEASE_ID: ${{ steps.meta.outputs.release_id }}
+          PUBLISHED_AT: ${{ steps.meta.outputs.published_at }}
+          RELEASE_MODE: ${{ steps.release.outputs.mode }}
+          BUNDLE_DIGEST: ${{ steps.meta.outputs.bundle_digest }}
+          AUTH_DIGEST: ${{ steps.meta.outputs.auth_digest }}
+        run: |
+          mkdir -p out
+          jq -n -c \
+            --arg gate_id 'ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BUNDLE_BIND_AND_EXACT_READBACK_V1' \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg tag "${TAG}" \
+            --arg release_id "${RELEASE_ID}" \
+            --arg published_at "${PUBLISHED_AT}" \
+            --arg release_mode "${RELEASE_MODE}" \
+            --arg bundle_sha256 "${EXPECTED_BUNDLE_SHA256}" \
+            --arg bundle_digest "${BUNDLE_DIGEST}" \
+            --arg auth_input_sha256 "${EXPECTED_AUTH_INPUT_SHA256}" \
+            --arg auth_digest "${AUTH_DIGEST}" \
+            '{gate_id:$gate_id,repository:$repository,commit_sha:$commit_sha,github_run_id:$run_id,github_run_attempt:$run_attempt,tag:$tag,release_id:$release_id,published_at:$published_at,release_mode:$release_mode,current_authority:{master:"A3585",boot:"BOOT2206"},drive_support_package_id:"1ZbnmUtQMZCjYRWWTvBh1fXkuLnlgVYET",bundle_sha256:$bundle_sha256,bundle_provider_digest:$bundle_digest,bundle_bytes:20989,bundle_members:10,authority_input_sha256:$auth_input_sha256,authority_input_provider_digest:$auth_digest,immutable:true,exact_release_download_readback:true,immutability_enforcement_preproven_by_canary:true,external_actuation:false,production_write:false,pointer_promotion:false,new_global_bind:false,zero_spend:true,claim_ceiling:"PROVIDER_ENFORCED_IMMUTABLE_CURRENT_AUTHORITY_RECOVERY_BUNDLE_COPY_ONLY"}' \
+            > out/ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BIND_RECEIPT_V1.json
+          sha256sum out/ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BIND_RECEIPT_V1.json > out/ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BIND_RECEIPT_V1.json.sha256
+
+      - name: Upload authority bind receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-current-authority-immutable-recovery-bind-${{ github.run_id }}
+          path: |
+            out/ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BIND_RECEIPT_V1.json
+            out/ESS_CURRENT_AUTHORITY_IMMUTABLE_RECOVERY_BIND_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
