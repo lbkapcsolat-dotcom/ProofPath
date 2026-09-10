@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import enum
 import json
+import math
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -74,6 +76,148 @@ class Decision:
     verdict: str
     eq64_bits: str = "000000"
     reason: str = ""
+
+
+class AbstainReason(str, enum.Enum):
+    EXHAUSTED_LABEL_SPACE = "EXHAUSTED_LABEL_SPACE"
+    OUT_OF_DISTRIBUTION = "OUT_OF_DISTRIBUTION"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    AMBIGUOUS_ADMISSIBLE_SET = "AMBIGUOUS_ADMISSIBLE_SET"
+
+
+@dataclass(frozen=True)
+class SemanticGateDecision:
+    state: str
+    reason: str
+    admissible_labels: tuple[str, ...]
+    rejected_labels: tuple[str, ...]
+    receipt_hash: str
+
+
+class MissingExclusionProofException(Exception):
+    pass
+
+
+class SemanticInputValidationException(Exception):
+    pass
+
+
+UNWORDS_RECEIPT_SCHEMA = "ESS_UNWORDS_SEMANTIC_GATE_RECEIPT_V1"
+
+
+@dataclass(frozen=True)
+class UnwordsSemanticGate:
+    min_confidence: float = 0.80
+    min_margin: float = 0.15
+    ood_threshold: float = 0.90
+
+    def __post_init__(self):
+        for name, value in (
+            ("min_confidence", self.min_confidence),
+            ("min_margin", self.min_margin),
+            ("ood_threshold", self.ood_threshold),
+        ):
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+                raise SemanticInputValidationException(f"{name}:FINITE_NUMBER_REQUIRED")
+            if not 0.0 <= float(value) <= 1.0:
+                raise SemanticInputValidationException(f"{name}:OUT_OF_RANGE")
+
+    def evaluate_state(
+        self,
+        payload_bytes: bytes,
+        all_labels: set[str],
+        rejected_labels_with_proofs: Mapping[str, bool],
+        confidence_by_label: Mapping[str, float],
+        *,
+        ood_score: float,
+        evidence_complete: bool,
+    ) -> SemanticGateDecision:
+        if not isinstance(payload_bytes, bytes):
+            raise SemanticInputValidationException("PAYLOAD_BYTES_REQUIRED")
+        if not isinstance(all_labels, set) or not all_labels:
+            raise SemanticInputValidationException("NONEMPTY_LABEL_SET_REQUIRED")
+        if any(not isinstance(label, str) or not label for label in all_labels):
+            raise SemanticInputValidationException("INVALID_LABEL")
+        if not isinstance(rejected_labels_with_proofs, Mapping):
+            raise SemanticInputValidationException("EXCLUSION_PROOF_MAP_REQUIRED")
+        if not isinstance(confidence_by_label, Mapping):
+            raise SemanticInputValidationException("CONFIDENCE_MAP_REQUIRED")
+        if not isinstance(evidence_complete, bool):
+            raise SemanticInputValidationException("EVIDENCE_COMPLETE_BOOL_REQUIRED")
+        if not isinstance(ood_score, (int, float)) or isinstance(ood_score, bool) or not math.isfinite(float(ood_score)):
+            raise SemanticInputValidationException("OOD_SCORE_FINITE_REQUIRED")
+        ood_score = float(ood_score)
+        if not 0.0 <= ood_score <= 1.0:
+            raise SemanticInputValidationException("OOD_SCORE_OUT_OF_RANGE")
+
+        rejected_labels = set(rejected_labels_with_proofs)
+        if not rejected_labels.issubset(all_labels):
+            raise SemanticInputValidationException("REJECTION_OUTSIDE_ONTOLOGY")
+        for label, has_proof in rejected_labels_with_proofs.items():
+            if has_proof is not True:
+                raise MissingExclusionProofException(f"MISSING_EXCLUSION_PROOF:{label}")
+
+        if not set(confidence_by_label).issubset(all_labels):
+            raise SemanticInputValidationException("CONFIDENCE_OUTSIDE_ONTOLOGY")
+        normalized_confidence: dict[str, float] = {}
+        for label in sorted(all_labels):
+            raw_score = confidence_by_label.get(label, 0.0)
+            if not isinstance(raw_score, (int, float)) or isinstance(raw_score, bool) or not math.isfinite(float(raw_score)):
+                raise SemanticInputValidationException(f"CONFIDENCE_NOT_FINITE:{label}")
+            score = float(raw_score)
+            if not 0.0 <= score <= 1.0:
+                raise SemanticInputValidationException(f"CONFIDENCE_OUT_OF_RANGE:{label}")
+            normalized_confidence[label] = score
+
+        admissible = all_labels - rejected_labels
+        state = "ABSTAIN"
+        if not admissible:
+            reason = AbstainReason.EXHAUSTED_LABEL_SPACE.value
+        elif not evidence_complete:
+            reason = AbstainReason.INSUFFICIENT_EVIDENCE.value
+        elif ood_score >= self.ood_threshold:
+            reason = AbstainReason.OUT_OF_DISTRIBUTION.value
+        else:
+            ranked = sorted(
+                ((label, normalized_confidence[label]) for label in admissible),
+                key=lambda item: (-item[1], item[0]),
+            )
+            best_label, best_score = ranked[0]
+            second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+            if best_score < self.min_confidence:
+                reason = AbstainReason.INSUFFICIENT_EVIDENCE.value
+            elif best_score - second_score < self.min_margin:
+                reason = AbstainReason.AMBIGUOUS_ADMISSIBLE_SET.value
+            else:
+                state = "CLASSIFIED"
+                reason = best_label
+
+        receipt_body = {
+            "schema": UNWORDS_RECEIPT_SCHEMA,
+            "payload_sha256": hashlib.sha256(payload_bytes).hexdigest(),
+            "all_labels": sorted(all_labels),
+            "rejected_labels": sorted(rejected_labels),
+            "admissible_labels": sorted(admissible),
+            "exclusion_proofs": {label: True for label in sorted(rejected_labels)},
+            "confidence_by_label": normalized_confidence,
+            "ood_score": ood_score,
+            "evidence_complete": evidence_complete,
+            "thresholds": {
+                "min_confidence": float(self.min_confidence),
+                "min_margin": float(self.min_margin),
+                "ood_threshold": float(self.ood_threshold),
+            },
+            "state": state,
+            "reason": reason,
+        }
+        receipt_hash = hashlib.sha256(canonical_json_bytes(receipt_body)).hexdigest()
+        return SemanticGateDecision(
+            state=state,
+            reason=reason,
+            admissible_labels=tuple(sorted(admissible)),
+            rejected_labels=tuple(sorted(rejected_labels)),
+            receipt_hash=receipt_hash,
+        )
 
 
 def sha256_bytes(data: bytes) -> str:
