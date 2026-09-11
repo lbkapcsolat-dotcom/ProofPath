@@ -1,0 +1,162 @@
+name: ess-docker-mcp-deepwiki-live-callable-v4
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-deepwiki-live-callable-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+
+jobs:
+  deepwiki-current-transport-v4:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-deepwiki-v4 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-mcp-deepwiki-v4/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-deepwiki-v4/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-mcp-deepwiki-v4/docker-mcp-version.txt
+
+      - name: Freeze official entry and create exact bounded transport transformation
+        run: |
+          set -euxo pipefail
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/docker-mcp-deepwiki-v4/catalog-pull.log 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" deepwiki --format json > evidence/docker-mcp-deepwiki-v4/official-deepwiki-inspect.json
+          python - <<'PY'
+          import json,pathlib,yaml
+          root=pathlib.Path('evidence/docker-mcp-deepwiki-v4')
+          o=json.loads((root/'official-deepwiki-inspect.json').read_text())
+          s=o['snapshot']['server']; r=s.get('remote') or {}; tools=s.get('tools') or []
+          names=[t.get('name') for t in tools]
+          assert s.get('type')=='remote'
+          assert not s.get('secrets')
+          assert r.get('url')=='https://mcp.deepwiki.com/sse'
+          assert r.get('transport_type')=='sse'
+          assert {'read_wiki_structure','read_wiki_contents','ask_question'}.issubset(set(names)), names
+          catalog={
+            'registry':{
+              'deepwiki-current':{
+                'description':'Tools for fetching and asking questions about GitHub repositories.',
+                'title':'DeepWiki Current Transport',
+                'type':'remote',
+                'remote':{
+                  'transport_type':'streamable-http',
+                  'url':'https://mcp.deepwiki.com/mcp'
+                },
+                'tools':[{'name':n} for n in names if n in {'read_wiki_structure','read_wiki_contents','ask_question'}]
+              }
+            }
+          }
+          (root/'deepwiki-current-catalog.yaml').write_text(yaml.safe_dump(catalog,sort_keys=False))
+          boundary={
+            'source_server':'deepwiki',
+            'source_url':'https://mcp.deepwiki.com/sse',
+            'source_transport':'sse',
+            'target_server':'deepwiki-current',
+            'target_url':'https://mcp.deepwiki.com/mcp',
+            'target_transport':'streamable-http',
+            'changed_fields':['remote.url','remote.transport_type'],
+            'tool_contract_preserved':sorted([n for n in names if n in {'read_wiki_structure','read_wiki_contents','ask_question'}]),
+            'secret_required':False
+          }
+          (root/'transformation-boundary.json').write_text(json.dumps(boundary,indent=2,sort_keys=True))
+          print('PASS_EXACT_BOUNDED_DEEPWIKI_TRANSPORT_TRANSFORMATION')
+          PY
+
+      - name: Disable dynamic tools and discover current DeepWiki surface
+        run: |
+          set -euxo pipefail
+          docker mcp feature disable dynamic-tools > evidence/docker-mcp-deepwiki-v4/dynamic-tools-disable.log 2>&1
+          docker mcp feature list > evidence/docker-mcp-deepwiki-v4/features-after.txt
+          grep -A1 'dynamic-tools' evidence/docker-mcp-deepwiki-v4/features-after.txt | grep -F 'disabled'
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools --format json \
+              --gateway-arg=--catalog="$PWD/evidence/docker-mcp-deepwiki-v4/deepwiki-current-catalog.yaml" \
+              --gateway-arg=--servers=deepwiki-current \
+              ls \
+            > evidence/docker-mcp-deepwiki-v4/runtime-tools.json \
+            2> evidence/docker-mcp-deepwiki-v4/runtime-tools.err
+          grep -F 'read_wiki_structure' evidence/docker-mcp-deepwiki-v4/runtime-tools.json
+          grep -F 'read_wiki_contents' evidence/docker-mcp-deepwiki-v4/runtime-tools.json
+          grep -F 'ask_question' evidence/docker-mcp-deepwiki-v4/runtime-tools.json
+          echo PASS_DEEPWIKI_CURRENT_TRANSPORT_RUNTIME_TOOL_DISCOVERY | tee evidence/docker-mcp-deepwiki-v4/runtime-discovery-status.txt
+
+      - name: Execute live read-only public repository structure query
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools \
+              --gateway-arg=--catalog="$PWD/evidence/docker-mcp-deepwiki-v4/deepwiki-current-catalog.yaml" \
+              --gateway-arg=--servers=deepwiki-current \
+              call read_wiki_structure 'repoName=docker/mcp-gateway' \
+            > evidence/docker-mcp-deepwiki-v4/live-read-wiki-structure.out \
+            2> evidence/docker-mcp-deepwiki-v4/live-read-wiki-structure.err
+          test -s evidence/docker-mcp-deepwiki-v4/live-read-wiki-structure.out
+          grep -Eiq 'gateway|docker|mcp|documentation|wiki|section|topic|overview|architecture' evidence/docker-mcp-deepwiki-v4/live-read-wiki-structure.out
+          echo PASS_DOCKER_MCP_DEEPWIKI_PUBLIC_REPO_LIVE_CALLABLE | tee evidence/docker-mcp-deepwiki-v4/gate-status.txt
+
+      - name: Build bounded receipt and SHA manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-mcp-deepwiki-v4')
+          b=json.loads((root/'transformation-boundary.json').read_text())
+          receipt={
+            'gate':'DEEPWIKI_LIVE_CALLABLE_V1',
+            'implementation':'V4_CURRENT_STREAMABLE_HTTP_BOUNDED_OVERRIDE',
+            'status':'PASS_DOCKER_MCP_DEEPWIKI_PUBLIC_REPO_LIVE_CALLABLE',
+            'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+            'server':'deepwiki-current','tool':'read_wiki_structure','repository':'docker/mcp-gateway',
+            'source_catalog_url':b['source_url'],'effective_url':b['target_url'],
+            'source_transport':b['source_transport'],'effective_transport':b['target_transport'],
+            'transformation_boundary_explicit':True,
+            'changed_fields':b['changed_fields'],
+            'zero_spend':True,'secret_injected':False,'public_repo_only':True,'read_only':True,
+            'external_actuation':False,'production_ready':False,'global_bind':False,
+            'official_catalog_entry_modified':False
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          rows=[]
+          for p in sorted(root.iterdir()):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              bb=p.read_bytes(); rows.append(f'{hashlib.sha256(bb).hexdigest()}  {len(bb)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-deepwiki-live-callable-v4
+          path: evidence/docker-mcp-deepwiki-v4/
+          if-no-files-found: error
+          retention-days: 30
