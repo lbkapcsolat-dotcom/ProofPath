@@ -1,0 +1,255 @@
+name: RCCA Required Status Provider Gate V1
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    outputs:
+      rcca_changed: ${{ steps.paths.outputs.rcca_changed }}
+    steps:
+      - name: Checkout exact PR head with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify RCCA-sensitive changes
+        id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+          git diff --name-only "$BASE" "$HEAD" > /tmp/changed.txt
+          cat /tmp/changed.txt
+          if grep -Eq '^(formal/rcca-lean4/|\.github/workflows/rcca-(lean4-mechanization|spec-lean-coverage|required-status-provider-gate)\.yml$)' /tmp/changed.txt; then
+            echo 'rcca_changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'rcca_changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  coverage:
+    needs: classify
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run RCCA spec-to-Lean coverage gate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          python3 formal/rcca-lean4/coverage/test_coverage.py
+
+  proof-escape-scanner-test:
+    needs: classify
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify scanner catches proof escapes without false-positive control
+        run: |
+          set -euo pipefail
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          printf '%s\n' 'theorem synthetic : True := by sorry' > /tmp/inline-proof-escape.lean
+          printf '%s\n' 'private axiom hiddenEscape : False' > /tmp/private-axiom-proof-escape.lean
+          printf '%s\n' 'theorem synthetic : True := by trivial' > /tmp/safe-proof.lean
+          grep -nE "$ESCAPE_RE" /tmp/inline-proof-escape.lean
+          grep -nE "$ESCAPE_RE" /tmp/private-axiom-proof-escape.lean
+          if grep -nE "$ESCAPE_RE" /tmp/safe-proof.lean; then
+            echo 'FAIL_SCANNER_FALSE_POSITIVE_SAFE_CONTROL'
+            exit 43
+          fi
+
+  build-a:
+    needs: classify
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install pinned Lean and build RCCA
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/rcca-lean4
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+      - name: Compile theorem harness and reject proof escapes
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean RCCATest.lean
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          if grep -nE "$ESCAPE_RE" RCCA.lean RCCATest.lean; then
+            exit 41
+          fi
+      - name: Materialize deterministic proof artifact A
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp RCCA.lean out/RCCA.lean
+          cp .lake/build/lib/lean/RCCA.olean out/RCCA.olean
+          cp RCCATest.lean out/RCCATest.lean
+          cp lakefile.lean out/lakefile.lean
+          cp lean-toolchain out/lean-toolchain
+          cd out
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean RCCATest.lean lakefile.lean lean-toolchain
+          sha256sum proof-artifact.tar > proof-artifact.tar.sha256
+      - name: Upload build A
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-provider-gate-build-a
+          path: formal/rcca-lean4/out/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  build-b:
+    needs: classify
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install pinned Lean and build RCCA
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/rcca-lean4
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+      - name: Compile theorem harness and reject proof escapes
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean RCCATest.lean
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          if grep -nE "$ESCAPE_RE" RCCA.lean RCCATest.lean; then
+            exit 41
+          fi
+      - name: Materialize deterministic proof artifact B
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp RCCA.lean out/RCCA.lean
+          cp .lake/build/lib/lean/RCCA.olean out/RCCA.olean
+          cp RCCATest.lean out/RCCATest.lean
+          cp lakefile.lean out/lakefile.lean
+          cp lean-toolchain out/lean-toolchain
+          cd out
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean RCCATest.lean lakefile.lean lean-toolchain
+          sha256sum proof-artifact.tar > proof-artifact.tar.sha256
+      - name: Upload build B
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-provider-gate-build-b
+          path: formal/rcca-lean4/out/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  proofpath-regression:
+    needs: classify
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run committed regressions
+        run: |
+          set -euo pipefail
+          node tests.mjs
+          node test-ui.mjs
+          node csc-2026/test.cjs
+
+  compare:
+    needs: [classify, build-a, build-b]
+    if: needs.classify.outputs.rcca_changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download build A
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: rcca-provider-gate-build-a
+          path: build-a
+      - name: Download build B
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: rcca-provider-gate-build-b
+          path: build-b
+      - name: Verify exact artifact equality
+        run: |
+          set -euo pipefail
+          cmp build-a/RCCA.lean build-b/RCCA.lean
+          cmp build-a/RCCA.olean build-b/RCCA.olean
+          cmp build-a/RCCATest.lean build-b/RCCATest.lean
+          cmp build-a/lakefile.lean build-b/lakefile.lean
+          cmp build-a/lean-toolchain build-b/lean-toolchain
+          cmp build-a/proof-artifact.tar build-b/proof-artifact.tar
+          (cd build-a && sha256sum -c proof-artifact.tar.sha256)
+          (cd build-b && sha256sum -c proof-artifact.tar.sha256)
+
+  required-status:
+    name: rcca-required-status-provider-gate
+    if: always()
+    needs: [classify, coverage, proof-escape-scanner-test, build-a, build-b, proofpath-regression, compare]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce aggregate RCCA provider gate result
+        shell: bash
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          RCCA_CHANGED: ${{ needs.classify.outputs.rcca_changed }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          SCANNER_RESULT: ${{ needs.proof-escape-scanner-test.result }}
+          BUILD_A_RESULT: ${{ needs.build-a.result }}
+          BUILD_B_RESULT: ${{ needs.build-b.result }}
+          REGRESSION_RESULT: ${{ needs.proofpath-regression.result }}
+          COMPARE_RESULT: ${{ needs.compare.result }}
+        run: |
+          set -euo pipefail
+          test "$CLASSIFY_RESULT" = success
+          if [ "$RCCA_CHANGED" != true ]; then
+            test "$COVERAGE_RESULT" = skipped
+            test "$SCANNER_RESULT" = skipped
+            test "$BUILD_A_RESULT" = skipped
+            test "$BUILD_B_RESULT" = skipped
+            test "$REGRESSION_RESULT" = skipped
+            test "$COMPARE_RESULT" = skipped
+            echo 'PASS_RCCA_REQUIRED_STATUS_PROVIDER_GATE__NOT_APPLICABLE'
+            exit 0
+          fi
+          test "$COVERAGE_RESULT" = success
+          test "$SCANNER_RESULT" = success
+          test "$BUILD_A_RESULT" = success
+          test "$BUILD_B_RESULT" = success
+          test "$REGRESSION_RESULT" = success
+          test "$COMPARE_RESULT" = success
+          echo 'PASS_RCCA_REQUIRED_STATUS_PROVIDER_GATE__RCCA_CHANGED__ALL_REQUIRED_EVIDENCE_GREEN'
