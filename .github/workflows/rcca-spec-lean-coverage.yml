@@ -1,0 +1,30 @@
+name: RCCA Spec Lean Coverage V1
+
+on:
+  push:
+    branches:
+      - ess-rcca-spec-lean-coverage-v1
+    paths:
+      - 'formal/rcca-lean4/RCCA.lean'
+      - 'formal/rcca-lean4/coverage/**'
+      - '.github/workflows/rcca-spec-lean-coverage.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-red-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact trigger commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record exact commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run RCCA spec-to-Lean coverage test
+        run: |
+          set -euo pipefail
+          python3 formal/rcca-lean4/coverage/test_coverage.py
