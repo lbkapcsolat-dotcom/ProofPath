@@ -5,8 +5,10 @@
 
 #include <array>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using ess::hgraph_canary::ClaimGateCpp;
 using hgraph::Bool;
@@ -57,14 +59,14 @@ int main()
     for (const Bool rollback_plan : bools)
     {
         const auto result = hgraph::testing::eval_node<ClaimGateCpp>(
-            hgraph::testing::values<Bool>(current_pointer_present),
-            hgraph::testing::values<Bool>(pointer_matches_root),
-            hgraph::testing::values<Int>(requested_claim_rank),
-            hgraph::testing::values<Int>(evidence_level_rank),
-            hgraph::testing::values<Bool>(independent_validation),
-            hgraph::testing::values<Bool>(irreversible_action),
-            hgraph::testing::values<Bool>(human_gate),
-            hgraph::testing::values<Bool>(rollback_plan));
+            std::vector<std::optional<Bool>>{current_pointer_present},
+            std::vector<std::optional<Bool>>{pointer_matches_root},
+            std::vector<std::optional<Int>>{requested_claim_rank},
+            std::vector<std::optional<Int>>{evidence_level_rank},
+            std::vector<std::optional<Bool>>{independent_validation},
+            std::vector<std::optional<Bool>>{irreversible_action},
+            std::vector<std::optional<Bool>>{human_gate},
+            std::vector<std::optional<Bool>>{rollback_plan});
 
         if (result.size() != 1 || !result.front().has_value())
         {
