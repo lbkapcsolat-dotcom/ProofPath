@@ -1,0 +1,45 @@
+{
+  "gate": "DOCKER_MCP_CATALOG_FULL_REACHABILITY_MATRIX_V1",
+  "method_version": "V2_CORRECTED_SCHEMA",
+  "verdict": "PASS_CORRECTED_MATRIX_AND_EXTERNAL_ARTIFACT_READBACK",
+  "github_workflow_run_id": 34608413245,
+  "github_head_sha": "ac6a8f23cdfa12a488892691827053810a5d6efb",
+  "provider_artifact_id": 10266004336,
+  "provider_artifact_bytes": 931098,
+  "provider_artifact_sha256": "7ff47c75b1531b59853d0ac679c5b23744692b1ac3b55c5cff9abf7c7c15dd86",
+  "external_download_sha256": "7ff47c75b1531b59853d0ac679c5b23744692b1ac3b55c5cff9abf7c7c15dd86",
+  "internal_manifest_checked": 8,
+  "internal_manifest_errors": 0,
+  "registry_head_sha": "8c773729f13f036da8c909be503fe433923a9aa2",
+  "registry_server_count": 328,
+  "runtime_catalog_server_count": 314,
+  "registry_present_catalog_missing": 14,
+  "runtime_present_registry_rows": 314,
+  "docker_reachability_counts": {
+    "BROKEN_OR_DEPRECATED": 10,
+    "DOCKER_LOCAL_IMAGE_AUTH_REQUIRED": 136,
+    "DOCKER_LOCAL_IMAGE_SECRETLESS": 92,
+    "DOCKER_REMOTE_AUTH_REQUIRED": 55,
+    "DOCKER_REMOTE_SECRETLESS": 21,
+    "REGISTRY_PRESENT_CATALOG_MISSING": 14
+  },
+  "chatgpt_reachability_counts": {
+    "DIRECT_CHATGPT_CALLABLE": 14,
+    "NO_DIRECT_CHATGPT_MATCH_PROVEN": 314
+  },
+  "auth_required_count": 204,
+  "optional_secret_only_count": 5,
+  "sanity_checks": {
+    "wolfram_alpha": "DOCKER_LOCAL_IMAGE_AUTH_REQUIRED__WOLFRAM_API_KEY",
+    "context7": "DOCKER_REMOTE_SECRETLESS__OPTIONAL_CONTEXT7_API_KEY",
+    "paper_search": "DOCKER_LOCAL_IMAGE_SECRETLESS__RUNTIME_PRESENT",
+    "deepwiki": "BROKEN_OR_DEPRECATED__REMOTE",
+    "docker_docs": "DOCKER_REMOTE_SECRETLESS__RUNTIME_PRESENT",
+    "hugging_face": "DOCKER_REMOTE_SECRETLESS__DIRECT_CHATGPT_CALLABLE"
+  },
+  "claim_ceiling": "REACHABILITY_CLASSIFICATION_ONLY__NO_BULK_ENABLE__NO_AUTH_BYPASS__ZERO_SPEND",
+  "zero_spend": true,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false
+}
