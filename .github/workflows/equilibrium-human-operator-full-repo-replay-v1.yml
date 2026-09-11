@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   SOURCE_DRIVE_ID: 16hjdP2yePlpf89I0uW56tONlmBi1N8NH
@@ -17,6 +18,7 @@ env:
   EXPECTED_SOURCE_BYTES: '27636349'
   EXPECTED_SOURCE_SHA256: 77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77
   EXPECTED_REPO_ROOT: equilibrium_repo_docker_env_ci_v1
+  TRANSFER_BRIDGE_URL: https://vuzphrlgkgxswjnexszw.supabase.co/functions/v1/alpha-exact-source-transfer-bridge
 
 jobs:
   exact-full-repo-replay:
@@ -55,50 +57,29 @@ jobs:
             python --version
           } | tee evidence/runner-identity.txt
 
-      - name: Fetch exact canonical source package bytes and verify before extraction
+      - name: Fetch exact canonical source package through GitHub OIDC bridge and verify before extraction
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence
           : > evidence/source-fetch-attempts.log
 
-          verify_candidate() {
-            local file="$1"
-            local label="$2"
-            if [ ! -f "$file" ]; then
-              echo "$label missing" | tee -a evidence/source-fetch-attempts.log
-              return 1
-            fi
-            local bytes sha
-            bytes="$(stat -c '%s' "$file")"
-            sha="$(sha256sum "$file" | awk '{print $1}')"
-            echo "$label bytes=$bytes sha256=$sha" | tee -a evidence/source-fetch-attempts.log
-            [ "$bytes" = "$EXPECTED_SOURCE_BYTES" ] && [ "$sha" = "$EXPECTED_SOURCE_SHA256" ]
-          }
+          oidc_json="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=alpha-full-repo-replay")"
+          OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$oidc_json")"
+          unset oidc_json
 
-          urls=(
-            "https://drive.usercontent.google.com/download?id=${SOURCE_DRIVE_ID}&export=download&confirm=t"
-            "https://drive.google.com/uc?export=download&id=${SOURCE_DRIVE_ID}&confirm=t"
-          )
+          echo "attempt=1 transport=supabase_edge_bridge auth=github_oidc" | tee -a evidence/source-fetch-attempts.log
+          curl --fail --location --silent --show-error --connect-timeout 20 --max-time 180 \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            "${TRANSFER_BRIDGE_URL}" -o evidence/source.zip
+          unset OIDC_TOKEN
 
-          ok=0
-          n=0
-          for url in "${urls[@]}"; do
-            n=$((n+1))
-            rm -f evidence/source.zip
-            echo "attempt=$n url_class=google_drive_direct" | tee -a evidence/source-fetch-attempts.log
-            if curl --fail --location --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 20 \
-              "$url" -o evidence/source.zip; then
-              if verify_candidate evidence/source.zip "attempt_$n"; then
-                ok=1
-                break
-              fi
-            else
-              echo "attempt_$n curl_failed" | tee -a evidence/source-fetch-attempts.log
-            fi
-          done
-
-          if [ "$ok" != "1" ]; then
+          bytes="$(stat -c '%s' evidence/source.zip)"
+          sha="$(sha256sum evidence/source.zip | awk '{print $1}')"
+          echo "attempt_1 bytes=$bytes sha256=$sha" | tee -a evidence/source-fetch-attempts.log
+          if [ "$bytes" != "$EXPECTED_SOURCE_BYTES" ] || [ "$sha" != "$EXPECTED_SOURCE_SHA256" ]; then
             echo "HOLD_SOURCE_BYTE_TRANSFER_TO_HOSTED_RUNNER" | tee evidence/gate-status.txt
             exit 42
           fi
