@@ -1,0 +1,181 @@
+name: equilibrium-human-operator-runtime-evidence
+
+on:
+  push:
+    branches:
+      - equilibrium-human-operator-runtime-evidence-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-runtime-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record hosted runner identity
+        run: |
+          set -euxo pipefail
+          uname -a
+          docker version
+          docker info
+
+      - name: Materialize bounded Equilibrium Human Operator API canary
+        run: |
+          set -euxo pipefail
+          mkdir -p runtime-canary
+          cat > runtime-canary/requirements.txt <<'REQ'
+          fastapi==0.115.0
+          uvicorn[standard]==0.30.6
+          pydantic==2.9.2
+          REQ
+          cat > runtime-canary/app.py <<'PY'
+          from datetime import datetime, timezone
+          from fastapi import FastAPI
+          from pydantic import BaseModel, Field
+
+          app = FastAPI(title='Equilibrium Human Operator Runtime Canary', version='1.0.0')
+
+          class Microcheck(BaseModel):
+              date: str
+              mentalClarity: int = Field(ge=1, le=5)
+              decisionLoad: int = Field(ge=1, le=5)
+              recoveryFeeling: int = Field(ge=1, le=5)
+              submittedAt: str
+
+          @app.get('/healthz')
+          def healthz():
+              return {'ok': True, 'service': 'equilibrium-human-operator-runtime-canary'}
+
+          @app.get('/api/health/latest')
+          def health_latest(date: str):
+              return {
+                  'ok': True,
+                  'data': {
+                      'date': date,
+                      'restingHeartRate': 62,
+                      'hrvRmssd': 34,
+                      'sleepDurationMinutes': 431,
+                      'sleepQualityScore': 78,
+                      'steps': 6840,
+                      'inactiveMinutes': 552,
+                      'capturedAt': datetime.now(timezone.utc).isoformat(),
+                  },
+                  'meta': {'request_id': 'hosted-runner-canary', 'generated_at': datetime.now(timezone.utc).isoformat(), 'source': 'health_api'},
+              }
+
+          @app.get('/api/calendar/day')
+          def calendar_day(date: str):
+              return {
+                  'ok': True,
+                  'data': {
+                      'date': date,
+                      'meetingsMinutes': 95,
+                      'meetingCount': 4,
+                      'firstMeetingStart': f'{date}T08:30:00+02:00',
+                      'lastMeetingEnd': f'{date}T16:10:00+02:00',
+                      'calendarTimezone': 'Europe/Budapest',
+                      'capturedAt': datetime.now(timezone.utc).isoformat(),
+                  },
+                  'meta': {'request_id': 'hosted-runner-canary', 'generated_at': datetime.now(timezone.utc).isoformat(), 'source': 'calendar_api'},
+              }
+
+          @app.post('/api/microcheck')
+          def microcheck(payload: Microcheck):
+              return {
+                  'ok': True,
+                  'data': {
+                      'microcheckId': 'mc_hosted_runner_canary',
+                      **payload.model_dump(),
+                      'storedAt': datetime.now(timezone.utc).isoformat(),
+                  },
+                  'meta': {'request_id': 'hosted-runner-canary', 'generated_at': datetime.now(timezone.utc).isoformat(), 'source': 'manual_microcheck_service'},
+              }
+          PY
+          cat > runtime-canary/Dockerfile <<'DOCKER'
+          FROM python:3.12-slim
+          WORKDIR /app
+          COPY requirements.txt .
+          RUN pip install --no-cache-dir -r requirements.txt
+          COPY app.py .
+          EXPOSE 8000
+          CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+          DOCKER
+
+      - name: Docker build
+        run: |
+          set -euxo pipefail
+          docker build --pull --no-cache -t equilibrium-human-operator-runtime-canary:ci runtime-canary
+          docker image inspect equilibrium-human-operator-runtime-canary:ci > runtime-canary/image-inspect.json
+
+      - name: Docker runtime smoke
+        run: |
+          set -euxo pipefail
+          docker run -d --rm --name equilibrium-human-operator-runtime-canary -p 8000:8000 equilibrium-human-operator-runtime-canary:ci
+          trap 'docker logs equilibrium-human-operator-runtime-canary || true; docker stop equilibrium-human-operator-runtime-canary || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/healthz > runtime-canary/healthz.json; then break; fi
+            sleep 1
+          done
+          curl --fail --silent 'http://127.0.0.1:8000/api/health/latest?date=2026-04-15' > runtime-canary/health.json
+          curl --fail --silent 'http://127.0.0.1:8000/api/calendar/day?date=2026-04-15' > runtime-canary/calendar.json
+          curl --fail --silent -X POST 'http://127.0.0.1:8000/api/microcheck' \
+            -H 'Content-Type: application/json' \
+            -d '{"date":"2026-04-15","mentalClarity":3,"decisionLoad":4,"recoveryFeeling":2,"submittedAt":"2026-04-15T09:50:00+02:00"}' \
+            > runtime-canary/microcheck.json
+          docker logs equilibrium-human-operator-runtime-canary > runtime-canary/container.log 2>&1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          base = Path('runtime-canary')
+          healthz = json.loads((base/'healthz.json').read_text())
+          health = json.loads((base/'health.json').read_text())
+          calendar = json.loads((base/'calendar.json').read_text())
+          micro = json.loads((base/'microcheck.json').read_text())
+
+          assert healthz == {'ok': True, 'service': 'equilibrium-human-operator-runtime-canary'}
+          assert health['ok'] is True and health['data']['hrvRmssd'] == 34 and health['data']['date'] == '2026-04-15'
+          assert calendar['ok'] is True and calendar['data']['meetingsMinutes'] == 95 and calendar['data']['meetingCount'] == 4
+          assert micro['ok'] is True and micro['data']['mentalClarity'] == 3 and micro['data']['decisionLoad'] == 4 and micro['data']['recoveryFeeling'] == 2
+          print('PASS_HOSTED_RUNNER_DOCKER_RUNTIME_CANARY')
+          PY
+
+      - name: Build evidence manifest
+        if: always()
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base = Path('runtime-canary')
+          rows = []
+          for p in sorted(base.glob('*')):
+              if p.is_file():
+                  b = p.read_bytes()
+                  rows.append({'file': p.name, 'bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest()})
+          manifest = {
+              'claim_ceiling': 'BOUNDED_PROVIDER_NATIVE_GITHUB_HOSTED_RUNNER_DOCKER_RUNTIME_CANARY_ONLY',
+              'production_ready': False,
+              'runtime_admission': False,
+              'github_sha': os.getenv('GITHUB_SHA'),
+              'github_ref': os.getenv('GITHUB_REF'),
+              'runner_os': os.getenv('RUNNER_OS'),
+              'evidence': rows,
+          }
+          Path('runtime-canary/evidence-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True))
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equilibrium-human-operator-runtime-evidence
+          path: runtime-canary/
+          if-no-files-found: error
+          retention-days: 30
