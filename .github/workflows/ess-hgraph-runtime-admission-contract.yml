@@ -1,0 +1,31 @@
+name: ESS HGraph Runtime Admission Contract
+
+on:
+  push:
+    branches:
+      - ess-hgraph-native-cpp-parity-canary-v1
+    paths:
+      - 'hgraph_canary/test_runtime_admission_contract.py'
+      - 'hgraph_canary/runtime_admission.py'
+      - '.github/workflows/ess-hgraph-runtime-admission-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Run runtime admission contract tests
+        run: pytest -q hgraph_canary/test_runtime_admission_contract.py
