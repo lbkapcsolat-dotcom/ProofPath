@@ -39,6 +39,8 @@ def plan_execution(request, profile, policy):
         contract["image_digest"] = route["image_digest"]
     plan["executor_contract"] = contract
     plan["executor_contract_sha256"] = _sha256(contract)
+    if contract["transport"] == "direct-image":
+        plan.update(contract)
     return plan
 
 
