@@ -1,0 +1,25 @@
+name: ess-docker-mcp-cross-host-13-surface-coverage-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/coverage_matrix.py'
+      - 'ess_docker_mcp_router/test_cross_host_13_surface_coverage.py'
+      - '.github/workflows/ess-docker-mcp-cross-host-13-surface-coverage-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-coverage-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run focused 13-surface coverage tests
+        working-directory: ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_cross_host_13_surface_coverage.py
