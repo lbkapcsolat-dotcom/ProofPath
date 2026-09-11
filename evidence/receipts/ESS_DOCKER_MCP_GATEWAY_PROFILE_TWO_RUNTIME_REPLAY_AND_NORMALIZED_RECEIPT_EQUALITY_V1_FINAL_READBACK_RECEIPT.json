@@ -1,0 +1,70 @@
+{
+  "gate": "ESS_DOCKER_MCP_GATEWAY_PROFILE_TWO_RUNTIME_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY_V1",
+  "verdict": "PASS_BOUNDED_TWO_DISTINCT_GATEWAY_RUNTIME_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY",
+  "tdd": {
+    "red_run_id": 34617018746,
+    "red_head_sha": "cadb0132cf658810a1320b0ea9e91093718b9cd7",
+    "red_expected_failure": "ModuleNotFoundError: No module named 'normalized_replay'",
+    "green_run_id": 34617093828,
+    "green_head_sha": "5e9656fc514cb3f244105116643d067f87cd8aac",
+    "focused_tests_passed": 2,
+    "focused_tests_failed": 0
+  },
+  "live_integration": {
+    "github_workflow_run_id": 34617356472,
+    "github_head_sha": "243ac759cb4cf6333f9617e483bb90c92f87e03c",
+    "provider_artifact_id": 10271366681,
+    "provider_artifact_bytes": 45426,
+    "provider_artifact_sha256": "6e328b4f6259f28e055f7f30d892923e2eef26c17697ad1944eae65e511d8d9e",
+    "external_download_sha256": "6e328b4f6259f28e055f7f30d892923e2eef26c17697ad1944eae65e511d8d9e",
+    "internal_manifest_checked": 35,
+    "internal_manifest_errors": 0,
+    "gateway_version": "v0.43.3",
+    "surface": "paper-search",
+    "tool": "search_arxiv",
+    "transport": "gateway-profile",
+    "signature_verification": true,
+    "runtime_count": 2,
+    "runtime_a": {
+      "boot_id": "dabd811d-06df-4dc5-842b-c6eb946072be",
+      "gateway_pid": 4520,
+      "process_start_ticks": "6762",
+      "profile_id": "ess-paper-replay-a"
+    },
+    "runtime_b": {
+      "boot_id": "dabd811d-06df-4dc5-842b-c6eb946072be",
+      "gateway_pid": 4518,
+      "process_start_ticks": "6762",
+      "profile_id": "ess-paper-replay-b"
+    },
+    "distinct_gateway_runtime_identity": true,
+    "request_sha256_equal": true,
+    "route_sha256_equal": true,
+    "response_sha256_equal": true,
+    "response_bytes_equal": true,
+    "raw_receipt_equal": false,
+    "normalized_receipt_equal": true,
+    "normalized_receipt_sha256": "bb44751d4f02e14b3fada4e7a68d82cde86b89ad55cc481628c14c434d4b201e",
+    "response_sha256": "a029a2265d116de78b8022f8003be1bb9279b1b4d4c1e475b614125f5630127c"
+  },
+  "normalization_contract": {
+    "removed_field": "runtime_meta",
+    "preserved_for_equality": [
+      "decision",
+      "reason",
+      "request_sha256",
+      "route_sha256",
+      "surface",
+      "tool",
+      "transport",
+      "response_sha256",
+      "response"
+    ]
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "TWO_CONCURRENT_DISTINCT_GATEWAY_PROCESSES_ON_ONE_HOST_WITH_ONE_ROUTER_SELECTED_PAPER_SEARCH_ROUTE__NORMALIZED_RECEIPT_EQUALITY_AND_EXACT_PROFESSIONAL_RESPONSE_EQUALITY_PROVEN__DOES_NOT_PROVE_CROSS_HOST_OR_ALL_13_SURFACES__NO_PRODUCTION_READY__NO_GLOBAL_BIND"
+}
