@@ -1,0 +1,84 @@
+{
+  "gate": "EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY_V1",
+  "status": "PASS_EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY",
+  "recorded_at_utc": "2026-09-11T12:36:00Z",
+  "repository": "lbkapcsolat-dotcom/ProofPath",
+  "branch": "equilibrium-human-operator-runtime-evidence-v1",
+  "workflow": ".github/workflows/equilibrium-human-operator-full-repo-replay-v4.yml",
+  "workflow_run_id": 34599568308,
+  "workflow_job_id": 103263288016,
+  "workflow_head_sha": "c96851690a2b46923696b9f74fb5f6e755475020",
+  "workflow_conclusion": "success",
+  "source_provider_artifact_id": 10262204792,
+  "canonical_source": {
+    "bytes": 27636349,
+    "sha256": "77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77",
+    "external_readback_bytes": 27636349,
+    "external_readback_sha256": "77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77",
+    "equality": true
+  },
+  "hosted_replay": {
+    "exact_source_recovery": "PASS",
+    "source_materialization": "PASS",
+    "lock_transport_rewrite": "PASS_DECLARED_RUNNER_LOCAL_ONLY",
+    "dependency_integrity_values_preserved": true,
+    "clean_dependency_install": "PASS",
+    "frontend_contract_tests": "PASS_3_OF_3",
+    "backend_contract_tests": "PASS_3_OF_3",
+    "frontend_host_build": "PASS",
+    "docker_context_repair": "PASS_DECLARED_RUNNER_LOCAL_ONLY",
+    "docker_compose_build": "PASS",
+    "docker_compose_runtime": "PASS",
+    "endpoint_smoke": "PASS"
+  },
+  "provider_evidence_artifact": {
+    "artifact_id": 10263762643,
+    "name": "equilibrium-human-operator-full-repo-replay-evidence-v4",
+    "provider_reported_bytes": 26787848,
+    "provider_reported_sha256": "135accf180b1bf29bfa633fc6cfe042b50720d0f51d4ff0efcd912da46b78623",
+    "external_download_bytes": 26787848,
+    "external_download_sha256": "135accf180b1bf29bfa633fc6cfe042b50720d0f51d4ff0efcd912da46b78623",
+    "provider_to_external_artifact_equality": true
+  },
+  "internal_evidence_manifest": {
+    "entries": 29,
+    "recomputed_entries": 29,
+    "mismatches": 0,
+    "status": "PASS_INTERNAL_SHA_MANIFEST_READBACK"
+  },
+  "runtime_readback": {
+    "backend_healthz_ok": true,
+    "backend_service": "equilibrium-backend",
+    "frontend_http_nonempty": true,
+    "health_date": "2026-04-15",
+    "health_hrv_rmssd": 34,
+    "calendar_date": "2026-04-15",
+    "calendar_meeting_count": 4,
+    "microcheck_date": "2026-04-15",
+    "microcheck_decision_load": 4,
+    "backend_container_up": true,
+    "frontend_container_up": true
+  },
+  "declared_transform_receipts": {
+    "canonical_package_lock_sha256": "7f614afe3c859d47d23229bee789a3f1a29031c3400436ebe1feb87e9b2ec518",
+    "derived_package_lock_sha256": "aa5f0e2caeb4776c201747b0c7f6f1810fef02181f902430e0f6165af7f0a92b",
+    "package_lock_replacements": 145,
+    "canonical_compose_sha256": "33faa492d88c0a5b1afd102a912bad418c17cc57ce3d1f931b93217fa954b939",
+    "derived_compose_sha256": "c75fa3d9f8892f8c94fd6cc39718999f0f030db2422f91328fe39640832e4c0e",
+    "canonical_frontend_dockerfile_sha256": "c05306ee8ea940d3fc3f9db75f44ce11c033d34342c0f75d0289eaeb56ef33ce",
+    "derived_frontend_dockerfile_sha256": "f8bccff46be165a453c191684cdb405ebeb5e98dad55dcbc7a01d942b510400c",
+    "canonical_source_zip_mutated": false
+  },
+  "claim_ceiling": {
+    "hosted_full_repo_replay": true,
+    "provider_artifact_external_equality": true,
+    "production_ready": false,
+    "runtime_admission": false,
+    "global_bind": false,
+    "external_actuation": false
+  },
+  "temporary_transfer_cleanup": {
+    "dropbox_temporary_source": "PENDING_EXPLICIT_DELETE_CONFIRMATION",
+    "supabase_transfer_bridge": "PENDING_EXPLICIT_INERT_OR_DELETE_CONFIRMATION"
+  }
+}
