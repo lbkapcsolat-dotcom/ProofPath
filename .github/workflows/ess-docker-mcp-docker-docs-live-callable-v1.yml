@@ -1,0 +1,154 @@
+name: ess-docker-mcp-docker-docs-live-callable-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-docker-docs-live-callable-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+
+jobs:
+  docker-docs-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-docs "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-docs/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-docs/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-docs/docker-mcp-version.txt
+
+      - name: Freeze official Docker Docs registry contract
+        run: |
+          set -euxo pipefail
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/docker-docs/catalog-pull.log 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" docker-docs --format json > evidence/docker-docs/docker-docs-inspect.json
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence/docker-docs')
+          o=json.loads((root/'docker-docs-inspect.json').read_text())
+          s=o['snapshot']['server']; r=s.get('remote') or {}
+          assert s.get('type')=='remote', s.get('type')
+          assert not s.get('secrets'), s.get('secrets')
+          assert r.get('transport_type')=='streamable-http', r
+          assert r.get('url')=='https://mcp-docs.docker.com/mcp', r
+          assert (s.get('dynamic') or {}).get('tools') is True, s.get('dynamic')
+          summary={'server':'docker-docs','type':'remote','remote_url':r['url'],'transport_type':r['transport_type'],'dynamic_tools':True,'secret_required':False,'catalog_contract':'PASS'}
+          (root/'contract-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          print('PASS_DOCKER_DOCS_OFFICIAL_CATALOG_CONTRACT')
+          PY
+
+      - name: Discover live Docker Docs runtime tool surface
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools --format json --gateway-arg=--servers=docker-docs ls \
+            > evidence/docker-docs/runtime-tools.json \
+            2> evidence/docker-docs/runtime-tools.err
+          python - <<'PY'
+          import json,pathlib,os
+          root=pathlib.Path('evidence/docker-docs')
+          o=json.loads((root/'runtime-tools.json').read_text())
+          tools=o if isinstance(o,list) else o.get('tools',[])
+          assert isinstance(tools,list), type(tools)
+          names=[t.get('name','') for t in tools if isinstance(t,dict)]
+          (root/'runtime-tool-names.json').write_text(json.dumps(names,indent=2))
+          candidates=[]
+          for t in tools:
+            if not isinstance(t,dict): continue
+            name=t.get('name','')
+            if name.startswith('mcp-') or name=='code-mode': continue
+            blob=(name+' '+str(t.get('description',''))).lower()
+            if any(k in blob for k in ('docker','doc','search','query')):
+              candidates.append(t)
+          assert candidates, f'no Docker Docs tool exposed; names={names}'
+          candidates.sort(key=lambda t: (0 if 'search' in (t.get('name','')+' '+str(t.get('description',''))).lower() else 1, t.get('name','')))
+          t=candidates[0]
+          schema=t.get('inputSchema') or t.get('input_schema') or {}
+          props=schema.get('properties') or {}
+          req=schema.get('required') or []
+          preferred=['query','search_query','q','text','question','topic']
+          key=next((k for k in preferred if k in props and (props[k] or {}).get('type','string')=='string'),None)
+          if key is None:
+            key=next((k for k in req if k in props and (props[k] or {}).get('type')=='string'),None)
+          assert key, f'no supported required/search string property for {t.get("name")}: {schema}'
+          (root/'selected-tool.json').write_text(json.dumps({'name':t.get('name'),'argument_key':key,'schema':schema},indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+            f.write(f'DOCS_TOOL={t.get("name")}\nDOCS_ARG_KEY={key}\n')
+          print('PASS_DOCKER_DOCS_RUNTIME_TOOL_DISCOVERY',t.get('name'),key)
+          PY
+
+      - name: Execute live Docker Docs read-only documentation query
+        run: |
+          set -euxo pipefail
+          QUERY='Docker Compose depends_on service_healthy healthcheck semantics and recommended configuration'
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools --gateway-arg=--servers=docker-docs \
+              call "$DOCS_TOOL" "$DOCS_ARG_KEY=$QUERY" \
+            > evidence/docker-docs/live-docs-query.out \
+            2> evidence/docker-docs/live-docs-query.err
+          test -s evidence/docker-docs/live-docs-query.out
+          grep -Eiq 'compose|depends_on|health|service|docker' evidence/docker-docs/live-docs-query.out
+          echo PASS_DOCKER_MCP_DOCKER_DOCS_LIVE_CALLABLE | tee evidence/docker-docs/gate-status.txt
+
+      - name: Build bounded receipt and SHA manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-docs')
+          c=json.loads((root/'contract-summary.json').read_text())
+          t=json.loads((root/'selected-tool.json').read_text())
+          receipt={
+            'gate':'DOCKER_DOCS_LIVE_CALLABLE_V1',
+            'status':'PASS_DOCKER_MCP_DOCKER_DOCS_LIVE_CALLABLE',
+            'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+            'server':'docker-docs','tool':t['name'],'argument_key':t['argument_key'],
+            'remote_url':c['remote_url'],'transport_type':c['transport_type'],
+            'query_scope':'Docker Compose depends_on service_healthy healthcheck semantics',
+            'zero_spend':True,'secret_injected':False,'read_only_query':True,
+            'external_actuation':False,'production_ready':False,'global_bind':False
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          rows=[]
+          for p in sorted(root.iterdir()):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-docker-docs-live-callable-v1
+          path: evidence/docker-docs/
+          if-no-files-found: error
+          retention-days: 30
