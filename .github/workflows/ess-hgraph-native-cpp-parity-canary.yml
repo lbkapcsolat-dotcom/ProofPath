@@ -69,7 +69,7 @@ jobs:
 
       - name: Build and install hgraph SDK
         run: |
-          cmake --build _build/hgraph --target hgraph_core --parallel 2
+          cmake --build _build/hgraph --target hgraph_stdlib --parallel 2
           cmake --install _build/hgraph --prefix "$PWD/_install/hgraph"
 
       - name: Configure downstream C++ canary
