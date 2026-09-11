@@ -1,7 +1,7 @@
 import json
 import re
 
-_TIMING_SURFACES = {"hugging-face", "astro-docs", "javadocs"}
+_TIMING_SURFACES = {"hugging-face", "astro-docs", "javadocs", "maven-tools-mcp"}
 _TIMING_PREFIX = re.compile(r"^Tool call took: [0-9]+(?:\.[0-9]+)?(?:ms|s)\n")
 
 
