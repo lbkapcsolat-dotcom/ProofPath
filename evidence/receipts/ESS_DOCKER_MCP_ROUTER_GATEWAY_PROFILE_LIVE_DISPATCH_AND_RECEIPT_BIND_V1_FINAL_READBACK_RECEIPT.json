@@ -1,0 +1,43 @@
+{
+  "gate": "ESS_DOCKER_MCP_ROUTER_GATEWAY_PROFILE_LIVE_DISPATCH_AND_RECEIPT_BIND_V1",
+  "verdict": "PASS_BOUNDED_ROUTER_SELECTED_GATEWAY_PROFILE_LIVE_DISPATCH_AND_RECEIPT_BIND",
+  "github_workflow_run_id": 34616314944,
+  "github_head_sha": "49b5199d42a9912cad598190c4307e456824e62d",
+  "provider_artifact_id": 10270426068,
+  "provider_artifact_bytes": 23945,
+  "provider_artifact_sha256": "ed66dc321f9072bebd32c00be0eff8797d6d377e4e555c8dc31d010347b9bdad",
+  "external_download_sha256": "ed66dc321f9072bebd32c00be0eff8797d6d377e4e555c8dc31d010347b9bdad",
+  "internal_manifest_checked": 19,
+  "internal_manifest_errors": 0,
+  "selected_surface": "paper-search",
+  "selected_tool": "search_arxiv",
+  "selected_transport": "gateway-profile",
+  "gateway_version": "v0.43.3",
+  "signature_verification": true,
+  "request_sha256": "1233a70f4a7c2929c0592d3c97d6f7b21082a2ef33bfd2a489038ba86f996282",
+  "route_sha256": "47933aac27a9f683b3fd302aaaa2ce2d2700a81bcafcca3f7aca88e5b2d75953",
+  "response_sha256": "49930ac78f799ee9c77d81e606b0c8931a0396b2d0ca364ee67bc49dd11ce26a",
+  "raw_stdout_sha256": "fa8a82d9aca14b3162372bdbf02aa43756a3626c5ac26527fdf31b15df8f2092",
+  "dispatcher_receipt_sha256": "e3594c154b819c9fde3e21a6bb904558506e7c90b32787df6d32a2c63614cdc5",
+  "profile_sha256": "bdd0556c474a05c4e091a97d87179ae1f94c294911cb7b58de7dea1b2f2e91b9",
+  "policy_sha256": "7bd8fb111243a15b127726e9cf7f2ef3ee3943ca6e6b1935fe999f159f0d1c29",
+  "router_sha256": "9a4b4494f369ce32a7863ff7770b79afb89c0c6b7a1d46fcc7bf362ef688c712",
+  "dispatcher_sha256": "50aafa8bb7f1b95d3cb72b1e8aea45f76ef72c00b0b5c6f53cafbef73f558667",
+  "complementary_direct_image_gate": {
+    "gate": "ESS_DOCKER_MCP_13_SURFACE_ROUTER_LIVE_DISPATCH_REPLAY_AND_RECEIPT_EQUALITY_V1",
+    "final_receipt_blob_sha": "f1ec44b515a188f515005e303aad0bba6ee97044",
+    "transport": "direct-image",
+    "status": "PREVIOUSLY_PROVEN"
+  },
+  "transport_class_coverage": {
+    "direct_image_live_execution_evidence": true,
+    "gateway_profile_live_execution_evidence": true,
+    "all_13_surfaces_live_replay_proven": false
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "ONE_ROUTER_SELECTED_GATEWAY_PROFILE_SURFACE_LIVE_DISPATCH_AND_RECEIPT_BIND_PLUS_PREVIOUS_DIRECT_IMAGE_LIVE_EVIDENCE__DOES_NOT_PROVE_ALL_13_SURFACES_LIVE_REPLAY__NO_PRODUCTION_READY__NO_GLOBAL_BIND"
+}
