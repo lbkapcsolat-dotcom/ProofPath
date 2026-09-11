@@ -6,20 +6,288 @@ on:
     paths:
       - 'ess_docker_mcp_router/test_normalized_replay.py'
       - 'ess_docker_mcp_router/normalized_replay.py'
+      - 'ess_docker_mcp_router/router.py'
+      - 'ess_docker_mcp_router/dispatcher.py'
+      - 'ess_docker_mcp_router/policy.json'
+      - 'ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json'
       - '.github/workflows/ess-docker-mcp-gateway-profile-two-runtime-replay-v1.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PROFILE_A: ess-paper-replay-a
+  PROFILE_B: ess-paper-replay-b
+
 jobs:
-  normalized-replay-contract:
+  gateway-profile-two-runtime-replay:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - name: Run focused normalized replay tests
         working-directory: ess_docker_mcp_router
         run: |
           set -euxo pipefail
           python -m unittest -v test_normalized_replay.py
+
+      - name: Freeze router authority and deterministic request
+        run: |
+          set -euxo pipefail
+          ROOT=evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          mkdir -p "$ROOT/runtime-a" "$ROOT/runtime-b"
+          sha256sum \
+            ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json \
+            ess_docker_mcp_router/policy.json \
+            ess_docker_mcp_router/router.py \
+            ess_docker_mcp_router/dispatcher.py \
+            ess_docker_mcp_router/normalized_replay.py \
+            | tee "$ROOT/authority-input-sha256.txt"
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from router import load_profile,load_policy,route_request
+          root=pathlib.Path('evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1')
+          profile=load_profile(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json'))
+          policy=load_policy(pathlib.Path('ess_docker_mcp_router/policy.json'))
+          request={
+            'domain':'papers','intent':'search','requested_transport':'gateway-profile',
+            'arguments':{'query':'higher category theory homotopy theory','max_results':3}
+          }
+          route=route_request(request,profile,policy)
+          assert route['decision']=='ALLOW',route
+          assert route['surface']=='paper-search' and route['tool']=='search_arxiv' and route['transport']=='gateway-profile',route
+          root.joinpath('request.json').write_text(json.dumps(request,sort_keys=True,indent=2)+'\n')
+          root.joinpath('route.json').write_text(json.dumps(route,sort_keys=True,indent=2)+'\n')
+          print('PASS_ROUTER_SELECTED_PAPER_SEARCH_GATEWAY_PROFILE')
+          PY
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          ROOT=evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1/gateway-release.json').write_text(
+            json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},sort_keys=True,indent=2)+'\n')
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+
+      - name: Create two independent Paper Search profiles and verify signatures
+        run: |
+          set -euxo pipefail
+          ROOT=evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          docker mcp feature enable profiles > "$ROOT/profile-feature-enable.log" 2>&1 || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          for P in "$PROFILE_A" "$PROFILE_B"; do
+            docker mcp profile create --name "$P" --id "$P" \
+              --server catalog://mcp/docker-mcp-catalog/paper-search \
+              > "$ROOT/${P}-create.log" 2>&1
+            docker mcp profile show "$P" --format yaml > "$ROOT/${P}-show.yaml"
+            docker mcp gateway run --dry-run --profile "$P" --verify-signatures \
+              > "$ROOT/${P}-dry-run.out" 2> "$ROOT/${P}-dry-run.err"
+            grep -F 'paper-search' "$ROOT/${P}-show.yaml"
+            grep -F 'search_arxiv' "$ROOT/${P}-show.yaml"
+          done
+
+      - name: Build explicit gateway MCP replay client
+        run: |
+          set -euxo pipefail
+          ROOT=evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          mkdir -p /tmp/ess-gateway-replay-client
+          cat > /tmp/ess-gateway-replay-client/go.mod <<'EOF'
+          module ess-gateway-replay-client
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-gateway-replay-client/gateway-wrapper.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          IDENTITY="$1"
+          PROFILE="$2"
+          python3 - "$IDENTITY" "$PROFILE" "$$" <<'PY'
+          import json,pathlib,sys
+          out,profile,pid=sys.argv[1],sys.argv[2],int(sys.argv[3])
+          stat=pathlib.Path(f'/proc/{pid}/stat').read_text().split()
+          boot=pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+          pathlib.Path(out).write_text(json.dumps({'gateway_pid':pid,'process_start_ticks':stat[21],'boot_id':boot,'profile_id':profile},sort_keys=True,indent=2)+'\n')
+          PY
+          exec docker mcp gateway run --profile "$PROFILE" --verify-signatures
+          EOF
+          chmod +x /tmp/ess-gateway-replay-client/gateway-wrapper.sh
+          cat > /tmp/ess-gateway-replay-client/main.go <<'EOF'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "os/exec"
+            "path/filepath"
+            "time"
+            "github.com/modelcontextprotocol/go-sdk/mcp"
+          )
+          func must(err error){ if err!=nil { panic(err) } }
+          func writeJSON(path string,v any){ b,e:=json.MarshalIndent(v,"","  "); must(e); must(os.WriteFile(path,append(b,'\n'),0644)) }
+          func main(){
+            if len(os.Args)!=5 { panic("usage: client <profile> <runtime-dir> <identity-file> <query>") }
+            profile,dir,identity,query:=os.Args[1],os.Args[2],os.Args[3],os.Args[4]
+            must(os.MkdirAll(dir,0755))
+            ctx,cancel:=context.WithTimeout(context.Background(),150*time.Second); defer cancel()
+            cmd:=exec.CommandContext(ctx,"/tmp/ess-gateway-replay-client/gateway-wrapper.sh",identity,profile)
+            stderr,e:=os.Create(filepath.Join(dir,"gateway-stderr.log")); must(e); defer stderr.Close(); cmd.Stderr=stderr
+            client:=mcp.NewClient(&mcp.Implementation{Name:"ess-gateway-replay-client",Version:"1.0.0"},nil)
+            session,e:=client.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil); must(e); defer session.Close()
+            tools,e:=session.ListTools(ctx,&mcp.ListToolsParams{}); must(e); writeJSON(filepath.Join(dir,"tools.json"),tools)
+            found:=false
+            for _,t:=range tools.Tools { if t.Name=="search_arxiv" { found=true } }
+            if !found { panic("search_arxiv missing from runtime tool surface") }
+            res,e:=session.CallTool(ctx,&mcp.CallToolParams{Name:"search_arxiv",Arguments:map[string]any{"query":query,"max_results":3}})
+            must(e); if res.IsError { panic("search_arxiv returned IsError") }
+            writeJSON(filepath.Join(dir,"response.json"),res)
+            fmt.Println("PASS_GATEWAY_RUNTIME_SEARCH_ARXIV")
+          }
+          EOF
+          cd /tmp/ess-gateway-replay-client
+          go mod tidy
+          sha256sum main.go go.mod go.sum gateway-wrapper.sh | tee "$GITHUB_WORKSPACE/$ROOT/replay-client-source-sha256.txt"
+          go build -o /tmp/ess-gateway-replay-client/client .
+          sha256sum /tmp/ess-gateway-replay-client/client | tee "$GITHUB_WORKSPACE/$ROOT/replay-client-binary-sha256.txt"
+
+      - name: Execute two concurrent independent gateway runtimes
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1"
+          QUERY='higher category theory homotopy theory'
+          /tmp/ess-gateway-replay-client/client "$PROFILE_A" "$ROOT/runtime-a" "$ROOT/runtime-a/runtime-identity.json" "$QUERY" \
+            > "$ROOT/runtime-a/client.out" 2> "$ROOT/runtime-a/client.err" &
+          A=$!
+          /tmp/ess-gateway-replay-client/client "$PROFILE_B" "$ROOT/runtime-b" "$ROOT/runtime-b/runtime-identity.json" "$QUERY" \
+            > "$ROOT/runtime-b/client.out" 2> "$ROOT/runtime-b/client.err" &
+          B=$!
+          wait "$A"
+          wait "$B"
+          grep -F 'PASS_GATEWAY_RUNTIME_SEARCH_ARXIV' "$ROOT/runtime-a/client.out"
+          grep -F 'PASS_GATEWAY_RUNTIME_SEARCH_ARXIV' "$ROOT/runtime-b/client.out"
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1')
+          a=json.loads((root/'runtime-a/runtime-identity.json').read_text())
+          b=json.loads((root/'runtime-b/runtime-identity.json').read_text())
+          assert a['boot_id']==b['boot_id']
+          assert a['gateway_pid']!=b['gateway_pid'],(a,b)
+          assert (a['gateway_pid'],a['process_start_ticks'])!=(b['gateway_pid'],b['process_start_ticks'])
+          print('PASS_DISTINCT_CONCURRENT_GATEWAY_RUNTIME_IDENTITIES')
+          PY
+
+      - name: Build normalized receipts and prove equality
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from dispatcher import build_receipt
+          from normalized_replay import normalize_gateway_receipt,normalized_receipts_equal
+          root=pathlib.Path('evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1')
+          request=json.loads((root/'request.json').read_text())
+          route=json.loads((root/'route.json').read_text())
+          receipts=[]
+          for label in ('a','b'):
+            d=root/f'runtime-{label}'
+            response=json.loads((d/'response.json').read_text())
+            runtime=json.loads((d/'runtime-identity.json').read_text())
+            receipt=build_receipt(request,route,response)
+            receipt['runtime_meta']=runtime
+            d.joinpath('receipt.json').write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n')
+            normalized=normalize_gateway_receipt(receipt)
+            d.joinpath('normalized-receipt.json').write_text(json.dumps(normalized,sort_keys=True,indent=2)+'\n')
+            receipts.append(receipt)
+          assert receipts[0]['runtime_meta']!=receipts[1]['runtime_meta']
+          assert normalized_receipts_equal(receipts[0],receipts[1]),'normalized receipt mismatch'
+          rb0=json.dumps(receipts[0]['response'],sort_keys=True,separators=(',',':')).encode()
+          rb1=json.dumps(receipts[1]['response'],sort_keys=True,separators=(',',':')).encode()
+          assert rb0==rb1,'professional response mismatch across gateway runtimes'
+          summary={
+            'request_sha256_equal':receipts[0]['request_sha256']==receipts[1]['request_sha256'],
+            'route_sha256_equal':receipts[0]['route_sha256']==receipts[1]['route_sha256'],
+            'response_sha256_equal':receipts[0]['response_sha256']==receipts[1]['response_sha256'],
+            'response_bytes_equal':rb0==rb1,
+            'normalized_receipt_equal':True,
+            'raw_receipt_equal':json.dumps(receipts[0],sort_keys=True,separators=(',',':'))==json.dumps(receipts[1],sort_keys=True,separators=(',',':')),
+            'normalized_receipt_sha256':hashlib.sha256(json.dumps(normalize_gateway_receipt(receipts[0]),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+            'response_sha256':hashlib.sha256(rb0).hexdigest(),
+          }
+          assert summary['request_sha256_equal'] and summary['route_sha256_equal'] and summary['response_sha256_equal'] and summary['response_bytes_equal']
+          assert summary['raw_receipt_equal'] is False
+          root.joinpath('equality-summary.json').write_text(json.dumps(summary,sort_keys=True,indent=2)+'\n')
+          print('PASS_TWO_GATEWAY_RUNTIME_NORMALIZED_RECEIPT_EQUALITY')
+          PY
+
+      - name: Verify immutable inputs and build bounded receipt
+        run: |
+          set -euxo pipefail
+          ROOT=evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          sha256sum -c <(awk '{print $1"  "$2}' "$ROOT/authority-input-sha256.txt")
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1')
+          eq=json.loads((root/'equality-summary.json').read_text())
+          a=json.loads((root/'runtime-a/runtime-identity.json').read_text())
+          b=json.loads((root/'runtime-b/runtime-identity.json').read_text())
+          receipt={
+            'gate':'ESS_DOCKER_MCP_GATEWAY_PROFILE_TWO_RUNTIME_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY_V1',
+            'verdict':'PASS_BOUNDED_TWO_DISTINCT_GATEWAY_RUNTIME_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY',
+            'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+            'surface':'paper-search','tool':'search_arxiv','transport':'gateway-profile',
+            'signature_verification':True,
+            'runtime_count':2,
+            'distinct_gateway_runtime_identity':True,
+            'runtime_a':a,'runtime_b':b,
+            'request_sha256_equal':eq['request_sha256_equal'],
+            'route_sha256_equal':eq['route_sha256_equal'],
+            'response_sha256_equal':eq['response_sha256_equal'],
+            'response_bytes_equal':eq['response_bytes_equal'],
+            'normalized_receipt_equal':eq['normalized_receipt_equal'],
+            'raw_receipt_equal':eq['raw_receipt_equal'],
+            'normalized_receipt_sha256':eq['normalized_receipt_sha256'],
+            'response_sha256':eq['response_sha256'],
+            'zero_spend':True,'secret_injected':False,'external_actuation':False,
+            'production_ready':False,'global_bind':False,
+            'claim_boundary':'TWO_CONCURRENT_DISTINCT_GATEWAY_PROCESSES_ON_ONE_HOST_WITH_ONE_ROUTER_SELECTED_PAPER_SEARCH_ROUTE__NORMALIZED_RECEIPT_EQUALITY_PROVEN__DOES_NOT_PROVE_CROSS_HOST_OR_ALL_13_SURFACES'
+          }
+          root.joinpath('bounded-receipt.json').write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n')
+          rows=[]
+          for p in sorted(root.rglob('*')):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          root.joinpath('sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,sort_keys=True,indent=2))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+          path: evidence/ess-docker-mcp-gateway-profile-two-runtime-replay-v1/
+          if-no-files-found: error
+          retention-days: 30
