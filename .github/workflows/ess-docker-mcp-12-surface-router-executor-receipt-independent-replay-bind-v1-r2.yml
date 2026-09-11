@@ -1,0 +1,54 @@
+name: ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1-r2
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PRIMARY_HEAD_SHA: 78a2bb61769534d04cd0c45811ccebcce207efdd
+  PRIMARY_RUN_ID: '34634274865'
+  PRIMARY_ARTIFACT_ID: '10277298744'
+  PRIMARY_ARTIFACT_SHA256: ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091
+
+jobs:
+  receipt-independent-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify receipt and router-executor contracts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_receipt_replay_binding.py
+          python -m unittest -v test_router_executor_binding.py
+
+      - name: Execute full receipt and independent replay gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ess_docker_mcp_router/receipt_replay_gate_runner.py
+
+      - name: Upload provider evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1
+          path: evidence/ess-router-executor-receipt-replay-bind-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
