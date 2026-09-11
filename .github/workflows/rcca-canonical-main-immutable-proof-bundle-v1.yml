@@ -1,0 +1,328 @@
+name: RCCA Canonical Main Immutable Proof Bundle V1
+
+on:
+  push:
+    branches:
+      - ess-rcca-canonical-main-immutable-proof-bundle-v1
+    paths:
+      - '.github/workflows/rcca-canonical-main-immutable-proof-bundle-v1.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  bind-and-freeze:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_MAIN_SHA: 015a8f418912efd44de0b4edf1650b9374a6e899
+      TARGET_TREE_SHA: 3b087b16bd94a8eba1314053ecf416485d728b3e
+      POSTMERGE_RUN_ID: '34572272891'
+      BUILD_A_ARTIFACT_ID: '10188222090'
+      BUILD_A_PROVIDER_SHA: a5235260c72394934f4fa74bb68582d77ef40cece89a515102c73ac80f3cf17a
+      BUILD_B_ARTIFACT_ID: '10188223035'
+      BUILD_B_PROVIDER_SHA: 1ef2324276b4b3e0ffca95d9c03d1a1f955291c78491690a3f7b475165ce8358
+      EQUALITY_ARTIFACT_ID: '10188228441'
+      EQUALITY_PROVIDER_SHA: 440e57a807cc4a6cfa154a0b0b07365897fc4390a7bebc770dd91922368ed317
+      RCCA_SOURCE_SHA: c31496672026e2aa1ef1139dfe30652919bdaabb8ba66c3715b903a3d4b294bf
+      RCCA_OLEAN_SHA: c25a25f88046295ac555de84e62a0e3251b41cdc4012b9fdc7719e748f10741a
+      PROOF_ARTIFACT_SHA: 82ad3bb0cc3d59f0a491263a26b28e8705863300503ee2837d98a8e46ad23ad1
+      EQUALITY_RECEIPT_SHA: 5e7bb8208dc81097fe02c637daf3359358ea72d6fee851c437b8ef9979451174
+      RELEASE_TAG: ess-rcca-canonical-main-proof-v1
+      RELEASE_NAME: ESS RCCA Canonical Main Immutable Proof Bundle V1
+      BUNDLE_NAME: ESS_RCCA_CANONICAL_MAIN_PROOF_BUNDLE_V1.tar
+      MANIFEST_NAME: ESS_RCCA_CANONICAL_MAIN_AUTHORITY_BIND_V1.json
+
+    steps:
+      - name: Checkout custody branch exact trigger commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify canonical main authority has not moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/branches/main" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])')
+          test "$MAIN_SHA" = "$TARGET_MAIN_SHA"
+          COMMIT_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/commits/${TARGET_MAIN_SHA}")
+          TREE_SHA=$(printf '%s' "$COMMIT_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tree"]["sha"])')
+          test "$TREE_SHA" = "$TARGET_TREE_SHA"
+          echo "PASS_CANONICAL_MAIN_AUTHORITY_STABLE"
+
+      - name: Download exact post-merge provider artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          for spec in \
+            "${BUILD_A_ARTIFACT_ID}:input/build-a.zip:${BUILD_A_PROVIDER_SHA}" \
+            "${BUILD_B_ARTIFACT_ID}:input/build-b.zip:${BUILD_B_PROVIDER_SHA}" \
+            "${EQUALITY_ARTIFACT_ID}:input/equality.zip:${EQUALITY_PROVIDER_SHA}"; do
+            IFS=: read -r ID OUT EXPECTED <<< "$spec"
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ID}/zip" \
+              -o "$OUT"
+            ACTUAL=$(sha256sum "$OUT" | awk '{print $1}')
+            test "$ACTUAL" = "$EXPECTED"
+          done
+          echo "PASS_PROVIDER_ARTIFACT_DIGESTS"
+
+      - name: Verify mechanized evidence and build canonical manifest
+        run: |
+          set -euo pipefail
+          mkdir -p extracted/a extracted/b extracted/equality bundle/inputs bundle/core
+          unzip -q input/build-a.zip -d extracted/a
+          unzip -q input/build-b.zip -d extracted/b
+          unzip -q input/equality.zip -d extracted/equality
+
+          cmp extracted/a/RCCA.lean extracted/b/RCCA.lean
+          cmp extracted/a/RCCA.olean extracted/b/RCCA.olean
+          cmp extracted/a/semantic-manifest.txt extracted/b/semantic-manifest.txt
+          cmp extracted/a/proof-artifact.tar extracted/b/proof-artifact.tar
+
+          test "$(sha256sum extracted/a/RCCA.lean | awk '{print $1}')" = "$RCCA_SOURCE_SHA"
+          test "$(sha256sum extracted/a/RCCA.olean | awk '{print $1}')" = "$RCCA_OLEAN_SHA"
+          test "$(sha256sum extracted/a/proof-artifact.tar | awk '{print $1}')" = "$PROOF_ARTIFACT_SHA"
+          test "$(sha256sum extracted/equality/artifact-equality-receipt.json | awk '{print $1}')" = "$EQUALITY_RECEIPT_SHA"
+          (cd extracted/equality && sha256sum -c artifact-equality-receipt.json.sha256)
+
+          grep -Fx "commit_sha=${TARGET_MAIN_SHA}" extracted/a/semantic-manifest.txt
+          python3 - <<'PY'
+          import json, os
+          p='extracted/equality/artifact-equality-receipt.json'
+          r=json.load(open(p, encoding='utf-8'))
+          assert r['commit_sha'] == os.environ['TARGET_MAIN_SHA']
+          assert r['verdict'] == 'PASS_TWO_ISOLATED_LEAN4_BUILDS_AND_EXACT_ARTIFACT_EQUALITY'
+          assert r['source_equality'] is True
+          assert r['olean_equality'] is True
+          assert r['semantic_manifest_equality'] is True
+          assert r['proof_artifact_equality'] is True
+          assert r['distinct_runtime_identity'] is True
+          assert r['runtime_admission'] is False
+          assert r['production_promotion'] is False
+          assert r['pointer_promotion'] is False
+          assert r['global_bind'] is False
+          PY
+
+          cp input/build-a.zip bundle/inputs/rcca-build-a-provider.zip
+          cp input/build-b.zip bundle/inputs/rcca-build-b-provider.zip
+          cp input/equality.zip bundle/inputs/rcca-equality-provider.zip
+          cp extracted/a/RCCA.lean bundle/core/RCCA.lean
+          cp extracted/a/RCCA.olean bundle/core/RCCA.olean
+          cp extracted/a/proof-artifact.tar bundle/core/proof-artifact.tar
+          cp extracted/a/semantic-manifest.txt bundle/core/semantic-manifest.txt
+          cp extracted/equality/artifact-equality-receipt.json bundle/core/artifact-equality-receipt.json
+          cp extracted/equality/artifact-equality-receipt.json.sha256 bundle/core/artifact-equality-receipt.json.sha256
+
+          python3 - <<'PY'
+          import json, os
+          m = {
+            'gate_id': 'EQUILIBRIUM_INTEGRATED_AXIOMS_CORE_RCCA_CANONICAL_MAIN_AUTHORITY_BIND_AND_IMMUTABLE_PROOF_BUNDLE_V1',
+            'repository': os.environ['GITHUB_REPOSITORY'],
+            'canonical_branch': 'main',
+            'canonical_main_commit': os.environ['TARGET_MAIN_SHA'],
+            'canonical_main_tree': os.environ['TARGET_TREE_SHA'],
+            'source_pr': 17,
+            'postmerge_run_id': int(os.environ['POSTMERGE_RUN_ID']),
+            'provider_artifacts': {
+              'build_a': {'id': int(os.environ['BUILD_A_ARTIFACT_ID']), 'zip_sha256': os.environ['BUILD_A_PROVIDER_SHA']},
+              'build_b': {'id': int(os.environ['BUILD_B_ARTIFACT_ID']), 'zip_sha256': os.environ['BUILD_B_PROVIDER_SHA']},
+              'equality': {'id': int(os.environ['EQUALITY_ARTIFACT_ID']), 'zip_sha256': os.environ['EQUALITY_PROVIDER_SHA']},
+            },
+            'mechanized_artifacts': {
+              'rcca_source_sha256': os.environ['RCCA_SOURCE_SHA'],
+              'rcca_olean_sha256': os.environ['RCCA_OLEAN_SHA'],
+              'proof_artifact_sha256': os.environ['PROOF_ARTIFACT_SHA'],
+              'equality_receipt_sha256': os.environ['EQUALITY_RECEIPT_SHA'],
+            },
+            'binding_semantics': 'CANONICAL_REPOSITORY_MAIN_TO_IMMUTABLE_PROOF_CUSTODY_ONLY',
+            'core_admission': False,
+            'runtime_admission': False,
+            'production_promotion': False,
+            'pointer_promotion': False,
+            'global_bind': False,
+            'recovery_execution_authority': False,
+            'zero_spend': True,
+            'claim_ceiling': 'CANONICAL_MAIN_MECHANIZED_RCCA_PROOF_CUSTODY_AND_IMMUTABLE_RELEASE_BIND_ONLY',
+          }
+          with open('bundle/'+os.environ['MANIFEST_NAME'], 'w', encoding='utf-8', newline='\n') as f:
+            json.dump(m, f, sort_keys=True, separators=(',', ':'))
+            f.write('\n')
+          PY
+          sha256sum "bundle/${MANIFEST_NAME}" > "bundle/${MANIFEST_NAME}.sha256"
+
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf "$BUNDLE_NAME" bundle
+          sha256sum "$BUNDLE_NAME" > "${BUNDLE_NAME}.sha256"
+          echo "BUNDLE_SHA=$(sha256sum "$BUNDLE_NAME" | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "MANIFEST_SHA=$(sha256sum "bundle/${MANIFEST_NAME}" | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Create draft release, upload proof custody assets, and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(curl -sS -o /tmp/existing.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")
+          test "$EXISTING" = "404"
+
+          python3 - <<'PY' > /tmp/release-create.json
+          import json, os
+          print(json.dumps({
+            'tag_name': os.environ['RELEASE_TAG'],
+            'target_commitish': os.environ['TARGET_MAIN_SHA'],
+            'name': os.environ['RELEASE_NAME'],
+            'body': 'Canonical RCCA main mechanized proof custody. No runtime, pointer, global, production, or recovery-execution authority promotion.',
+            'draft': True,
+            'prerelease': False,
+          }))
+          PY
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" \
+            --data-binary @/tmp/release-create.json > /tmp/release.json
+          RELEASE_ID=$(python3 -c 'import json; print(json.load(open("/tmp/release.json"))["id"])')
+          echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
+
+          upload_asset() {
+            FILE="$1"; TYPE="$2"; NAME=$(basename "$FILE")
+            curl -fsSL -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: $TYPE" \
+              --data-binary "@$FILE" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${NAME}" > /tmp/upload.json
+          }
+          upload_asset "$BUNDLE_NAME" application/x-tar
+          upload_asset "${BUNDLE_NAME}.sha256" text/plain
+          upload_asset "bundle/${MANIFEST_NAME}" application/json
+          upload_asset "bundle/${MANIFEST_NAME}.sha256" text/plain
+
+          curl -fsSL -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -d '{"draft":false}' > /tmp/published.json
+
+      - name: Provider-native immutable readback, exact asset replay, and negative enforcement probes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > /tmp/readback.json
+
+          python3 - <<'PY'
+          import json, os
+          r=json.load(open('/tmp/readback.json'))
+          assert r['draft'] is False
+          assert r['immutable'] is True
+          assert r['tag_name'] == os.environ['RELEASE_TAG']
+          assert r['target_commitish'] == os.environ['TARGET_MAIN_SHA']
+          assets={a['name']:a for a in r['assets']}
+          assert assets[os.environ['BUNDLE_NAME']]['digest'] == 'sha256:'+os.environ['BUNDLE_SHA']
+          assert assets[os.environ['MANIFEST_NAME']]['digest'] == 'sha256:'+os.environ['MANIFEST_SHA']
+          print('PASS_PROVIDER_IMMUTABLE_READBACK')
+          PY
+
+          BUNDLE_ASSET_ID=$(python3 - <<'PY'
+          import json, os
+          r=json.load(open('/tmp/readback.json'))
+          print(next(a['id'] for a in r['assets'] if a['name']==os.environ['BUNDLE_NAME']))
+          PY
+          )
+          curl -fsSL -L \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${BUNDLE_NAME}" \
+            -o /tmp/release-bundle.tar
+          test "$(sha256sum /tmp/release-bundle.tar | awk '{print $1}')" = "$BUNDLE_SHA"
+
+          ASSET_DELETE_STATUS=$(curl -sS -o /tmp/delete-asset.json -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/${BUNDLE_ASSET_ID}")
+          test "$ASSET_DELETE_STATUS" = "422"
+
+          TAG_DELETE_STATUS=$(curl -sS -o /tmp/delete-tag.json -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}")
+          test "$TAG_DELETE_STATUS" = "422"
+
+          MAIN_SHA_AFTER=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/branches/main" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])')
+          test "$MAIN_SHA_AFTER" = "$TARGET_MAIN_SHA"
+
+          echo "ASSET_DELETE_STATUS=$ASSET_DELETE_STATUS" >> "$GITHUB_ENV"
+          echo "TAG_DELETE_STATUS=$TAG_DELETE_STATUS" >> "$GITHUB_ENV"
+
+      - name: Materialize final bounded receipt
+        run: |
+          set -euo pipefail
+          mkdir -p receipt
+          python3 - <<'PY'
+          import json, os
+          r = {
+            'gate_id': 'EQUILIBRIUM_INTEGRATED_AXIOMS_CORE_RCCA_CANONICAL_MAIN_AUTHORITY_BIND_AND_IMMUTABLE_PROOF_BUNDLE_V1',
+            'verdict': 'PASS_CANONICAL_MAIN_TO_PROVIDER_ENFORCED_IMMUTABLE_RCCA_PROOF_BUNDLE',
+            'canonical_main_commit': os.environ['TARGET_MAIN_SHA'],
+            'canonical_main_tree': os.environ['TARGET_TREE_SHA'],
+            'postmerge_run_id': int(os.environ['POSTMERGE_RUN_ID']),
+            'release_id': int(os.environ['RELEASE_ID']),
+            'release_tag': os.environ['RELEASE_TAG'],
+            'immutable': True,
+            'bundle_sha256': os.environ['BUNDLE_SHA'],
+            'manifest_sha256': os.environ['MANIFEST_SHA'],
+            'rcca_source_sha256': os.environ['RCCA_SOURCE_SHA'],
+            'rcca_olean_sha256': os.environ['RCCA_OLEAN_SHA'],
+            'proof_artifact_sha256': os.environ['PROOF_ARTIFACT_SHA'],
+            'equality_receipt_sha256': os.environ['EQUALITY_RECEIPT_SHA'],
+            'asset_delete_probe_http': int(os.environ['ASSET_DELETE_STATUS']),
+            'tag_delete_probe_http': int(os.environ['TAG_DELETE_STATUS']),
+            'asset_delete_rejected': True,
+            'tag_delete_rejected': True,
+            'exact_release_asset_readback': True,
+            'main_unchanged_after_bind': True,
+            'runtime_admission': False,
+            'production_promotion': False,
+            'pointer_promotion': False,
+            'global_bind': False,
+            'recovery_execution_authority': False,
+            'zero_spend': True,
+            'claim_ceiling': 'CANONICAL_MAIN_MECHANIZED_RCCA_PROOF_CUSTODY_AND_IMMUTABLE_RELEASE_BIND_ONLY',
+          }
+          with open('receipt/RCCA_CANONICAL_MAIN_IMMUTABLE_PROOF_BUNDLE_RECEIPT_V1.json','w',encoding='utf-8',newline='\n') as f:
+            json.dump(r,f,sort_keys=True,separators=(',',':'))
+            f.write('\n')
+          PY
+          sha256sum receipt/RCCA_CANONICAL_MAIN_IMMUTABLE_PROOF_BUNDLE_RECEIPT_V1.json > receipt/RCCA_CANONICAL_MAIN_IMMUTABLE_PROOF_BUNDLE_RECEIPT_V1.json.sha256
+          cp "bundle/${MANIFEST_NAME}" receipt/
+          cp "bundle/${MANIFEST_NAME}.sha256" receipt/
+          cp "${BUNDLE_NAME}.sha256" receipt/
+
+      - name: Upload final authority-bind receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-canonical-main-immutable-proof-bundle-receipt
+          path: receipt/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
