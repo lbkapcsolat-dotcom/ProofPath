@@ -162,7 +162,10 @@ jobs:
           import os
           import stat
           import subprocess
+          import sys
           from pathlib import Path
+
+          sys.path.insert(0, str(Path.cwd()))
           from hgraph_canary.runtime_admission import evaluate_runtime_admission
 
           bundle = Path('custody_bundle')
