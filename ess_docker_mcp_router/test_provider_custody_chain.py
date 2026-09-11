@@ -53,7 +53,8 @@ def make_fixture(base):
             "response_sha256": f"{i+6}" * 64,
         }
         write_json(root / "primary-receipts" / f"{surface}.json", p_receipt)
-        write_json(root / "replay" / f"0{i}-{surface}" / "receipt.json", r_receipt)
+        replay_rel = f"replay/0{i}-{surface}/receipt.json"
+        write_json(root / replay_rel, r_receipt)
         primary.append({
             "surface": surface,
             "transport": "gateway-profile",
@@ -72,6 +73,7 @@ def make_fixture(base):
             "transport": "gateway-profile",
             "primary_receipt_sha256": p_receipt["receipt_sha256"],
             "replay_receipt_sha256": r_receipt["receipt_sha256"],
+            "replay_receipt_path": replay_rel,
             "replay_valid": True,
         })
 
@@ -153,7 +155,7 @@ class ProviderCustodyChainTests(unittest.TestCase):
             b.write_bytes(ab)
             rebuild_manifest(root)
             final_receipt["final_provider_artifact"]["manifest_sha256"] = sha_bytes((root / "sha256-manifest.txt").read_bytes())
-            with self.assertRaisesRegex(CustodyChainError, "REPLAY_RECEIPT_SET_MISMATCH"):
+            with self.assertRaisesRegex(CustodyChainError, "REPLAY_RECEIPT_PATH_MISMATCH"):
                 verify_provider_custody(
                     artifact_zip=zip_path,
                     extracted_root=root,
