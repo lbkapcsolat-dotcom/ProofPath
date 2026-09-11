@@ -1,0 +1,32 @@
+{
+  "policy_id": "ESS_DOCKER_MCP_13_SURFACE_ROUTING_POLICY_V1",
+  "default": "DENY",
+  "allowed_intents": ["read","search","inspect","list","lookup","resolve","guidance"],
+  "forbidden_intents": ["write","create","update","delete","deploy","apply","destroy","publish","send","mutate"],
+  "routes": {
+    "model_hub": {"surface":"hugging-face","tool":"hub_repo_search","transport":"gateway-profile"},
+    "papers": {"surface":"paper-search","tool":"search_arxiv","transport":"gateway-profile"},
+    "library_docs": {"surface":"context7","tool":"resolve-library-id","transport":"gateway-profile"},
+    "astro_docs": {"surface":"astro-docs","tool":"search_astro_docs","transport":"gateway-profile"},
+    "docker_docs": {"surface":"docker-docs","tool":"fetch_docker_docs","transport":"gateway-profile"},
+    "gemini_api_docs": {"surface":"gemini-api-docs","tool":"get_current_model","transport":"gateway-profile"},
+    "java_docs": {"surface":"javadocs","tool":"search_artifacts","transport":"gateway-profile"},
+    "maven_metadata": {"surface":"maven-tools-mcp","tool":"get_latest_version","transport":"gateway-profile"},
+    "ros2_interfaces": {"surface":"ros2","tool":"ros2_interface_list","transport":"gateway-profile"},
+    "aws_cdk_guidance": {"surface":"aws-cdk-mcp-server","tool":"CDKGeneralGuidance","transport":"gateway-profile"},
+    "aws_terraform_docs": {"surface":"aws-terraform","tool":"SearchAwsProviderDocs","transport":"gateway-profile"},
+    "openapi_schema": {"surface":"openapi-schema","tool":"list-endpoints","transport":"direct-image"},
+    "filesystem_readonly": {"surface":"rust-mcp-filesystem","tool":"list_directory","transport":"direct-image"}
+  },
+  "excluded_surfaces": ["atlas-docs","cloudflare-docs"],
+  "constraints": {
+    "read_only_only": true,
+    "secret_injection": false,
+    "external_actuation": false,
+    "wrong_route": "DENY",
+    "wrong_tool": "DENY",
+    "transport_mismatch": "DENY",
+    "unknown_domain": "DENY",
+    "hold_surface": "DENY"
+  }
+}
