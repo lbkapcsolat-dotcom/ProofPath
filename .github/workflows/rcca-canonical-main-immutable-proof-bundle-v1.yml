@@ -95,7 +95,8 @@ jobs:
           test "$(sha256sum extracted/a/RCCA.olean | awk '{print $1}')" = "$RCCA_OLEAN_SHA"
           test "$(sha256sum extracted/a/proof-artifact.tar | awk '{print $1}')" = "$PROOF_ARTIFACT_SHA"
           test "$(sha256sum extracted/equality/artifact-equality-receipt.json | awk '{print $1}')" = "$EQUALITY_RECEIPT_SHA"
-          (cd extracted/equality && sha256sum -c artifact-equality-receipt.json.sha256)
+          SIDECAR_EXPECTED=$(awk '{print $1}' extracted/equality/artifact-equality-receipt.json.sha256)
+          test "$SIDECAR_EXPECTED" = "$EQUALITY_RECEIPT_SHA"
 
           grep -Fx "commit_sha=${TARGET_MAIN_SHA}" extracted/a/semantic-manifest.txt
           python3 - <<'PY'
