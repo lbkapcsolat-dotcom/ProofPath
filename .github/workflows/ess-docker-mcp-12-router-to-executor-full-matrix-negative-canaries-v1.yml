@@ -1,0 +1,306 @@
+name: ess-docker-mcp-12-router-to-executor-full-matrix-negative-canaries-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-12-router-to-executor-full-matrix-negative-canaries-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  OPENAPI_DIGEST: sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a
+  RUSTFS_DIGEST: sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242
+
+jobs:
+  router-executor-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify focused binding contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_router_executor_binding.py
+
+      - name: Freeze authority and prepare immutable read-only inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          mkdir -p "$ROOT" "$ROOT/positive" "$ROOT/negative" "$ROOT/rust-readonly"
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence/ess-router-executor-full-matrix-v1')
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          assert len(profile['surfaces'])==13
+          assert policy['quarantined_domains']['gemini_api_docs']['surface']=='gemini-api-docs'
+          routable={r['surface'] for d,r in policy['routes'].items() if d not in policy['quarantined_domains']}
+          assert len(routable)==12 and 'gemini-api-docs' not in routable
+          (root/'profile-authority.json').write_text(json.dumps(profile,indent=2,sort_keys=True)+'\n')
+          (root/'policy-authority.json').write_text(json.dumps(policy,indent=2,sort_keys=True)+'\n')
+          (root/'routable-surfaces.json').write_text(json.dumps(sorted(routable),indent=2)+'\n')
+          PY
+          cat > "$ROOT/synthetic-openapi.yaml" <<'EOF'
+          openapi: 3.0.3
+          info:
+            title: ESS Router Executor Binding Canary
+            version: 1.0.0
+          paths:
+            /health:
+              get:
+                summary: Synthetic health endpoint
+                responses:
+                  '200':
+                    description: OK
+          EOF
+          sed -i 's/^          //' "$ROOT/synthetic-openapi.yaml"
+          printf 'ESS_ROUTER_EXECUTOR_READ_ONLY_CANARY\n' > "$ROOT/rust-readonly/canary.txt"
+          chmod 0444 "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt"
+          chmod 0555 "$ROOT/rust-readonly"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-before.txt"
+
+      - name: Install pinned Docker MCP Gateway and freeze direct-image digests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+          docker mcp feature enable profiles > "$ROOT/profile-feature.out" 2> "$ROOT/profile-feature.err" || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" openapi-schema --format json > "$ROOT/openapi-inspect.json"
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" rust-mcp-filesystem --format json > "$ROOT/rustfs-inspect.json"
+          python - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path('evidence/ess-router-executor-full-matrix-v1')
+          oi=json.loads((root/'openapi-inspect.json').read_text())['snapshot']['server']
+          ri=json.loads((root/'rustfs-inspect.json').read_text())['snapshot']['server']
+          assert oi['image'].endswith(os.environ['OPENAPI_DIGEST']),oi['image']
+          assert ri['image'].endswith(os.environ['RUSTFS_DIGEST']),ri['image']
+          (root/'direct-image-authority.json').write_text(json.dumps({'openapi-schema':oi['image'],'rust-mcp-filesystem':ri['image']},indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Execute four fail-closed negative route canaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import plan_execution
+          root=pathlib.Path('evidence/ess-router-executor-full-matrix-v1/negative')
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          cases={
+            'wrong-tool':({'domain':'papers','intent':'search','requested_tool':'delete_paper'},'WRONG_TOOL'),
+            'wrong-transport':({'domain':'papers','intent':'search','requested_transport':'direct-image'},'TRANSPORT_MISMATCH'),
+            'write-intent':({'domain':'papers','intent':'write'},'FORBIDDEN_INTENT'),
+            'gemini-quarantine':({'domain':'gemini_api_docs','intent':'read'},'QUARANTINED_NONDETERMINISTIC_SURFACE'),
+          }
+          rows=[]
+          for name,(request,reason) in cases.items():
+              d=root/name; d.mkdir(parents=True,exist_ok=True)
+              plan=plan_execution(request,profile,policy)
+              assert plan['executor_allowed'] is False,plan
+              assert plan['route']['decision']=='DENY' and plan['route']['reason']==reason,plan
+              assert 'executor_contract' not in plan
+              assert not d.joinpath('executor-invoked.marker').exists()
+              d.joinpath('request.json').write_text(json.dumps(request,indent=2,sort_keys=True)+'\n')
+              d.joinpath('plan.json').write_text(json.dumps(plan,indent=2,sort_keys=True)+'\n')
+              rows.append({'canary':name,'expected_reason':reason,'decision':'DENY','executor_invoked':False,'status':'DENY_NO_EXECUTOR_PASS'})
+          root.joinpath('negative-results.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n')
+          assert len(rows)==4
+          PY
+
+      - name: Build contract-driven gateway executor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat > /tmp/bound_gateway_executor.py <<'PY'
+          import json,pathlib,subprocess,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import validate_execution_trace
+          plan_path=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); profile_id=sys.argv[3]
+          plan=json.loads(plan_path.read_text()); c=plan['executor_contract']
+          assert c['transport']=='gateway-profile'
+          out.mkdir(parents=True,exist_ok=True)
+          create=['docker','mcp','profile','create','--name',f'ESS BOUND {c["surface"]}','--id',profile_id,'--server',f'catalog://mcp/docker-mcp-catalog/{c["surface"]}']
+          r=subprocess.run(create,text=True,capture_output=True); out.joinpath('profile-create.out').write_text(r.stdout); out.joinpath('profile-create.err').write_text(r.stderr); assert r.returncode==0,(r.returncode,r.stderr)
+          ls=['docker','mcp','tools','--format','json',f'--gateway-arg=--profile={profile_id}','--gateway-arg=--verify-signatures','ls']
+          r=subprocess.run(ls,text=True,capture_output=True,timeout=90); out.joinpath('tools.json').write_text(r.stdout); out.joinpath('tools.err').write_text(r.stderr); assert r.returncode==0 and f'"{c["tool"]}"' in r.stdout
+          call=['docker','mcp','tools',f'--gateway-arg=--profile={profile_id}','--gateway-arg=--verify-signatures','call',c['tool']]
+          call += [f'{k}={v}' for k,v in c['arguments'].items()]
+          r=subprocess.run(call,text=True,capture_output=True,timeout=120); out.joinpath('live.raw').write_text(r.stdout); out.joinpath('live.err').write_text(r.stderr); assert r.returncode==0 and r.stdout.strip(),(r.returncode,r.stderr)
+          trace={**c,'executor_invoked':True,'exit_code':r.returncode,'argv':call}
+          binding=validate_execution_trace(plan,trace)
+          out.joinpath('executor-trace.json').write_text(json.dumps(trace,indent=2,sort_keys=True)+'\n')
+          out.joinpath('binding-validation.json').write_text(json.dumps(binding,indent=2,sort_keys=True)+'\n')
+          out.joinpath('response.txt').write_text(r.stdout)
+          print(json.dumps({'surface':c['surface'],'tool':c['tool'],'transport':c['transport'],'status':'LIVE_BOUND_PASS','binding_valid':True},sort_keys=True))
+          PY
+
+      - name: Execute 10 gateway-profile router-to-executor bindings
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          cat > "$ROOT/gateway-plan.tsv" <<'EOF'
+          model_hub	search	query=formal theorem proving Lean
+          papers	search	query=higher category theory homotopy theory
+          library_docs	resolve	query=Docker Compose healthcheck	libraryName=Docker
+          astro_docs	search	query=content collections
+          docker_docs	read
+          java_docs	search	query=org.junit.jupiter
+          maven_metadata	lookup	dependency=org.junit.jupiter:junit-jupiter
+          ros2_interfaces	list
+          aws_cdk_guidance	guidance
+          aws_terraform_docs	search	asset_name=aws_s3_bucket
+          EOF
+          sed -i 's/^          //' "$ROOT/gateway-plan.tsv"
+          : > "$ROOT/positive-results.jsonl"
+          idx=0
+          while IFS=$'\t' read -r domain intent arg1 arg2; do
+            idx=$((idx+1)); D="$ROOT/positive/$(printf '%02d' "$idx")-$domain"; mkdir -p "$D"
+            python - "$domain" "$intent" "$D" "${arg1:-}" "${arg2:-}" <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import plan_execution
+          domain,intent,d,*argv=sys.argv[1:]; args={}
+          for x in argv:
+              if x and '=' in x:
+                  k,v=x.split('=',1); args[k]=v
+          req={'domain':domain,'intent':intent,'arguments':args}
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          plan=plan_execution(req,profile,policy); assert plan['executor_allowed'],plan; assert plan['executor_contract']['transport']=='gateway-profile'
+          p=pathlib.Path(d); p.joinpath('request.json').write_text(json.dumps(req,indent=2,sort_keys=True)+'\n'); p.joinpath('execution-plan.json').write_text(json.dumps(plan,indent=2,sort_keys=True)+'\n')
+          PY
+            python /tmp/bound_gateway_executor.py "$D/execution-plan.json" "$D" "ess-bound-$idx" | tee "$D/result.json"
+            cat "$D/result.json" >> "$ROOT/positive-results.jsonl"
+          done < "$ROOT/gateway-plan.tsv"
+          [ "$idx" -eq 10 ]
+
+      - name: Build contract-driven direct-image MCP executor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/ess-bound-direct
+          cat > /tmp/ess-bound-direct/go.mod <<'EOF'
+          module ess-bound-direct
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-bound-direct/main.go <<'EOF'
+          package main
+          import("context";"encoding/json";"fmt";"os";"os/exec";"path/filepath";"strings";"time";"github.com/modelcontextprotocol/go-sdk/mcp")
+          type Contract struct{Surface string `json:"surface"`;Tool string `json:"tool"`;Transport string `json:"transport"`;Arguments map[string]any `json:"arguments"`;ReadOnly bool `json:"read_only"`;ExternalActuation bool `json:"external_actuation"`;ImageDigest string `json:"image_digest"`}
+          func must(e error){if e!=nil{panic(e)}}
+          func writeJSON(p string,v any){b,e:=json.MarshalIndent(v,"","  ");must(e);must(os.WriteFile(p,append(b,'\n'),0644))}
+          func main(){
+            if len(os.Args)!=4{panic("usage: bound-direct contract.json evidence-dir input-root")}
+            cb,e:=os.ReadFile(os.Args[1]);must(e);var c Contract;must(json.Unmarshal(cb,&c));if c.Transport!="direct-image"||!c.ReadOnly||c.ExternalActuation{panic("invalid direct contract")}
+            out:=os.Args[2]; input:=os.Args[3];ctx,cancel:=context.WithTimeout(context.Background(),120*time.Second);defer cancel();var cmd *exec.Cmd;var expect string
+            if c.Surface=="openapi-schema"{
+              p:=filepath.Join(input,"synthetic-openapi.yaml"); image:="mcp/openapi-schema@"+c.ImageDigest
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v",p+":"+p+":ro",image); expect="/health"
+            }else if c.Surface=="rust-mcp-filesystem"{
+              d:=filepath.Join(input,"rust-readonly"); image:="mcp/rust-mcp-filesystem@"+c.ImageDigest
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-e","ENABLE_ROOTS=false","-e","ALLOW_WRITE=false","-v",d+":"+d+":ro",image,d); expect="canary.txt"
+            }else{panic("unknown direct surface")}
+            stderr,e:=os.Create(filepath.Join(out,"container-stderr.log"));must(e);defer stderr.Close();cmd.Stderr=stderr
+            cl:=mcp.NewClient(&mcp.Implementation{Name:"ess-bound-direct",Version:"1.0.0"},nil);s,e:=cl.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil);must(e);defer s.Close()
+            lt,e:=s.ListTools(ctx,&mcp.ListToolsParams{});must(e);found:=false;for _,t:=range lt.Tools{if t.Name==c.Tool{found=true}};if !found{panic("expected tool missing")};writeJSON(filepath.Join(out,"tools.json"),lt)
+            res,e:=s.CallTool(ctx,&mcp.CallToolParams{Name:c.Tool,Arguments:c.Arguments});must(e);if res.IsError{panic("tool error")};writeJSON(filepath.Join(out,"call.json"),res);rb,_:=json.Marshal(res);if !strings.Contains(string(rb),expect){panic("expected output evidence missing")}
+            trace:=map[string]any{"surface":c.Surface,"tool":c.Tool,"transport":c.Transport,"arguments":c.Arguments,"read_only":c.ReadOnly,"external_actuation":c.ExternalActuation,"image_digest":c.ImageDigest,"executor_invoked":true,"exit_code":0};writeJSON(filepath.Join(out,"executor-trace.json"),trace);fmt.Println("LIVE_BOUND_PASS")
+          }
+          EOF
+          cd /tmp/ess-bound-direct
+          go mod tidy
+          go build -o /tmp/ess-bound-direct/bound-direct .
+
+      - name: Execute 2 direct-image router-to-executor bindings
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          for spec in 'openapi_schema list' 'filesystem_readonly list'; do
+            domain=${spec% *}; intent=${spec#* }; if [ "$domain" = openapi_schema ]; then n=11; args='{"openapiSchemaPath":"'"$ROOT"'/synthetic-openapi.yaml"}'; else n=12; args='{"path":"'"$ROOT"'/rust-readonly"}'; fi
+            D="$ROOT/positive/$(printf '%02d' "$n")-$domain"; mkdir -p "$D"
+            DOMAIN="$domain" INTENT="$intent" ARGS="$args" D="$D" python - <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import plan_execution
+          req={'domain':os.environ['DOMAIN'],'intent':os.environ['INTENT'],'arguments':json.loads(os.environ['ARGS'])}
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text());policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          plan=plan_execution(req,profile,policy);assert plan['executor_allowed'],plan;assert plan['executor_contract']['transport']=='direct-image'
+          p=pathlib.Path(os.environ['D']);p.joinpath('request.json').write_text(json.dumps(req,indent=2,sort_keys=True)+'\n');p.joinpath('execution-plan.json').write_text(json.dumps(plan,indent=2,sort_keys=True)+'\n')
+          PY
+            /tmp/ess-bound-direct/bound-direct "$D/execution-plan.json" "$D" "$ROOT" | tee "$D/direct.out"
+            D="$D" python - <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import validate_execution_trace
+          p=pathlib.Path(os.environ['D']);plan=json.loads((p/'execution-plan.json').read_text());trace=json.loads((p/'executor-trace.json').read_text());binding=validate_execution_trace(plan,trace);(p/'binding-validation.json').write_text(json.dumps(binding,indent=2,sort_keys=True)+'\n');result={'surface':trace['surface'],'tool':trace['tool'],'transport':trace['transport'],'status':'LIVE_BOUND_PASS','binding_valid':True};(p/'result.json').write_text(json.dumps(result,sort_keys=True)+'\n');print(json.dumps(result,sort_keys=True))
+          PY
+            cat "$D/result.json" >> "$ROOT/positive-results.jsonl"
+          done
+
+      - name: Verify full matrix, immutable inputs, and build bounded receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-after.txt"
+          diff -u "$ROOT/input-sha256-before.txt" "$ROOT/input-sha256-after.txt" > "$ROOT/input-sha256-diff.txt"
+          python - <<'PY'
+          import hashlib,json,pathlib,collections,os
+          root=pathlib.Path('evidence/ess-router-executor-full-matrix-v1')
+          pos=[json.loads(x) for x in (root/'positive-results.jsonl').read_text().splitlines() if x.strip()]
+          neg=json.loads((root/'negative/negative-results.json').read_text())
+          assert len(pos)==12 and len({x['surface'] for x in pos})==12,pos
+          assert all(x['status']=='LIVE_BOUND_PASS' and x['binding_valid'] for x in pos),pos
+          assert sum(x['transport']=='gateway-profile' for x in pos)==10 and sum(x['transport']=='direct-image' for x in pos)==2
+          assert 'gemini-api-docs' not in {x['surface'] for x in pos}
+          assert len(neg)==4 and all(x['status']=='DENY_NO_EXECUTOR_PASS' and x['executor_invoked'] is False for x in neg),neg
+          summary={'gate':'ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_ROUTER_TO_EXECUTOR_FULL_MATRIX_AND_NEGATIVE_ROUTE_CANARIES_V1','verdict':'PASS_12_OF_12_ROUTER_TO_EXECUTOR_LIVE_BINDING__4_OF_4_NEGATIVE_ROUTE_CANARIES_FAIL_CLOSED','positive_surface_count':12,'gateway_profile_count':10,'direct_image_count':2,'positive_status_counts':dict(collections.Counter(x['status'] for x in pos)),'negative_canary_count':4,'negative_status_counts':dict(collections.Counter(x['status'] for x in neg)),'positive_rows':pos,'negative_rows':neg,'gemini_quarantine_preserved':True,'gemini_executor_invoked':False,'zero_spend':True,'secret_injected':False,'external_actuation':False,'production_ready':False,'runtime_admission':False,'global_bind':False,'claim_boundary':'ROUTER_DECISION_TO_EXECUTOR_INVOCATION_BINDING_OVER_12_ROUTABLE_READ_ONLY_SURFACES__10_GATEWAY_PROFILE_PLUS_2_DIGEST_PINNED_DIRECT_IMAGE__4_NEGATIVE_ROUTES_DENIED_BEFORE_EXECUTOR__GEMINI_QUARANTINE_PRESERVED__NO_PRODUCTION_READY__NO_RUNTIME_ADMISSION__NO_GLOBAL_BIND'}
+          (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          (root/'bounded-receipt.json').write_text(json.dumps({**summary,'github_sha':os.environ.get('GITHUB_SHA')},indent=2,sort_keys=True)+'\n')
+          entries=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes();entries.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(entries)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-12-router-to-executor-full-matrix-negative-canaries-v1
+          path: evidence/ess-router-executor-full-matrix-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
