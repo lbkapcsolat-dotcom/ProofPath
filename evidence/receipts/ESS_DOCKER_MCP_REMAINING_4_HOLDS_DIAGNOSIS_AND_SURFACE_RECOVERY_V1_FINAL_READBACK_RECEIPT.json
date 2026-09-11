@@ -1,0 +1,52 @@
+{
+  "gate": "ESS_DOCKER_MCP_REMAINING_4_HOLDS_DIAGNOSIS_AND_SURFACE_RECOVERY_V1",
+  "verdict": "PASS_BOUNDED_DIAGNOSIS_WITH_2_DIRECT_IMAGE_SURFACE_RECOVERIES__2_HOLDS_REMAIN",
+  "gateway_diagnosis": {
+    "github_workflow_run_id": 34613300875,
+    "github_head_sha": "986bef85fde6e05f20ea0c8712db77bb2d9fd3c8",
+    "provider_artifact_id": 10269059671,
+    "provider_artifact_bytes": 34187,
+    "provider_artifact_sha256": "79ea1bcd0e1e4be45bfcc50a7d668bc524e13af1c9133e0b480c7b09e0862c12",
+    "external_download_sha256": "79ea1bcd0e1e4be45bfcc50a7d668bc524e13af1c9133e0b480c7b09e0862c12",
+    "statuses": {
+      "atlas-docs": "UPSTREAM_HOLD__DEFAULT_ATLAS_API_DNS_UNRESOLVED_ON_HOSTED_RUNNER",
+      "cloudflare-docs": "TRANSPORT_HOLD__DOCKER_GATEWAY_STREAMABLE_HTTP_INITIALIZE_EOF",
+      "openapi-schema": "GATEWAY_PROFILE_TOOL_SURFACE_HOLD",
+      "rust-mcp-filesystem": "GATEWAY_PROFILE_TOOL_SURFACE_HOLD"
+    },
+    "input_mutation_detected": false
+  },
+  "direct_image_surface_recovery": {
+    "github_workflow_run_id": 34613713811,
+    "github_head_sha": "9513351a0405bb6855863d31363e4336d0ee5e97",
+    "provider_artifact_id": 10270015930,
+    "provider_artifact_bytes": 25167,
+    "provider_artifact_sha256": "8c294eec043bbd5d50f5fa4b032c9688c23641d5121e7e566c6f67ba3c74009e",
+    "external_download_sha256": "8c294eec043bbd5d50f5fa4b032c9688c23641d5121e7e566c6f67ba3c74009e",
+    "internal_manifest_checked": 26,
+    "internal_manifest_errors": 0,
+    "statuses": {
+      "openapi-schema": "LIVE_PASS_DIRECT_IMAGE__DIGEST_PINNED_SYNTHETIC_READONLY_SCHEMA",
+      "rust-mcp-filesystem": "LIVE_PASS_DIRECT_IMAGE__DIGEST_PINNED_READONLY_DIRECTORY"
+    },
+    "openapi_image_digest": "sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a",
+    "rust_filesystem_image_digest": "sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242",
+    "network_disabled": true,
+    "read_only_mounts": true,
+    "input_mutation_detected": false
+  },
+  "final_statuses": {
+    "atlas-docs": "UPSTREAM_HOLD",
+    "cloudflare-docs": "DOCKER_GATEWAY_TRANSPORT_HOLD",
+    "openapi-schema": "LIVE_PASS_DIRECT_IMAGE__GATEWAY_PROFILE_ACTIVATION_HOLD",
+    "rust-mcp-filesystem": "LIVE_PASS_DIRECT_IMAGE__GATEWAY_PROFILE_ACTIVATION_HOLD"
+  },
+  "recovered_surface_count": 2,
+  "remaining_hold_count": 2,
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "BOUNDED_DOCKER_MCP_DIAGNOSIS_AND_DIRECT_IMAGE_CALLABILITY_RECOVERY_ONLY__DIRECT_IMAGE_PASS_DOES_NOT_PROVE_DOCKER_MCP_GATEWAY_PROFILE_ACTIVATION"
+}
