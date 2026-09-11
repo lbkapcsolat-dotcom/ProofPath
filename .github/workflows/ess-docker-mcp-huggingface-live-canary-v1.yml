@@ -1,0 +1,100 @@
+name: ess-docker-mcp-huggingface-live-canary-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-huggingface-live-canary-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PROFILE_ID: ess-hugging-face-v1
+
+jobs:
+  hugging-face-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v4
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-hugging-face "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-mcp-hugging-face/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-hugging-face/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-mcp-hugging-face/docker-mcp-version.txt
+      - name: Create Hugging Face-only controlled profile
+        run: |
+          set -euxo pipefail
+          docker mcp feature enable profiles >/dev/null 2>&1 || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" 2>&1 | tee evidence/docker-mcp-hugging-face/catalog-pull.log
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" hugging-face --format json > evidence/docker-mcp-hugging-face/hugging-face-inspect.json
+          docker mcp profile create --name ESS_HUGGING_FACE_V1 --id "$PROFILE_ID" --server catalog://mcp/docker-mcp-catalog/hugging-face 2>&1 | tee evidence/docker-mcp-hugging-face/profile-create.log
+          docker mcp profile show "$PROFILE_ID" --format yaml > evidence/docker-mcp-hugging-face/profile-show.yaml
+          python - <<'PY'
+          import json,pathlib
+          o=json.loads(pathlib.Path('evidence/docker-mcp-hugging-face/hugging-face-inspect.json').read_text())
+          s=o['snapshot']['server']; tools=s.get('tools',[])
+          assert not s.get('secrets'), s.get('secrets')
+          names=[t['name'] for t in tools]
+          assert 'hub_repo_search' in names, names
+          for t in tools:
+            ann=t.get('annotations') or {}
+            assert ann.get('readOnlyHint') is True, (t.get('name'),ann)
+            assert ann.get('destructiveHint') is False, (t.get('name'),ann)
+          print('PASS_HUGGING_FACE_READONLY_CATALOG_CONTRACT')
+          PY
+      - name: Discover runtime tools
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json --gateway-arg=--profile="$PROFILE_ID" ls > evidence/docker-mcp-hugging-face/runtime-tools.json 2> evidence/docker-mcp-hugging-face/runtime-tools.err
+          grep -F 'hub_repo_search' evidence/docker-mcp-hugging-face/runtime-tools.json
+      - name: Execute live public Hub search
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --gateway-arg=--profile="$PROFILE_ID" call hub_repo_search 'query=formal theorem proving Lean' 'limit=3' > evidence/docker-mcp-hugging-face/live-search.out 2> evidence/docker-mcp-hugging-face/live-search.err
+          test -s evidence/docker-mcp-hugging-face/live-search.out
+          grep -Eiq 'lean|theorem|model|dataset|repo|huggingface|id' evidence/docker-mcp-hugging-face/live-search.out
+          echo PASS_DOCKER_MCP_HUGGING_FACE_PUBLIC_SEARCH_LIVE_CALLABLE | tee evidence/docker-mcp-hugging-face/gate-status.txt
+      - name: Build bounded receipt and SHA manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-mcp-hugging-face')
+          receipt={'gate':'ESS_DOCKER_MCP_HUGGING_FACE_LIVE_CALLABLE_CANARY_V1','status':'PASS_DOCKER_MCP_HUGGING_FACE_PUBLIC_SEARCH_LIVE_CALLABLE','gateway_version':os.environ['MCP_GATEWAY_VERSION'],'profile_id':os.environ['PROFILE_ID'],'server':'hugging-face','tool':'hub_repo_search','query':'formal theorem proving Lean','zero_spend':True,'secret_injected':False,'read_only_contract':True,'external_actuation':False,'production_ready':False,'global_bind':False}
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          rows=[]
+          for p in sorted(root.iterdir()):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-huggingface-live-canary-v1
+          path: evidence/docker-mcp-hugging-face/
+          if-no-files-found: error
+          retention-days: 30
