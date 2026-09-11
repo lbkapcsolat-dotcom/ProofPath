@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ess-hgraph-claim-ceiling-canary-v1
+      - ess-hgraph-claim-ceiling-mutation-canary-v1
     paths:
       - 'hgraph_canary/**'
       - '.github/workflows/ess-hgraph-claim-ceiling-canary.yml'
@@ -37,5 +38,5 @@ jobs:
           PY
           git rev-parse HEAD
 
-      - name: Run RED contract tests
+      - name: Run claim-gate conformance tests
         run: pytest -q hgraph_canary/test_claim_gate.py
