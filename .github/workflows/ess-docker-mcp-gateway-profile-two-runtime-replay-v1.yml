@@ -1,0 +1,25 @@
+name: ess-docker-mcp-gateway-profile-two-runtime-replay-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_normalized_replay.py'
+      - 'ess_docker_mcp_router/normalized_replay.py'
+      - '.github/workflows/ess-docker-mcp-gateway-profile-two-runtime-replay-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  normalized-replay-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run focused normalized replay tests
+        working-directory: ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_normalized_replay.py
