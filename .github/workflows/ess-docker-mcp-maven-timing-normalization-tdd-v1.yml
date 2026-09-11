@@ -1,0 +1,24 @@
+name: ess-docker-mcp-maven-timing-normalization-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/drift_normalization.py'
+      - 'ess_docker_mcp_router/test_maven_timing_normalization.py'
+      - '.github/workflows/ess-docker-mcp-maven-timing-normalization-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused Maven timing normalization contract
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_maven_timing_normalization.py
