@@ -1,0 +1,47 @@
+{
+  "gate": "ESS_DOCKER_MCP_CONTEXT7_LIVE_CALLABLE_CANARY_V1",
+  "status": "HOLD_CONTEXT7_API_KEY_REQUIRED",
+  "workflow_run_id": 34601483088,
+  "workflow_job_id": 103269590949,
+  "workflow_head_sha": "59dad52593d3dd5ad557931b1669f70cf76090aa",
+  "gateway_version": "v0.43.3",
+  "server": "context7",
+  "server_type": "remote",
+  "remote_url": "https://mcp.context7.com/mcp",
+  "transport_type": "streamable-http",
+  "required_secret_env": "CONTEXT7_API_KEY",
+  "required_secret_name": "context7.api_key",
+  "catalog_contract": "PASS",
+  "profile_create": "PASS",
+  "profile_dry_run": "PASS",
+  "profile_runtime_tools_discovered_during_dry_run": 2,
+  "engine_only_no_secret_runtime_tool_count": 0,
+  "missing_secret_fail_closed": true,
+  "secret_available_in_this_runner": false,
+  "secret_fabrication": false,
+  "live_call_performed": false,
+  "zero_spend": true,
+  "provider_artifact": {
+    "artifact_id": 10264132865,
+    "name": "ess-docker-mcp-context7-boundary-gate-v1",
+    "provider_reported_bytes": 7647,
+    "provider_reported_sha256": "05ba8690aa5170df023b5c4c9db81fd9e5d91ab4c8678fee4b335a44d05369f3",
+    "external_download_bytes": 7647,
+    "external_download_sha256": "05ba8690aa5170df023b5c4c9db81fd9e5d91ab4c8678fee4b335a44d05369f3",
+    "provider_to_external_equality": true
+  },
+  "internal_evidence_manifest": {
+    "entries_recomputed": 22,
+    "mismatches": 0,
+    "status": "PASS_INTERNAL_SHA_MANIFEST_READBACK"
+  },
+  "claim_ceiling": {
+    "docker_catalog_remote_adapter_present": true,
+    "profile_compatibility": true,
+    "missing_secret_fail_closed": true,
+    "live_context7_callability": false,
+    "production_ready": false,
+    "global_bind": false,
+    "external_actuation": false
+  }
+}
