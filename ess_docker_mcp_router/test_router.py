@@ -13,22 +13,31 @@ class RouterContractTests(unittest.TestCase):
         cls.profile = load_profile(ROOT / "ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json")
         cls.policy = load_policy(ROOT / "policy.json")
 
-    def test_authority_cardinality_is_exactly_13_unique_surfaces(self):
+    def test_authority_cardinality_is_exactly_13_unique_surfaces_with_12_routable_domains(self):
         surfaces = self.profile["surfaces"]
         names = [s["name"] for s in surfaces]
+        quarantined = set(self.policy.get("quarantined_domains", {}))
         self.assertEqual(13, self.profile["surface_count"])
         self.assertEqual(13, len(surfaces))
         self.assertEqual(13, len(set(names)))
-
-    def test_all_policy_routes_bind_to_authoritative_surface_tool_and_transport(self):
-        by_name = {s["name"]: s for s in self.profile["surfaces"]}
         self.assertEqual(13, len(self.policy["routes"]))
+        self.assertEqual({"gemini_api_docs"}, quarantined)
+        self.assertEqual(12, len(self.policy["routes"]) - len(quarantined))
+
+    def test_policy_routes_bind_to_authority_and_quarantine_is_fail_closed(self):
+        by_name = {s["name"]: s for s in self.profile["surfaces"]}
+        quarantined = self.policy.get("quarantined_domains", {})
         for domain, expected in self.policy["routes"].items():
             with self.subTest(domain=domain):
                 authoritative = by_name[expected["surface"]]
                 self.assertEqual(authoritative["tool"], expected["tool"])
                 self.assertEqual(authoritative["transport"], expected["transport"])
                 result = route_request({"domain": domain, "intent": "read"}, self.profile, self.policy)
+                if domain in quarantined:
+                    self.assertEqual("DENY", result["decision"])
+                    self.assertEqual("QUARANTINED_NONDETERMINISTIC_SURFACE", result["reason"])
+                    self.assertEqual(quarantined[domain]["evidence_gate"], result["quarantine_evidence_gate"])
+                    continue
                 self.assertEqual("ALLOW", result["decision"])
                 self.assertEqual(expected["surface"], result["surface"])
                 self.assertEqual(expected["tool"], result["tool"])
