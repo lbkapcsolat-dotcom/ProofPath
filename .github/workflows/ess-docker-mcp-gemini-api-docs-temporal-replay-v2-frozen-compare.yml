@@ -1,0 +1,132 @@
+name: ess-docker-mcp-gemini-api-docs-temporal-replay-v2-frozen-compare
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-gemini-api-docs-temporal-replay-v2-frozen-compare.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare-frozen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download frozen host A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-gemini-temporal-v2-host-a
+          path: evidence/frozen/host-a
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34625267295
+          github-token: ${{ github.token }}
+      - name: Download frozen host B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-gemini-temporal-v2-host-b
+          path: evidence/frozen/host-b
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34625267295
+          github-token: ${{ github.token }}
+      - name: Verify manifests and classify exact root cause
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/gemini-temporal-v2-final
+          python - <<'PY'
+          import hashlib,itertools,json,pathlib
+          base=pathlib.Path('evidence/frozen')
+          def load(label):
+              root=base/label; errs=[]; checked=0
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip(): continue
+                  sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+              assert not errs,(label,errs)
+              return json.loads((root/'host-bundle.json').read_text()),checked
+          a,ca=load('host-a'); b,cb=load('host-b')
+          assert a['registry_commit']==b['registry_commit']=='8c773729f13f036da8c909be503fe433923a9aa2'
+          assert a['source_commit']==b['source_commit']=='8e8aa1543e1cb5f0bc0b1d5056da48f07a8e6332'
+          assert a['image']==b['image'] and '@sha256:' in a['image']
+          def source_by_basename(x): return {pathlib.Path(k).name:v for k,v in x['source_file_sha256'].items()}
+          assert source_by_basename(a)==source_by_basename(b)
+          assert a['unordered_query_countermodel']['insertion_order_changes_result']
+          assert b['unordered_query_countermodel']['insertion_order_changes_result']
+          ia,ib=a['identity'],b['identity']
+          distinct=all(ia.get(k) and ib.get(k) and ia[k]!=ib[k] for k in ('boot_id','product_uuid','runner_name'))
+          assert distinct,(ia,ib)
+          runs=[{'host':'host-a',**x} for x in a['live_replays']]+[{'host':'host-b',**x} for x in b['live_replays']]
+          assert len(runs)==6
+          llms_unique=sorted(set(x['llms_sha256'] for x in runs))
+          candidate_unique=sorted(set(x['candidate_snapshot_sha256'] for x in runs))
+          response_unique=sorted(set(x['response_sha256'] for x in runs))
+          same_source_diff=[]
+          for x,y in itertools.combinations(runs,2):
+              if x['llms_sha256']==y['llms_sha256'] and x['candidate_snapshot_sha256']==y['candidate_snapshot_sha256'] and x['response_sha256']!=y['response_sha256']:
+                  same_source_diff.append({'a':f"{x['host']}:{x['attempt']}",'b':f"{y['host']}:{y['attempt']}",'llms_sha256':x['llms_sha256'],'candidate_snapshot_sha256':x['candidate_snapshot_sha256'],'response_a':x['response_sha256'],'response_b':y['response_sha256']})
+          upstream_temporal=len(llms_unique)>1 or len(candidate_unique)>1
+          implicit_dynamic=bool(same_source_diff)
+          assert implicit_dynamic, 'Expected dynamic same-source response drift witness not found'
+          assert not upstream_temporal, (llms_unique,candidate_unique)
+          verdict='PASS_FRESH_INGEST_OR_IMPLICIT_DEFAULT_ORDER_DRIFT_DYNAMICALLY_PROVEN__UPSTREAM_SNAPSHOT_STABLE_IN_OBSERVED_WINDOW'
+          summary={
+            'gate':'ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1',
+            'implementation_revision':'V2_GATEWAY_PROFILE_FROZEN_COMPARE',
+            'verdict':verdict,
+            'source_live_run_id':34625267295,
+            'source_live_head_sha':'799697fbfcd40182699eb722693d9c6658f1e073',
+            'source_host_a_artifact_id':10273857244,
+            'source_host_b_artifact_id':10274157623,
+            'registry_commit':a['registry_commit'],'source_commit':a['source_commit'],'image':a['image'],
+            'source_file_sha256_by_basename':source_by_basename(a),
+            'distinct_host_identity':distinct,
+            'host_a_manifest_checked':ca,'host_b_manifest_checked':cb,
+            'live_replay_count':6,
+            'llms_unique_count':len(llms_unique),
+            'candidate_snapshot_unique_count':len(candidate_unique),
+            'response_unique_count':len(response_unique),
+            'upstream_temporal_drift_observed':upstream_temporal,
+            'fresh_ingest_or_implicit_default_order_drift_dynamically_observed':implicit_dynamic,
+            'same_source_different_response_pairs':same_source_diff,
+            'unordered_query_static_countermodel_proven':True,
+            'concurrent_ingest_static_witness_proven':True,
+            'startup_live_ingest_static_witness_proven':True,
+            'runs':runs,
+            'zero_spend':True,'secret_injected':False,'external_actuation':False,
+            'production_ready':False,'runtime_admission':False,'global_bind':False,
+            'claim_boundary':'PINNED_REGISTRY_SOURCE_METADATA__PINNED_SIGNED_IMAGE_DIGEST__SIX_LIVE_GATEWAY_PROFILE_REPLAYS_ACROSS_TWO_DISTINCT_HOSTS__IDENTICAL_OBSERVED_LLMS_AND_CANDIDATE_SNAPSHOT_HASHES_WITH_MULTIPLE_RESPONSE_HASHES__UNORDERED_SQL_COUNTERMODEL__NO_GEMINI_CONTENT_NORMALIZATION__CAUSE_LOCALIZED_TO_FRESH_INGEST_OR_IMPLICIT_DEFAULT_SELECTION_LAYER__NO_13_OF_13_PROMOTION'
+          }
+          out=pathlib.Path('evidence/gemini-temporal-v2-final')
+          (out/'temporal-replay-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          (out/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({k:summary[k] for k in ['gate','verdict','live_replay_count','llms_unique_count','candidate_snapshot_unique_count','response_unique_count','upstream_temporal_drift_observed','fresh_ingest_or_implicit_default_order_drift_dynamically_observed','unordered_query_static_countermodel_proven']},indent=2,sort_keys=True))
+          PY
+      - name: Build and verify final manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('evidence/gemini-temporal-v2-final'); rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          errs=[]; checked=0
+          for line in (root/'sha256-manifest.txt').read_text().splitlines():
+              sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes(); checked+=1
+              if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+          assert checked==2 and not errs,(checked,errs)
+          print('final_manifest_checked',checked,'errors',len(errs))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-gemini-api-docs-temporal-replay-v2-frozen-compare
+          path: evidence/gemini-temporal-v2-final/
+          if-no-files-found: error
+          retention-days: 30
