@@ -16,7 +16,7 @@ env:
   EXPECTED_SOURCE_BYTES: '27636349'
   EXPECTED_SOURCE_SHA256: 77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77
   EXPECTED_REPO_ROOT: equilibrium_repo_docker_env_ci_v1
-  NPM_VERSION: '10.8.1'
+  NPM_VERSION: '10.9.9'
 
 jobs:
   exact-full-repo-replay:
@@ -118,7 +118,7 @@ jobs:
         working-directory: ${{ env.REPO_DIR }}
         run: |
           set -euxo pipefail
-          timeout 240 npm ci --include=dev --no-audit --no-fund 2>&1 | tee "$GITHUB_WORKSPACE/evidence/npm-ci-clean.log"
+          timeout --signal=TERM --kill-after=10s 240s npm ci --include=dev --no-audit --no-fund 2>&1 | tee "$GITHUB_WORKSPACE/evidence/npm-ci-clean.log"
           test "${PIPESTATUS[0]}" -eq 0
           test -x node_modules/.bin/vitest
           node_modules/.bin/vitest --version | tee "$GITHUB_WORKSPACE/evidence/vitest-version.txt"
