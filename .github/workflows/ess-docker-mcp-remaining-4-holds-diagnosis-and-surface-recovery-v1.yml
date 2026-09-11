@@ -87,7 +87,7 @@ jobs:
           chmod 0555 "$ROOT/rust-readonly"
           sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-before.txt"
 
-          cat > "$ROOT/config.yaml" <<EOF
+          cat > "$ROOT/intended-profile-config.yaml" <<EOF
           atlas-docs:
             api_url: https://atlas.cartograph.app/api
           openapi-schema:
@@ -98,9 +98,7 @@ jobs:
             allowed_directories:
               - $ROOT/rust-readonly
           EOF
-          sed -i 's/^          //' "$ROOT/config.yaml"
-          docker mcp config write "$(cat "$ROOT/config.yaml")"
-          docker mcp config read > "$ROOT/config-readback.yaml"
+          sed -i 's/^          //' "$ROOT/intended-profile-config.yaml"
 
           python - <<'PY'
           import json,os,pathlib,yaml
@@ -118,7 +116,6 @@ jobs:
               }
           (root/'official-contract-summary.json').write_text(json.dumps(out,indent=2,sort_keys=True))
 
-          # Cloudflare registry transport is stale: freeze an explicit, bounded current-endpoint override.
           cf=out['cloudflare-docs']
           current={
             'registry':{
@@ -152,13 +149,17 @@ jobs:
         run: |
           set +e
           ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
-          D="$ROOT/atlas-docs"
-          mkdir -p "$D"
+          D="$ROOT/atlas-docs"; mkdir -p "$D"
           profile=ess-recover-atlas-docs
           docker mcp profile create --name "ESS Recover Atlas Docs" --id "$profile" \
             --server "catalog://mcp/docker-mcp-catalog/atlas-docs" >"$D/profile-create.out" 2>"$D/profile-create.err"
           pc=$?
           if [ "$pc" -ne 0 ]; then echo 'atlas-docs,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" \
+            --set atlas-docs.api_url=https://atlas.cartograph.app/api >"$D/profile-config.out" 2>"$D/profile-config.err"
+          cfg=$?
+          if [ "$cfg" -ne 0 ]; then echo 'atlas-docs,CONFIG_HOLD,PROFILE_CONFIG_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" --get-all --format yaml > "$D/profile-config-readback.yaml" 2>"$D/profile-config-readback.err"
           timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
             --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
           lc=$?
@@ -181,13 +182,17 @@ jobs:
         run: |
           set +e
           ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
-          D="$ROOT/openapi-schema"
-          mkdir -p "$D"
+          D="$ROOT/openapi-schema"; mkdir -p "$D"
           profile=ess-recover-openapi-schema
           docker mcp profile create --name "ESS Recover OpenAPI Schema" --id "$profile" \
             --server "catalog://mcp/docker-mcp-catalog/openapi-schema" >"$D/profile-create.out" 2>"$D/profile-create.err"
           pc=$?
           if [ "$pc" -ne 0 ]; then echo 'openapi-schema,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" \
+            --set "openapi-schema.SchemaPath=$ROOT/synthetic-openapi.yaml" >"$D/profile-config.out" 2>"$D/profile-config.err"
+          cfg=$?
+          if [ "$cfg" -ne 0 ]; then echo 'openapi-schema,CONFIG_HOLD,PROFILE_CONFIG_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" --get-all --format yaml > "$D/profile-config-readback.yaml" 2>"$D/profile-config-readback.err"
           timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
             --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
           lc=$?
@@ -210,13 +215,19 @@ jobs:
         run: |
           set +e
           ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
-          D="$ROOT/rust-mcp-filesystem"
-          mkdir -p "$D"
+          D="$ROOT/rust-mcp-filesystem"; mkdir -p "$D"
           profile=ess-recover-rust-fs
           docker mcp profile create --name "ESS Recover Rust FS" --id "$profile" \
             --server "catalog://mcp/docker-mcp-catalog/rust-mcp-filesystem" >"$D/profile-create.out" 2>"$D/profile-create.err"
           pc=$?
           if [ "$pc" -ne 0 ]; then echo 'rust-mcp-filesystem,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" \
+            --set rust-mcp-filesystem.allow_write=false \
+            --set rust-mcp-filesystem.enable_roots=false \
+            --set "rust-mcp-filesystem.allowed_directories=[\"$ROOT/rust-readonly\"]" >"$D/profile-config.out" 2>"$D/profile-config.err"
+          cfg=$?
+          if [ "$cfg" -ne 0 ]; then echo 'rust-mcp-filesystem,CONFIG_HOLD,PROFILE_CONFIG_FAILED' > "$D/result.csv"; exit 0; fi
+          docker mcp profile config "$profile" --get-all --format yaml > "$D/profile-config-readback.yaml" 2>"$D/profile-config-readback.err"
           timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
             --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
           lc=$?
@@ -249,8 +260,7 @@ jobs:
         run: |
           set +e
           ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
-          D="$ROOT/cloudflare-docs"
-          mkdir -p "$D"
+          D="$ROOT/cloudflare-docs"; mkdir -p "$D"
           docker mcp feature disable dynamic-tools >"$D/dynamic-disable.out" 2>"$D/dynamic-disable.err"
           timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
             --gateway-arg="--catalog=$ROOT/cloudflare-current-catalog.yaml" \
