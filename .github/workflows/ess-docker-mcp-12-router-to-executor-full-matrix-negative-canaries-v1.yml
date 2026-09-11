@@ -1,3 +1,4 @@
+# rerun-after-direct-contract-projection-tdd
 name: ess-docker-mcp-12-router-to-executor-full-matrix-negative-canaries-v1
 
 on:
@@ -229,7 +230,8 @@ jobs:
             }else if c.Surface=="rust-mcp-filesystem"{
               d:=filepath.Join(input,"rust-readonly"); image:="mcp/rust-mcp-filesystem@"+c.ImageDigest
               cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-e","ENABLE_ROOTS=false","-e","ALLOW_WRITE=false","-v",d+":"+d+":ro",image,d); expect="canary.txt"
-            }else{panic("unknown direct surface")}
+            }else{panic("unknown direct surface")
+            }
             stderr,e:=os.Create(filepath.Join(out,"container-stderr.log"));must(e);defer stderr.Close();cmd.Stderr=stderr
             cl:=mcp.NewClient(&mcp.Implementation{Name:"ess-bound-direct",Version:"1.0.0"},nil);s,e:=cl.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil);must(e);defer s.Close()
             lt,e:=s.ListTools(ctx,&mcp.ListToolsParams{});must(e);found:=false;for _,t:=range lt.Tools{if t.Name==c.Tool{found=true}};if !found{panic("expected tool missing")};writeJSON(filepath.Join(out,"tools.json"),lt)
