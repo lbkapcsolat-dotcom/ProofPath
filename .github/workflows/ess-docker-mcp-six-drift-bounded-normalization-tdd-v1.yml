@@ -1,0 +1,26 @@
+name: ess-docker-mcp-six-drift-bounded-normalization-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_six_drift_bounded_normalization.py'
+      - 'ess_docker_mcp_router/drift_normalization.py'
+      - '.github/workflows/ess-docker-mcp-six-drift-bounded-normalization-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-drift-normalization-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run focused six-drift normalization tests
+        working-directory: ess_docker_mcp_router
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_six_drift_bounded_normalization.py
