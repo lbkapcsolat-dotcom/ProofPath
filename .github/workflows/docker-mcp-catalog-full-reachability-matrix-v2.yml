@@ -1,0 +1,256 @@
+name: docker-mcp-catalog-full-reachability-matrix-v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/docker-mcp-catalog-full-reachability-matrix-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  matrix-v2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MCP_GATEWAY_VERSION: v0.43.3
+      DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze official registry and runtime catalog
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-reachability-v2 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          git clone --depth=1 https://github.com/docker/mcp-registry.git /tmp/mcp-registry
+          git -C /tmp/mcp-registry rev-parse HEAD | tee evidence/docker-mcp-reachability-v2/registry-head-sha.txt
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-mcp-reachability-v2/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-reachability-v2/docker-mcp-version.txt
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/docker-mcp-reachability-v2/catalog-pull.log 2>&1
+          docker mcp catalog show "$DOCKER_MCP_CATALOG" --format json > evidence/docker-mcp-reachability-v2/runtime-catalog.json
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build corrected full reachability matrix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import csv,json,pathlib,re,subprocess
+          from collections import Counter
+          root=pathlib.Path('evidence/docker-mcp-reachability-v2')
+          reg=pathlib.Path('/tmp/mcp-registry')
+          try:
+            import yaml
+          except Exception:
+            subprocess.check_call(['python','-m','pip','install','--quiet','pyyaml'])
+            import yaml
+
+          def load_yaml(p):
+            try: return yaml.safe_load(p.read_text(errors='replace')) or {}
+            except Exception: return {}
+
+          # Official registry authority: one server.yaml per server directory.
+          registry={}
+          for d in sorted((reg/'servers').iterdir()):
+            if not d.is_dir(): continue
+            p=d/'server.yaml'
+            spec=load_yaml(p) if p.exists() else {}
+            name=str(spec.get('name') or d.name)
+            registry[name]={'dir_name':d.name,'spec':spec,'source_file':str(p.relative_to(reg)) if p.exists() else ''}
+
+          # Runtime authority: catalog show returns a list under servers, each with snapshot.server.
+          runtime_doc=json.loads(root.joinpath('runtime-catalog.json').read_text())
+          runtime_list=runtime_doc.get('servers') or []
+          runtime={}
+          for item in runtime_list:
+            if not isinstance(item,dict): continue
+            srv=((item.get('snapshot') or {}).get('server') or {})
+            name=srv.get('name')
+            if isinstance(name,str) and name:
+              runtime[name]={'item':item,'server':srv}
+
+          known_chatgpt={
+            'github','notion','supabase','stripe','mongodb','mongodb-atlas','hugging-face','context7','linear',
+            'asana','airtable','slack','figma','canva','dropbox','hubspot','posthog','mixpanel','sentry','zoom',
+            'google-drive','gmail','google-calendar','monday','monday-com','clickhouse','neon','cloudinary','amplitude'
+          }
+
+          def required_auth(spec):
+            cfg=spec.get('config') if isinstance(spec.get('config'),dict) else {}
+            secrets=cfg.get('secrets') if isinstance(cfg,dict) else []
+            secrets=secrets if isinstance(secrets,list) else []
+            req=[]; opt=[]
+            for s in secrets:
+              if isinstance(s,dict):
+                n=s.get('env') or s.get('name') or 'secret'
+                if s.get('required',True) is False: opt.append(str(n))
+                else: req.append(str(n))
+              else: req.append(str(s))
+            oauth=spec.get('oauth') or (cfg.get('oauth') if isinstance(cfg,dict) else None)
+            oauth_required=bool(oauth)
+            return req,opt,oauth_required
+
+          def archived_or_deprecated(name,spec,run):
+            about=spec.get('about') if isinstance(spec.get('about'),dict) else {}
+            title=str(about.get('title') or '')
+            desc=str(about.get('description') or '')
+            meta=spec.get('meta') if isinstance(spec.get('meta'),dict) else {}
+            if 'archived' in title.lower() or 'deprecated' in title.lower() or 'deprecated' in desc.lower(): return True
+            if meta.get('archived') is True or meta.get('deprecated') is True: return True
+            # Explicitly proven current registry issue from prior canary lineage.
+            if name=='deepwiki': return True
+            return False
+
+          rows=[]
+          for name in sorted(registry):
+            spec=registry[name]['spec']; run=runtime.get(name)
+            typ=str(spec.get('type') or '')
+            image=str(spec.get('image') or '')
+            remote=spec.get('remote') if isinstance(spec.get('remote'),dict) else {}
+            remote_url=str(remote.get('url') or '')
+            transport=str(remote.get('transport_type') or '')
+            req_secrets,opt_secrets,oauth_required=required_auth(spec)
+            auth_required=bool(req_secrets or oauth_required)
+            runtime_present=run is not None
+            deprecated=archived_or_deprecated(name,spec,run)
+            if typ=='remote' or remote_url:
+              execution_plane='REMOTE'
+            elif image or typ=='server':
+              execution_plane='LOCAL_IMAGE'
+            else:
+              execution_plane='UNKNOWN'
+
+            if not runtime_present:
+              reach='REGISTRY_PRESENT_CATALOG_MISSING'
+            elif deprecated:
+              reach='BROKEN_OR_DEPRECATED'
+            elif execution_plane=='REMOTE':
+              reach='DOCKER_REMOTE_AUTH_REQUIRED' if auth_required else 'DOCKER_REMOTE_SECRETLESS'
+            elif execution_plane=='LOCAL_IMAGE':
+              reach='DOCKER_LOCAL_IMAGE_AUTH_REQUIRED' if auth_required else 'DOCKER_LOCAL_IMAGE_SECRETLESS'
+            else:
+              reach='HOLD'
+
+            canon=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-')
+            direct_chatgpt=canon in known_chatgpt
+            rs=(run or {}).get('server') or {}
+            tools=rs.get('tools') if isinstance(rs.get('tools'),list) else []
+            read_only_tools=sum(1 for t in tools if isinstance(t,dict) and isinstance(t.get('annotations'),dict) and t['annotations'].get('readOnlyHint') is True)
+            destructive_tools=sum(1 for t in tools if isinstance(t,dict) and isinstance(t.get('annotations'),dict) and t['annotations'].get('destructiveHint') is True)
+            about=spec.get('about') if isinstance(spec.get('about'),dict) else {}
+            meta=spec.get('meta') if isinstance(spec.get('meta'),dict) else {}
+            tags=meta.get('tags') if isinstance(meta.get('tags'),list) else []
+            rows.append({
+              'server':name,
+              'title':str(about.get('title') or rs.get('title') or ''),
+              'description':str(about.get('description') or rs.get('description') or ''),
+              'tags':'|'.join(map(str,tags)),
+              'execution_plane':execution_plane,
+              'image':image or str((run or {}).get('item',{}).get('image') or ''),
+              'remote_url':remote_url or str((run or {}).get('item',{}).get('endpoint') or ''),
+              'transport':transport,
+              'required_secrets':'|'.join(req_secrets),
+              'optional_secrets':'|'.join(opt_secrets),
+              'oauth_required':oauth_required,
+              'auth_required':auth_required,
+              'runtime_catalog_present':runtime_present,
+              'runtime_tool_count':len(tools),
+              'runtime_readonly_annotated_tools':read_only_tools,
+              'runtime_destructive_annotated_tools':destructive_tools,
+              'docker_reachability':reach,
+              'chatgpt_reachability':'DIRECT_CHATGPT_CALLABLE' if direct_chatgpt else 'NO_DIRECT_CHATGPT_MATCH_PROVEN',
+              'deprecated_or_known_issue':deprecated,
+              'source_file':registry[name]['source_file']
+            })
+
+          assert len(rows)==len(registry)
+          assert len(runtime)==len(runtime_list), (len(runtime),len(runtime_list))
+          assert next(r for r in rows if r['server']=='wolfram-alpha')['auth_required'] is True
+          assert next(r for r in rows if r['server']=='context7')['auth_required'] is False
+          assert next(r for r in rows if r['server']=='paper-search')['runtime_catalog_present'] is True
+
+          with root.joinpath('docker-mcp-full-reachability-matrix-v2.csv').open('w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+          root.joinpath('docker-mcp-full-reachability-matrix-v2.json').write_text(json.dumps(rows,indent=2,sort_keys=True))
+
+          dc=Counter(r['docker_reachability'] for r in rows); cc=Counter(r['chatgpt_reachability'] for r in rows)
+          summary={
+            'gate':'DOCKER_MCP_CATALOG_FULL_REACHABILITY_MATRIX_V1',
+            'method_version':'V2_CORRECTED_SCHEMA',
+            'verdict':'PASS_CORRECTED_MATRIX_BUILT_FROM_OFFICIAL_REGISTRY_AND_RUNTIME_CATALOG',
+            'registry_server_count':len(rows),
+            'runtime_catalog_server_count':len(runtime),
+            'registry_present_catalog_missing':sum(not r['runtime_catalog_present'] for r in rows),
+            'runtime_present_registry_rows':sum(r['runtime_catalog_present'] for r in rows),
+            'docker_reachability_counts':dict(dc),
+            'chatgpt_reachability_counts':dict(cc),
+            'auth_required_count':sum(r['auth_required'] for r in rows),
+            'optional_secret_only_count':sum(bool(r['optional_secrets']) and not r['auth_required'] for r in rows),
+            'classification_note':'DIRECT_CHATGPT_CALLABLE is an exact-name allowlist of connectors exposed in the current ChatGPT environment; NO_DIRECT_CHATGPT_MATCH_PROVEN does not prove global absence.',
+            'claim_ceiling':'REACHABILITY_CLASSIFICATION_ONLY__NO_BULK_ENABLE__NO_AUTH_BYPASS__ZERO_SPEND'
+          }
+          root.joinpath('summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+
+          kw={'research':7,'paper':7,'scholar':7,'arxiv':7,'science':6,'math':6,'wolfram':10,'theorem':9,'lean':9,'proof':8,
+              'documentation':5,'docs':5,'github':4,'hugging':6,'context':4,'observability':5,'grafana':5,'security':6,
+              'openapi':6,'python':5,'code':2,'semantic':5,'knowledge':4,'database':2,'postgres':2}
+          scored=[]
+          for r in rows:
+            text=' '.join([r['server'],r['title'],r['description'],r['tags']]).lower()
+            score=sum(v for k,v in kw.items() if k in text)
+            if r['docker_reachability'] in {'DOCKER_LOCAL_IMAGE_SECRETLESS','DOCKER_REMOTE_SECRETLESS'}: score+=4
+            if r['chatgpt_reachability']=='DIRECT_CHATGPT_CALLABLE': score+=2
+            if r['deprecated_or_known_issue']: score-=30
+            if r['runtime_destructive_annotated_tools']>0: score-=4
+            if score>0: scored.append((score,r))
+          scored.sort(key=lambda x:(-x[0],x[1]['server']))
+          top=[dict(score=s,**r) for s,r in scored[:30]]
+          root.joinpath('ess-top30-v2.json').write_text(json.dumps(top,indent=2,sort_keys=True))
+          root.joinpath('ess-top30-v2.txt').write_text('\n'.join(f"{x['score']:02d} {x['server']} | {x['docker_reachability']} | {x['chatgpt_reachability']} | auth={x['auth_required']}" for x in top)+'\n')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Hash evidence and build bounded receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd evidence/docker-mcp-reachability-v2
+          sha256sum docker-mcp-full-reachability-matrix-v2.csv docker-mcp-full-reachability-matrix-v2.json summary.json ess-top30-v2.json ess-top30-v2.txt runtime-catalog.json registry-head-sha.txt > sha256-manifest.txt
+          python - <<'PY'
+          import json,pathlib,os
+          root=pathlib.Path('.')
+          s=json.loads(root.joinpath('summary.json').read_text())
+          receipt={**s,
+            'github_repository':os.environ.get('GITHUB_REPOSITORY'),
+            'github_sha':os.environ.get('GITHUB_SHA'),
+            'registry_head_sha':root.joinpath('registry-head-sha.txt').read_text().strip(),
+            'sha256_manifest':'sha256-manifest.txt',
+            'zero_spend':True,'external_actuation':False,'production_ready':False,'global_bind':False}
+          root.joinpath('bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+          sha256sum bounded-receipt.json >> sha256-manifest.txt
+
+      - name: Upload corrected matrix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-mcp-catalog-full-reachability-matrix-v2
+          path: evidence/docker-mcp-reachability-v2/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
