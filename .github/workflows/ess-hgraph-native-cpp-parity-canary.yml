@@ -61,5 +61,8 @@ jobs:
             -DHGRAPH_SOURCE_DIR="$PWD/_vendor/hgraph" \
             -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')"
 
-      - name: Build RED C++ canary
+      - name: Build GREEN C++ parity canary
         run: cmake --build _build/ess-hgraph-cpp --target ess_hgraph_cpp_canary --parallel 2
+
+      - name: Run native 256-state Wolfram parity canary
+        run: ./_build/ess-hgraph-cpp/ess_canary/ess_hgraph_cpp_canary
