@@ -1,0 +1,107 @@
+{
+  "gate": "ESS_DOCKER_MCP_12_SURFACE_ROUTER_EXECUTOR_RECEIPT_AND_INDEPENDENT_REPLAY_BIND_V1",
+  "verdict": "PASS_12_OF_12_PRIMARY_RESPONSE_RECEIPTS_BOUND__12_OF_12_INDEPENDENT_REPLAY_RECEIPTS_BOUND__2_OF_2_DIRECT_EXACT_RESPONSE_REPLAY__8_OF_8_RECEIPT_NEGATIVE_CANARIES_FAIL_CLOSED",
+  "receipt_binding_tdd": {
+    "red_head_sha": "6fdfd82f176a10e213d958786dbfcf46cc6b3372",
+    "red_run_id": 34635130135,
+    "red_job_id": 103381046582,
+    "red_observed_failure": "Focused receipt/replay contract failed because receipt_binding.py did not yet exist",
+    "green_head_sha": "70016e56ccfd4c20602321f2e2a2435152cde427",
+    "green_run_id": 34635281178,
+    "green_job_id": 103381543285,
+    "green_test_count": 5,
+    "green_status": "success"
+  },
+  "initial_integration_attempt": {
+    "head_sha": "14e75e357e9be1080f0a892c725ba0d4f6fb24e4",
+    "run_id": 34635512659,
+    "job_id": 103382293960,
+    "classification": "MECHANICAL_AUTHORITY_SERIALIZATION_INVARIANT_HOLD_ONLY",
+    "primary_artifact_custody_verified_before_failure": true,
+    "replay_calls_executed": 0,
+    "root_cause": "Raw cmp was incorrectly used between canonically reserialized primary authority JSON and repository JSON. The correct invariant is parsed-object semantic equality plus canonical JSON SHA256 equality; router/executor source continuity remains exact git equality.",
+    "semantic_authority_drift_inferred": false
+  },
+  "final_replay_integration": {
+    "workflow": "ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1-r2",
+    "head_sha": "d13b3adf44334306ab2e2bb2bf57b955d923e97d",
+    "run_id": 34635898456,
+    "job_id": 103383572206,
+    "provider_conclusion": "success",
+    "focused_contract_tests": 9,
+    "primary_receipt_count": 12,
+    "independent_replay_receipt_count": 12,
+    "gateway_profile_replay_count": 10,
+    "direct_image_replay_count": 2,
+    "direct_exact_response_sha_equal_count": 2,
+    "gateway_response_sha_equal_count_observed": 0,
+    "receipt_negative_canary_count": 8,
+    "replay_status": "12_OF_12_REPLAY_RECEIPT_BOUND_PASS",
+    "authority_semantic_equal_to_primary_artifact": true,
+    "authority_canonical_json_sha_equal": true,
+    "router_executor_source_equal_to_primary_head": true,
+    "direct_inputs_immutable": true,
+    "gemini_quarantine_preserved": true
+  },
+  "primary_custody": {
+    "primary_run_id": 34634274865,
+    "primary_head_sha": "78a2bb61769534d04cd0c45811ccebcce207efdd",
+    "primary_artifact_id": 10277298744,
+    "primary_artifact_sha256": "ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091",
+    "primary_zip_sha256_reverified": "ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091",
+    "primary_internal_manifest_checked": 166,
+    "primary_internal_manifest_errors": 0,
+    "primary_final_receipt_bound": true
+  },
+  "authority_binding": {
+    "policy_semantic_equal": true,
+    "profile_semantic_equal": true,
+    "policy_canonical_sha256": "2a7b7d180a59d40ed30644192de5cbdc545c10688ed48d8f88360b01f5b35332",
+    "profile_canonical_sha256": "ccb2f234ed66cba3568a84826dd96d6ba43769ddeeab7e2347651b5697e1c0e4",
+    "router_executor_policy_profile_git_equal_to_primary_head": true
+  },
+  "receipt_negative_canaries": [
+    "coherent-tamper-request_sha256",
+    "coherent-tamper-route_sha256",
+    "coherent-tamper-executor_contract_sha256",
+    "coherent-tamper-response_sha256",
+    "coherent-tamper-policy_sha256",
+    "coherent-tamper-profile_sha256",
+    "cross-surface-receipt-swap",
+    "same-execution-replay"
+  ],
+  "direct_input_readback": {
+    "synthetic_openapi_sha256_before": "062d2b24e29575665300efc71eb267fcbe7d8f6fca1bbc46a99ff61f1c662d74",
+    "synthetic_openapi_sha256_after": "062d2b24e29575665300efc71eb267fcbe7d8f6fca1bbc46a99ff61f1c662d74",
+    "rust_readonly_canary_sha256_before": "0f8f198c81c05dbb1b776f018b654c197614b7bf4bdb1405916ed02dabcb3579",
+    "rust_readonly_canary_sha256_after": "0f8f198c81c05dbb1b776f018b654c197614b7bf4bdb1405916ed02dabcb3579",
+    "equal": true
+  },
+  "final_provider_artifact": {
+    "artifact_id": 10278580751,
+    "artifact_name": "ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1",
+    "provider_artifact_bytes": 444539,
+    "provider_artifact_sha256": "e088c06bc353261c0c8892915557d2cc1ffcb5ef7f5a27388df69b7a4c4e31a4",
+    "external_download_sha256": "e088c06bc353261c0c8892915557d2cc1ffcb5ef7f5a27388df69b7a4c4e31a4",
+    "external_sha256_equal": true,
+    "internal_manifest_checked": 313,
+    "internal_manifest_errors": 0,
+    "summary_sha256": "b4c1118176cfee2b47c9006d030283f95a64b7debaadba5c6a5795d1e24ab6ed",
+    "bounded_receipt_sha256": "b4c1118176cfee2b47c9006d030283f95a64b7debaadba5c6a5795d1e24ab6ed",
+    "manifest_sha256": "a6f871000ea40e21e0ba2ba615d58df154213cd21701155eec775a7383dcb4f6",
+    "replay_comparisons_sha256": "1bf3e75c3930fa4afd00b344abb46f3f4322d8c01251b19aeeb83c574feb4bc5",
+    "negative_canaries_sha256": "f73bd11549a2f4d4d48794e425404851bd7cd430d24da99eeb83020684030e13",
+    "authority_continuity_sha256": "053111937d412a6a262825d4e0f6574b86ea5f0db8562643090b08dfddce71a1"
+  },
+  "response_claim_boundaries": {
+    "direct_image": "For the two digest-pinned local direct-image surfaces over byte-identical read-only synthetic inputs, cross-run response SHA256 equality is required and passed 2/2.",
+    "gateway_profile": "For the ten remote gateway-profile surfaces, each primary and replay response is independently SHA256-bound to its own validated receipt. Cross-run response-byte equality is not required because upstream remote content may legitimately change; observed equality was 0/10."
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "claim_boundary": "POLICY_ROUTE_EXECUTOR_RESPONSE_RECEIPT_CHAIN_BOUND_OVER_12_READ_ONLY_SURFACES__PRIMARY_PROVIDER_ARTIFACT_PINNED_AND_REVERIFIED__FRESH_INDEPENDENT_REPLAY_ON_ALL_12__DIRECT_LOCAL_OUTPUTS_EXACT__REMOTE_OUTPUTS_INDIVIDUALLY_EXACTLY_BOUND_NOT_ASSUMED_CROSS_RUN_DETERMINISTIC__8_RECEIPT_TAMPER_OR_SWAP_CANARIES_FAIL_CLOSED__NO_PRODUCTION_READY__NO_RUNTIME_ADMISSION__NO_GLOBAL_BIND"
+}
