@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - ess-rcca-spec-lean-coverage-v1
     paths:
       - 'formal/rcca-lean4/RCCA.lean'
       - 'formal/rcca-lean4/coverage/**'
