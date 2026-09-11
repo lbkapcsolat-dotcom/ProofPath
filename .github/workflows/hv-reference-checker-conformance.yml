@@ -1,0 +1,63 @@
+name: HV Reference Checker Conformance V1
+
+on:
+  push:
+    branches:
+      - ess-v6-1-real-repository-control-plane-canary-v1
+    paths:
+      - 'control-plane-canary/v6_1/hv_reference_checker_v1.py'
+      - 'control-plane-canary/v6_1/hv_formal_proof_receipt_v1.json'
+      - 'control-plane-canary/v6_1/test_hv_reference_checker_v1.py'
+      - '.github/workflows/hv-reference-checker-conformance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact provider commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Record provider identity
+        run: |
+          python --version
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+
+      - name: Execute HV reference checker conformance
+        working-directory: control-plane-canary/v6_1
+        run: |
+          python -m py_compile hv_reference_checker_v1.py test_hv_reference_checker_v1.py
+          python test_hv_reference_checker_v1.py
+          mkdir -p out
+          python hv_reference_checker_v1.py \
+            --formal-receipt hv_formal_proof_receipt_v1.json \
+            --output out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json
+          python hv_reference_checker_v1.py \
+            --verify-receipt out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json \
+            --formal-receipt hv_formal_proof_receipt_v1.json
+          sha256sum out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json > out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json.sha256
+
+      - name: Upload provider-native receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: hv-reference-checker-conformance-${{ github.run_id }}
+          path: |
+            control-plane-canary/v6_1/out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json
+            control-plane-canary/v6_1/out/HV_REFERENCE_CHECKER_CONFORMANCE_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
