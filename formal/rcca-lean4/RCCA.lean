@@ -35,17 +35,26 @@ structure Replica where
 def Exact (b : Bundle) (r : Replica) : Prop :=
   r.byteDigest = b.byteDigest
 
-def Immutable (r : Replica) : Prop :=
-  r.immutable = true
-
 def Readable (r : Replica) : Prop :=
   r.readable = true
 
 def ConfiguredImmutable (r : Replica) : Prop :=
   r.configuredImmutable = true
 
+/-- Provider-native observed enforcement. -/
 def ProviderEnforcedImmutable (r : Replica) : Prop :=
   r.enforcedImmutable = true
+
+/--
+Trusted immutability is deliberately stronger than configuration or a local bit:
+it requires both the declared immutable state and observed provider enforcement.
+-/
+def Immutable (r : Replica) : Prop :=
+  r.immutable = true ∧ ProviderEnforcedImmutable r
+
+theorem immutable_requires_provider_enforcement
+    (r : Replica) (h : Immutable r) : ProviderEnforcedImmutable r :=
+  h.2
 
 /-- Exact readable bytes are the bounded recoverability predicate. -/
 def Recoverable (b : Bundle) (r : Replica) : Prop :=
@@ -272,7 +281,7 @@ theorem cm_exact_but_mutable :
   }
   refine ⟨b, r, ?_, ?_⟩
   · rfl
-  · simp [Immutable, r]
+  · simp [Immutable, ProviderEnforcedImmutable, r]
 
 /-- CM-RCCA-02: an immutable object can contain the wrong bytes. -/
 theorem cm_immutable_wrong_bytes :
@@ -287,7 +296,7 @@ theorem cm_immutable_wrong_bytes :
     enforcedImmutable := true
   }
   refine ⟨b, r, ?_, ?_⟩
-  · rfl
+  · simp [Immutable, ProviderEnforcedImmutable, r]
   · simp [Exact, b, r]
 
 /-- CM-RCCA-03: exact immutable historical evidence can be superseded. -/
@@ -307,7 +316,7 @@ theorem cm_exact_immutable_but_superseded :
   }
   refine ⟨b, r, priorCurrent, authenticatedCurrent, ?_, ?_, ?_, ?_⟩
   · rfl
-  · rfl
+  · simp [Immutable, ProviderEnforcedImmutable, r]
   · simp [HistoricalValid, Current, b, priorCurrent, authenticatedCurrent]
   · exact superseded_bundle_not_current b priorCurrent authenticatedCurrent rfl (by decide)
 
