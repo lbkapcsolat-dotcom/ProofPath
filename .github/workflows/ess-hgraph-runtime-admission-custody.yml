@@ -13,19 +13,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  runner_a_build_and_replay:
+  runner_a:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    outputs:
-      source_commit: ${{ steps.custody.outputs.source_commit }}
-      hgraph_commit: ${{ steps.custody.outputs.hgraph_commit }}
-      binary_sha256: ${{ steps.custody.outputs.binary_sha256 }}
-      oracle_sha256: ${{ steps.custody.outputs.oracle_sha256 }}
-      expected_output_sha256: ${{ steps.custody.outputs.expected_output_sha256 }}
-      output_sha256: ${{ steps.custody.outputs.output_sha256 }}
-      state_count: ${{ steps.custody.outputs.state_count }}
-      parity_pass: ${{ steps.custody.outputs.parity_pass }}
     steps:
       - name: Checkout ProofPath exact commit
         uses: actions/checkout@v4
@@ -66,62 +57,54 @@ jobs:
       - name: Build exact native executable
         run: cmake --build _build/ess-hgraph-cpp --target ess_hgraph_cpp_canary --parallel 2
 
-      - name: Replay A and materialize custody bundle
-        id: custody
+      - name: Replay A and materialize exact-byte custody bundle
+        shell: python
         run: |
-          set -euo pipefail
-          mkdir -p custody_bundle
-          BIN="_build/ess-hgraph-cpp/ess_canary/ess_hgraph_cpp_canary"
-          ORACLE="hgraph_canary/wolfram_oracle_v1.json"
-
-          "$BIN" | tee custody_bundle/run_a.log
-          sed -n 's/^OBSERVED_VECTOR=//p' custody_bundle/run_a.log > custody_bundle/observed_vector_a.txt
-
-          SOURCE_COMMIT="$(git rev-parse HEAD)"
-          HGRAPH_COMMIT="$(git -C _vendor/hgraph rev-parse HEAD)"
-          BINARY_SHA="$(sha256sum "$BIN" | awk '{print $1}')"
-          ORACLE_SHA="$(sha256sum "$ORACLE" | awk '{print $1}')"
-          OUTPUT_SHA="$(sha256sum custody_bundle/observed_vector_a.txt | awk '{print $1}')"
-          EXPECTED_SHA="$(python - <<'PY'
-          import hashlib, json
-          data=json.load(open('hgraph_canary/wolfram_oracle_v1.json', encoding='utf-8'))
-          print(hashlib.sha256((data['vector']+'\n').encode()).hexdigest())
-          PY
-          )"
-          STATE_COUNT="$(sed -n 's/^STATE_COUNT=//p' custody_bundle/run_a.log)"
-          if grep -qx 'WOLFRAM_PARITY_256_256=PASS' custody_bundle/run_a.log; then PARITY=true; else PARITY=false; fi
-
-          test "$STATE_COUNT" = "256"
-          test "$PARITY" = "true"
-          test "$OUTPUT_SHA" = "$EXPECTED_SHA"
-
-          cp "$BIN" custody_bundle/ess_hgraph_cpp_canary
-          cp "$ORACLE" custody_bundle/wolfram_oracle_v1.json
-
-          python - <<PY
+          import hashlib
           import json
-          data={
-            'source_commit':'$SOURCE_COMMIT',
-            'hgraph_commit':'$HGRAPH_COMMIT',
-            'binary_sha256':'$BINARY_SHA',
-            'oracle_sha256':'$ORACLE_SHA',
-            'expected_output_sha256':'$EXPECTED_SHA',
-            'output_sha256':'$OUTPUT_SHA',
-            'state_count':int('$STATE_COUNT'),
-            'parity_pass':$PARITY,
-            'runner':'A'
-          }
-          open('custody_bundle/custody_a.json','w',encoding='utf-8').write(json.dumps(data,sort_keys=True,indent=2))
-          PY
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
 
-          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
-          echo "hgraph_commit=$HGRAPH_COMMIT" >> "$GITHUB_OUTPUT"
-          echo "binary_sha256=$BINARY_SHA" >> "$GITHUB_OUTPUT"
-          echo "oracle_sha256=$ORACLE_SHA" >> "$GITHUB_OUTPUT"
-          echo "expected_output_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
-          echo "output_sha256=$OUTPUT_SHA" >> "$GITHUB_OUTPUT"
-          echo "state_count=$STATE_COUNT" >> "$GITHUB_OUTPUT"
-          echo "parity_pass=$PARITY" >> "$GITHUB_OUTPUT"
+          bundle = Path('custody_bundle')
+          bundle.mkdir(exist_ok=True)
+          binary = Path('_build/ess-hgraph-cpp/ess_canary/ess_hgraph_cpp_canary')
+          oracle = Path('hgraph_canary/wolfram_oracle_v1.json')
+
+          run = subprocess.run([str(binary)], check=True, text=True, capture_output=True)
+          (bundle / 'run_a.log').write_text(run.stdout, encoding='utf-8')
+          lines = dict(line.split('=', 1) for line in run.stdout.splitlines() if '=' in line)
+          observed = lines['OBSERVED_VECTOR']
+          state_count = int(lines['STATE_COUNT'])
+          parity_pass = lines.get('WOLFRAM_PARITY_256_256') == 'PASS'
+
+          oracle_data = json.loads(oracle.read_text(encoding='utf-8'))
+          expected_vector = oracle_data['vector']
+          output_bytes = (observed + '\n').encode()
+          expected_bytes = (expected_vector + '\n').encode()
+
+          evidence = {
+              'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
+              'hgraph_commit': subprocess.check_output(['git','-C','_vendor/hgraph','rev-parse','HEAD'], text=True).strip(),
+              'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+              'oracle_sha256': hashlib.sha256(oracle.read_bytes()).hexdigest(),
+              'expected_output_sha256': hashlib.sha256(expected_bytes).hexdigest(),
+              'output_sha256': hashlib.sha256(output_bytes).hexdigest(),
+              'state_count': state_count,
+              'parity_pass': parity_pass,
+              'runner': 'A',
+          }
+          assert state_count == 256
+          assert parity_pass
+          assert observed == expected_vector
+          assert evidence['output_sha256'] == evidence['expected_output_sha256']
+
+          shutil.copy2(binary, bundle / 'ess_hgraph_cpp_canary')
+          shutil.copy2(oracle, bundle / 'wolfram_oracle_v1.json')
+          (bundle / 'observed_vector_a.txt').write_bytes(output_bytes)
+          (bundle / 'custody_a.json').write_text(json.dumps(evidence, sort_keys=True, indent=2), encoding='utf-8')
+          print(json.dumps(evidence, sort_keys=True))
 
       - name: Upload exact executable custody bundle
         uses: actions/upload-artifact@v4
@@ -131,8 +114,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  runner_b_exact_binary_replay_and_admission:
-    needs: runner_a_build_and_replay
+  runner_b:
+    needs: runner_a
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -170,72 +153,75 @@ jobs:
           name: ess-hgraph-runtime-custody-bundle
           path: custody_bundle
 
-      - name: Verify exact-byte custody and replay B
+      - name: Verify exact-byte custody, replay B, and decide admission
+        shell: python
         run: |
-          set -euo pipefail
-          BIN="custody_bundle/ess_hgraph_cpp_canary"
-          ORACLE="custody_bundle/wolfram_oracle_v1.json"
-          chmod +x "$BIN"
-
-          SOURCE_COMMIT_B="$(git rev-parse HEAD)"
-          HGRAPH_COMMIT_B="$(git -C _vendor/hgraph rev-parse HEAD)"
-          BINARY_SHA_B="$(sha256sum "$BIN" | awk '{print $1}')"
-          ORACLE_SHA_B="$(sha256sum "$ORACLE" | awk '{print $1}')"
-
-          test "$SOURCE_COMMIT_B" = "${{ needs.runner_a_build_and_replay.outputs.source_commit }}"
-          test "$HGRAPH_COMMIT_B" = "${{ needs.runner_a_build_and_replay.outputs.hgraph_commit }}"
-          test "$BINARY_SHA_B" = "${{ needs.runner_a_build_and_replay.outputs.binary_sha256 }}"
-          test "$ORACLE_SHA_B" = "${{ needs.runner_a_build_and_replay.outputs.oracle_sha256 }}"
-
-          "$BIN" | tee custody_bundle/run_b.log
-          sed -n 's/^OBSERVED_VECTOR=//p' custody_bundle/run_b.log > custody_bundle/observed_vector_b.txt
-          OUTPUT_SHA_B="$(sha256sum custody_bundle/observed_vector_b.txt | awk '{print $1}')"
-          STATE_COUNT_B="$(sed -n 's/^STATE_COUNT=//p' custody_bundle/run_b.log)"
-          if grep -qx 'WOLFRAM_PARITY_256_256=PASS' custody_bundle/run_b.log; then PARITY_B=true; else PARITY_B=false; fi
-
-          python - <<PY
-          import hashlib, json
+          import hashlib
+          import json
+          import os
+          import stat
+          import subprocess
+          from pathlib import Path
           from hgraph_canary.runtime_admission import evaluate_runtime_admission
 
-          evidence={
-            'source_commit_a':'${{ needs.runner_a_build_and_replay.outputs.source_commit }}',
-            'source_commit_b':'$SOURCE_COMMIT_B',
-            'hgraph_commit_a':'${{ needs.runner_a_build_and_replay.outputs.hgraph_commit }}',
-            'hgraph_commit_b':'$HGRAPH_COMMIT_B',
-            'binary_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.binary_sha256 }}',
-            'binary_sha256_b':'$BINARY_SHA_B',
-            'oracle_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.oracle_sha256 }}',
-            'oracle_sha256_b':'$ORACLE_SHA_B',
-            'output_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.output_sha256 }}',
-            'output_sha256_b':'$OUTPUT_SHA_B',
-            'expected_output_sha256':'${{ needs.runner_a_build_and_replay.outputs.expected_output_sha256 }}',
-            'state_count_a':int('${{ needs.runner_a_build_and_replay.outputs.state_count }}'),
-            'state_count_b':int('$STATE_COUNT_B'),
-            'parity_pass_a':'${{ needs.runner_a_build_and_replay.outputs.parity_pass }}' == 'true',
-            'parity_pass_b':$PARITY_B,
+          bundle = Path('custody_bundle')
+          binary = bundle / 'ess_hgraph_cpp_canary'
+          oracle = bundle / 'wolfram_oracle_v1.json'
+          custody_a = json.loads((bundle / 'custody_a.json').read_text(encoding='utf-8'))
+
+          binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+          source_commit_b = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          hgraph_commit_b = subprocess.check_output(['git','-C','_vendor/hgraph','rev-parse','HEAD'], text=True).strip()
+          binary_sha_b = hashlib.sha256(binary.read_bytes()).hexdigest()
+          oracle_sha_b = hashlib.sha256(oracle.read_bytes()).hexdigest()
+
+          run = subprocess.run([str(binary)], check=True, text=True, capture_output=True)
+          (bundle / 'run_b.log').write_text(run.stdout, encoding='utf-8')
+          lines = dict(line.split('=', 1) for line in run.stdout.splitlines() if '=' in line)
+          observed_b = lines['OBSERVED_VECTOR']
+          state_count_b = int(lines['STATE_COUNT'])
+          parity_b = lines.get('WOLFRAM_PARITY_256_256') == 'PASS'
+          output_sha_b = hashlib.sha256((observed_b + '\n').encode()).hexdigest()
+
+          evidence = {
+              'source_commit_a': custody_a['source_commit'],
+              'source_commit_b': source_commit_b,
+              'hgraph_commit_a': custody_a['hgraph_commit'],
+              'hgraph_commit_b': hgraph_commit_b,
+              'binary_sha256_a': custody_a['binary_sha256'],
+              'binary_sha256_b': binary_sha_b,
+              'oracle_sha256_a': custody_a['oracle_sha256'],
+              'oracle_sha256_b': oracle_sha_b,
+              'output_sha256_a': custody_a['output_sha256'],
+              'output_sha256_b': output_sha_b,
+              'expected_output_sha256': custody_a['expected_output_sha256'],
+              'state_count_a': custody_a['state_count'],
+              'state_count_b': state_count_b,
+              'parity_pass_a': custody_a['parity_pass'],
+              'parity_pass_b': parity_b,
           }
-          decision=evaluate_runtime_admission(evidence)
-          receipt={
-            'gate':'HGRAPH_NATIVE_CPP_EXECUTABLE_BYTE_CUSTODY_AND_RUNTIME_ADMISSION_V1',
-            'mode':'EXACT_BINARY_CUSTODY__TWO_ISOLATED_REPLAYS__FAIL_CLOSED',
-            'evidence':evidence,
-            'decision':decision,
-            'claim_boundary':{
-              'production_readiness':False,
-              'pointer_promotion':False,
-              'global_bind':False,
-              'main_merge':False,
-            }
+          decision = evaluate_runtime_admission(evidence)
+          receipt = {
+              'gate': 'HGRAPH_NATIVE_CPP_EXECUTABLE_BYTE_CUSTODY_AND_RUNTIME_ADMISSION_V1',
+              'mode': 'EXACT_BINARY_CUSTODY__TWO_ISOLATED_REPLAYS__FAIL_CLOSED',
+              'evidence': evidence,
+              'decision': decision,
+              'claim_boundary': {
+                  'production_readiness': False,
+                  'pointer_promotion': False,
+                  'global_bind': False,
+                  'main_merge': False,
+              },
           }
-          canonical=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
-          receipt['receipt_sha256']=hashlib.sha256(canonical).hexdigest()
-          open('custody_bundle/runtime_admission_receipt.json','w',encoding='utf-8').write(json.dumps(receipt,sort_keys=True,indent=2))
-          print('RUNTIME_ADMISSION_VERDICT='+decision['verdict'])
-          print('RUNTIME_ADMISSION='+str(decision['runtime_admission']).upper())
-          print('RECEIPT_SHA256='+receipt['receipt_sha256'])
+          canonical = json.dumps(receipt, sort_keys=True, separators=(',', ':')).encode()
+          receipt['receipt_sha256'] = hashlib.sha256(canonical).hexdigest()
+          (bundle / 'runtime_admission_receipt.json').write_text(json.dumps(receipt, sort_keys=True, indent=2), encoding='utf-8')
+
+          print('RUNTIME_ADMISSION_VERDICT=' + decision['verdict'])
+          print('RUNTIME_ADMISSION=' + str(decision['runtime_admission']).upper())
+          print('RECEIPT_SHA256=' + receipt['receipt_sha256'])
           if not decision['runtime_admission']:
               raise SystemExit(1)
-          PY
 
       - name: Upload runtime admission receipt
         uses: actions/upload-artifact@v4
