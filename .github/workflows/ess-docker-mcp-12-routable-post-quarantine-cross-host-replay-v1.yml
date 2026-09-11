@@ -1,0 +1,329 @@
+name: ess-docker-mcp-12-routable-post-quarantine-cross-host-replay-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-12-routable-post-quarantine-cross-host-replay-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  OPENAPI_DIGEST: sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a
+  RUSTFS_DIGEST: sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242
+
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        host_label: [host-a, host-b]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze 13-authority / 12-routable policy and host identity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/post-quarantine-12/${{ matrix.host_label }}"
+          mkdir -p "$ROOT" "$ROOT/rust-readonly"
+          python - <<'PY'
+          import json,os,pathlib,socket
+          root=pathlib.Path('evidence/post-quarantine-12/${{ matrix.host_label }}')
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          assert len(profile['surfaces'])==13
+          assert set(policy.get('quarantined_domains',{}))=={'gemini_api_docs'}
+          assert policy['quarantined_domains']['gemini_api_docs']['surface']=='gemini-api-docs'
+          routable={r['surface'] for d,r in policy['routes'].items() if d not in policy['quarantined_domains']}
+          assert len(routable)==12 and 'gemini-api-docs' not in routable
+          assert sum(next(s for s in profile['surfaces'] if s['name']==x)['transport']=='gateway-profile' for x in routable)==10
+          assert sum(next(s for s in profile['surfaces'] if s['name']==x)['transport']=='direct-image' for x in routable)==2
+          def read(path):
+            try:return pathlib.Path(path).read_text().strip()
+            except Exception:return None
+          identity={'host_label':'${{ matrix.host_label }}','hostname':socket.gethostname(),'boot_id':read('/proc/sys/kernel/random/boot_id'),'product_uuid':read('/sys/class/dmi/id/product_uuid'),'runner_name':os.environ.get('RUNNER_NAME'),'runner_os':os.environ.get('RUNNER_OS'),'github_run_id':os.environ.get('GITHUB_RUN_ID')}
+          (root/'host-identity.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n')
+          (root/'profile-authority.json').write_text(json.dumps(profile,indent=2,sort_keys=True)+'\n')
+          (root/'policy-authority.json').write_text(json.dumps(policy,indent=2,sort_keys=True)+'\n')
+          (root/'routable-surfaces.json').write_text(json.dumps(sorted(routable),indent=2)+'\n')
+          print(json.dumps({'identity':identity,'routable':sorted(routable)},indent=2,sort_keys=True))
+          PY
+          cat > "$ROOT/synthetic-openapi.yaml" <<'EOF'
+          openapi: 3.0.3
+          info:
+            title: ESS Post Quarantine Cross Host Canary
+            version: 1.0.0
+          paths:
+            /health:
+              get:
+                summary: Synthetic health endpoint
+                responses:
+                  '200':
+                    description: OK
+          EOF
+          sed -i 's/^          //' "$ROOT/synthetic-openapi.yaml"
+          printf 'ESS_POST_QUARANTINE_12_READ_ONLY_CANARY\n' > "$ROOT/rust-readonly/canary.txt"
+          chmod 0444 "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt"
+          chmod 0555 "$ROOT/rust-readonly"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256.txt"
+
+      - name: Install pinned Docker MCP Gateway and freeze image authorities
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/post-quarantine-12/${{ matrix.host_label }}"
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+          docker mcp feature enable profiles > "$ROOT/profile-feature.out" 2> "$ROOT/profile-feature.err" || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" openapi-schema --format json > "$ROOT/openapi-inspect.json"
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" rust-mcp-filesystem --format json > "$ROOT/rustfs-inspect.json"
+          python - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path('evidence/post-quarantine-12/${{ matrix.host_label }}')
+          oi=json.loads((root/'openapi-inspect.json').read_text())['snapshot']['server']
+          ri=json.loads((root/'rustfs-inspect.json').read_text())['snapshot']['server']
+          assert oi['image'].endswith(os.environ['OPENAPI_DIGEST']),oi['image']
+          assert ri['image'].endswith(os.environ['RUSTFS_DIGEST']),ri['image']
+          (root/'direct-image-authority.json').write_text(json.dumps({'openapi-schema':oi['image'],'rust-mcp-filesystem':ri['image']},indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Execute 10 post-quarantine gateway-profile surfaces
+        shell: bash
+        run: |
+          set +e
+          set -u
+          ROOT="evidence/post-quarantine-12/${{ matrix.host_label }}"
+          mkdir -p "$ROOT/gateway"
+          cat > "$ROOT/gateway-plan.tsv" <<'EOF'
+          model_hub	search	hugging-face	hub_repo_search	query=formal theorem proving Lean
+          papers	search	paper-search	search_arxiv	query=higher category theory homotopy theory
+          library_docs	resolve	context7	resolve-library-id	query=Docker Compose healthcheck	libraryName=Docker
+          astro_docs	search	astro-docs	search_astro_docs	query=content collections
+          docker_docs	read	docker-docs	fetch_docker_docs
+          java_docs	search	javadocs	search_artifacts	query=org.junit.jupiter
+          maven_metadata	lookup	maven-tools-mcp	get_latest_version	dependency=org.junit.jupiter:junit-jupiter
+          ros2_interfaces	list	ros2	ros2_interface_list
+          aws_cdk_guidance	guidance	aws-cdk-mcp-server	CDKGeneralGuidance
+          aws_terraform_docs	search	aws-terraform	SearchAwsProviderDocs	asset_name=aws_s3_bucket
+          EOF
+          sed -i 's/^          //' "$ROOT/gateway-plan.tsv"
+          ! grep -q 'gemini' "$ROOT/gateway-plan.tsv"
+          : > "$ROOT/results-fragments.jsonl"
+          idx=0
+          while IFS=$'\t' read -r domain intent server tool arg1 arg2 arg3; do
+            idx=$((idx+1))
+            D=$(printf '%s/gateway/%02d-%s' "$ROOT" "$idx" "$server")
+            mkdir -p "$D"
+            profile_id="ess-postq12-${{ matrix.host_label }}-${idx}"
+            python - "$domain" "$intent" "$server" "$tool" "$D" "${arg1:-}" "${arg2:-}" "${arg3:-}" <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from router import load_profile,load_policy,route_request
+          domain,intent,server,tool,d,*argv=sys.argv[1:]
+          args={}
+          for x in argv:
+              if x and '=' in x:
+                  k,v=x.split('=',1); args[k]=v
+          req={'domain':domain,'intent':intent,'arguments':args,'requested_surface':server,'requested_tool':tool,'requested_transport':'gateway-profile'}
+          profile=load_profile('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json')
+          policy=load_policy('ess_docker_mcp_router/policy.json')
+          route=route_request(req,profile,policy); assert route['decision']=='ALLOW',route
+          p=pathlib.Path(d); p.mkdir(parents=True,exist_ok=True)
+          can=lambda o:json.dumps(o,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+          p.joinpath('request.json').write_text(json.dumps(req,indent=2,sort_keys=True)+'\n'); p.joinpath('route.json').write_text(json.dumps(route,indent=2,sort_keys=True)+'\n')
+          p.joinpath('request.sha256').write_text(hashlib.sha256(can(req)).hexdigest()+'\n'); p.joinpath('route.sha256').write_text(hashlib.sha256(can(route)).hexdigest()+'\n')
+          PY
+            prep=$?; status=LIVE_PASS; reason=OK
+            if [ "$prep" -ne 0 ]; then status=ROUTE_HOLD; reason=ROUTER_DENIED_OR_FAILED; fi
+            if [ "$status" = LIVE_PASS ]; then
+              docker mcp profile create --name "ESS POSTQ12 $server ${{ matrix.host_label }}" --id "$profile_id" --server "catalog://mcp/docker-mcp-catalog/$server" >"$D/profile-create.out" 2>"$D/profile-create.err"
+              [ $? -eq 0 ] || { status=TRANSPORT_HOLD; reason=PROFILE_CREATE_FAILED; }
+            fi
+            if [ "$status" = LIVE_PASS ]; then
+              timeout --signal=TERM --kill-after=10s 90s docker mcp tools --format json --gateway-arg="--profile=$profile_id" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
+              lc=$?; if [ "$lc" -ne 0 ] || ! grep -Fq "\"$tool\"" "$D/tools.json"; then status=TOOL_CONTRACT_HOLD; reason=EXPECTED_TOOL_MISSING; fi
+            fi
+            if [ "$status" = LIVE_PASS ]; then
+              args=(); [ -n "${arg1:-}" ] && args+=("$arg1"); [ -n "${arg2:-}" ] && args+=("$arg2"); [ -n "${arg3:-}" ] && args+=("$arg3")
+              timeout --signal=TERM --kill-after=10s 120s docker mcp tools --gateway-arg="--profile=$profile_id" --gateway-arg=--verify-signatures call "$tool" "${args[@]}" >"$D/live.raw" 2>"$D/live.err"
+              rc=$?; if [ "$rc" -ne 0 ] || [ ! -s "$D/live.raw" ]; then status=LIVE_CALL_HOLD; reason=LIVE_CALL_FAILED; fi
+            fi
+            python - "$server" "$tool" "$status" "$reason" "$D" "$ROOT/results-fragments.jsonl" <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from normalized_replay import normalize_tool_response
+          server,tool,status,reason,d,out=sys.argv[1:]; p=pathlib.Path(d); response=''
+          if p.joinpath('live.raw').exists():
+              raw=p.joinpath('live.raw').read_text(errors='replace').replace('\r\n','\n').replace('\r','\n')
+              response=normalize_tool_response(raw)
+              response='\n'.join(line.rstrip() for line in response.split('\n')).strip()+'\n' if response.strip() else ''
+              p.joinpath('live.professional').write_text(response)
+          frag={'surface':server,'tool':tool,'transport':'gateway-profile','status':status,'reason':reason,'request_sha256':p.joinpath('request.sha256').read_text().strip() if p.joinpath('request.sha256').exists() else '','route_sha256':p.joinpath('route.sha256').read_text().strip() if p.joinpath('route.sha256').exists() else '','response_sha256':hashlib.sha256(response.encode()).hexdigest() if response else '','response':response}
+          with open(out,'a') as f:f.write(json.dumps(frag,sort_keys=True)+'\n')
+          PY
+          done < "$ROOT/gateway-plan.tsv"
+
+      - name: Execute 2 digest-pinned direct-image surfaces
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/post-quarantine-12/${{ matrix.host_label }}"
+          mkdir -p /tmp/ess-postq12-direct
+          cat > /tmp/ess-postq12-direct/go.mod <<'EOF'
+          module ess-postq12-direct
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-postq12-direct/main.go <<'EOF'
+          package main
+          import("context";"encoding/json";"os";"os/exec";"time";"github.com/modelcontextprotocol/go-sdk/mcp")
+          func must(e error){if e!=nil{panic(e)}}
+          func main(){
+            mode:=os.Args[1]; out:=os.Args[2]; ctx,cancel:=context.WithTimeout(context.Background(),120*time.Second); defer cancel()
+            var cmd *exec.Cmd; var tool string; var args map[string]any
+            if mode=="openapi"{
+              host:=os.Getenv("OPENAPI_HOST_PATH"); image:="mcp/openapi-schema@"+os.Getenv("OPENAPI_DIGEST")
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v",host+":/schema.yaml:ro",image)
+              tool="list-endpoints"; args=map[string]any{"openapiSchemaPath":"/schema.yaml"}
+            }else{
+              host:=os.Getenv("RUSTFS_HOST_PATH"); image:="mcp/rust-mcp-filesystem@"+os.Getenv("RUSTFS_DIGEST")
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-e","ENABLE_ROOTS=false","-e","ALLOW_WRITE=false","-v",host+":/data:ro",image,"/data")
+              tool="list_directory"; args=map[string]any{"path":"/data"}
+            }
+            c:=mcp.NewClient(&mcp.Implementation{Name:"ess-postq12",Version:"1.0.0"},nil); s,e:=c.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil); must(e); defer s.Close()
+            r,e:=s.CallTool(ctx,&mcp.CallToolParams{Name:tool,Arguments:args}); must(e); if r.IsError{panic("tool error")}; b,e:=json.MarshalIndent(r,"","  "); must(e); must(os.WriteFile(out,append(b,'\n'),0644))
+          }
+          EOF
+          cd /tmp/ess-postq12-direct && go mod tidy && go build -o /tmp/ess-postq12-direct/canary .
+          cd "$GITHUB_WORKSPACE"
+          python - <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from router import load_profile,load_policy,route_request
+          root=pathlib.Path('evidence/post-quarantine-12/${{ matrix.host_label }}'); profile=load_profile('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json'); policy=load_policy('ess_docker_mcp_router/policy.json')
+          fixtures=[('openapi-schema','openapi_schema','list','list-endpoints','synthetic-openapi.yaml'),('rust-mcp-filesystem','filesystem_readonly','list','list_directory','rust-readonly/canary.txt')]
+          for surface,domain,intent,tool,fn in fixtures:
+              sha=hashlib.sha256(root.joinpath(fn).read_bytes()).hexdigest(); req={'domain':domain,'intent':intent,'arguments':{'fixture_sha256':sha},'requested_surface':surface,'requested_tool':tool,'requested_transport':'direct-image'}
+              route=route_request(req,profile,policy); assert route['decision']=='ALLOW',route; d=root/'direct'/surface; d.mkdir(parents=True,exist_ok=True); can=lambda o:json.dumps(o,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+              d.joinpath('request.json').write_text(json.dumps(req,indent=2,sort_keys=True)+'\n'); d.joinpath('route.json').write_text(json.dumps(route,indent=2,sort_keys=True)+'\n'); d.joinpath('request.sha256').write_text(hashlib.sha256(can(req)).hexdigest()+'\n'); d.joinpath('route.sha256').write_text(hashlib.sha256(can(route)).hexdigest()+'\n'); d.joinpath('input.sha256').write_text(sha+'\n')
+          PY
+          export OPENAPI_HOST_PATH="$GITHUB_WORKSPACE/$ROOT/synthetic-openapi.yaml" RUSTFS_HOST_PATH="$GITHUB_WORKSPACE/$ROOT/rust-readonly"
+          set +e
+          timeout --signal=TERM --kill-after=10s 150s /tmp/ess-postq12-direct/canary openapi "$ROOT/direct/openapi-schema/live.json" >"$ROOT/direct/openapi-schema/client.out" 2>"$ROOT/direct/openapi-schema/client.err"; orc=$?
+          timeout --signal=TERM --kill-after=10s 150s /tmp/ess-postq12-direct/canary rustfs "$ROOT/direct/rust-mcp-filesystem/live.json" >"$ROOT/direct/rust-mcp-filesystem/client.out" 2>"$ROOT/direct/rust-mcp-filesystem/client.err"; rrc=$?
+          set -e
+          python - "$orc" "$rrc" <<'PY'
+          import hashlib,json,pathlib,sys
+          root=pathlib.Path('evidence/post-quarantine-12/${{ matrix.host_label }}'); codes={'openapi-schema':int(sys.argv[1]),'rust-mcp-filesystem':int(sys.argv[2])}; tools={'openapi-schema':'list-endpoints','rust-mcp-filesystem':'list_directory'}
+          with root.joinpath('results-fragments.jsonl').open('a') as f:
+              for surface in ['openapi-schema','rust-mcp-filesystem']:
+                  d=root/'direct'/surface; p=d/'live.json'; response=p.read_text(errors='replace') if p.exists() else ''; status='LIVE_PASS' if codes[surface]==0 and response else 'LIVE_CALL_HOLD'
+                  f.write(json.dumps({'surface':surface,'tool':tools[surface],'transport':'direct-image','status':status,'reason':'OK' if status=='LIVE_PASS' else 'DIRECT_IMAGE_CALL_FAILED','request_sha256':(d/'request.sha256').read_text().strip(),'route_sha256':(d/'route.sha256').read_text().strip(),'input_sha256':(d/'input.sha256').read_text().strip(),'response_sha256':hashlib.sha256(response.encode()).hexdigest() if response else '','response':response},sort_keys=True)+'\n')
+          PY
+
+      - name: Build exact host 12-surface bundle and manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/post-quarantine-12/${{ matrix.host_label }}"
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('evidence/post-quarantine-12/${{ matrix.host_label }}'); rows=[json.loads(x) for x in (root/'results-fragments.jsonl').read_text().splitlines() if x.strip()]
+          assert len(rows)==12,len(rows); results={r['surface']:r for r in rows}; assert len(results)==12 and 'gemini-api-docs' not in results
+          identity=json.loads((root/'host-identity.json').read_text()); (root/'host-bundle.json').write_text(json.dumps({'identity':identity,'results':results},indent=2,sort_keys=True)+'\n')
+          manifest=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); manifest.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(manifest)+'\n')
+          print(json.dumps({'surface_count':len(results),'status_counts':{s:sum(r['status']==s for r in rows) for s in sorted(set(r['status'] for r in rows))}},indent=2))
+          PY
+
+      - name: Upload host 12-surface evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-post-quarantine-12-${{ matrix.host_label }}
+          path: evidence/post-quarantine-12/${{ matrix.host_label }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  compare:
+    needs: replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download both host artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ess-post-quarantine-12-*
+          path: evidence/downloaded
+      - name: Build post-quarantine bounded invariance matrix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/post-quarantine-12-final
+          python - <<'PY'
+          import collections,csv,hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from post_quarantine_matrix import build_post_quarantine_cross_host_matrix
+          base=pathlib.Path('evidence/downloaded')
+          def load(label):return json.loads((base/f'ess-post-quarantine-12-{label}'/'host-bundle.json').read_text())
+          a,b=load('host-a'),load('host-b'); profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text()); policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          summary=build_post_quarantine_cross_host_matrix(profile,policy,a,b); counts=dict(collections.Counter(r['status'] for r in summary['rows']))
+          summary.update({'gate':'ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_POST_QUARANTINE_CROSS_HOST_REPLAY_AND_RECEIPT_EQUALITY_V1','status_counts':counts,'verdict':'PASS_12_OF_12_POST_QUARANTINE_CROSS_HOST_BOUNDED_INVARIANCE' if summary['all_routable_surfaces_invariant'] else 'HOLD_POST_QUARANTINE_ROUTABLE_SURFACE_INVARIANCE','host_a_identity':a['identity'],'host_b_identity':b['identity'],'zero_spend':True,'secret_injected':False,'external_actuation':False,'production_ready':False,'runtime_admission':False,'global_bind':False,'claim_boundary':'13_AUTHORITY_SURFACES_PRESERVED__GEMINI_QUARANTINED__12_ROUTABLE_SURFACES_REPLAYED_ACROSS_TWO_DISTINCT_GITHUB_HOSTED_VMS__BOUNDED_SURFACE_SPECIFIC_NORMALIZATION_ONLY__PASS_REQUIRES_12_OF_12_EFFECTIVE_INVARIANCE__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND'})
+          assert summary['authority_surface_count']==13; assert summary['routable_surface_count']==12; assert summary['quarantined_surfaces']==['gemini-api-docs']; assert summary['gateway_profile_count']==10 and summary['direct_image_count']==2; assert summary['distinct_host_identity']; assert summary['all_routable_surfaces_invariant'],summary
+          out=pathlib.Path('evidence/post-quarantine-12-final'); (out/'coverage-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          with (out/'coverage-matrix.csv').open('w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=['surface','transport','status','reasons']); w.writeheader(); [w.writerow({**r,'reasons':'|'.join(r['reasons'])}) for r in summary['rows']]
+          receipt={k:summary[k] for k in ['gate','verdict','authority_surface_count','routable_surface_count','quarantined_surfaces','gateway_profile_count','direct_image_count','effective_invariant_count','all_routable_surfaces_invariant','distinct_host_identity','identity_authority_fields','status_counts','zero_spend','secret_injected','external_actuation','production_ready','runtime_admission','global_bind','claim_boundary']}; receipt['rows']=summary['rows']; (out/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n'); print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+      - name: Verify host manifests and build final manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          base=pathlib.Path('evidence/downloaded')
+          for label in ['host-a','host-b']:
+              root=base/f'ess-post-quarantine-12-{label}'; checked=0; errs=[]
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip():continue
+                  sha,size,fn=line.split('  ',2); b=(root/fn).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size):errs.append(fn)
+              assert checked>0 and not errs,(label,checked,errs); print(label,'manifest_checked',checked,'errors',len(errs))
+          out=pathlib.Path('evidence/post-quarantine-12-final'); rows=[]
+          for p in sorted(out.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (out/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          PY
+      - name: Upload final post-quarantine evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-12-routable-post-quarantine-cross-host-replay-v1
+          path: evidence/post-quarantine-12-final/
+          if-no-files-found: error
+          retention-days: 30
