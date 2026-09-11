@@ -1,0 +1,36 @@
+{
+  "gate": "ESS_DOCKER_MCP_WOLFRAM_LIVE_CALLABLE_CANARY_V1",
+  "status": "HOLD_WOLFRAM_API_KEY_REQUIRED",
+  "workflow_run_id": 34601181618,
+  "workflow_head_sha": "c0022eb726c3bc9aced0d746b78342bc485da8ef",
+  "gateway_version": "v0.43.3",
+  "server": "wolfram-alpha",
+  "tool": "query-wolfram-alpha",
+  "catalog_contract": "PASS",
+  "image": "mcp/wolfram-alpha@sha256:4cd89d002d55d3f6f1115745b7d05a9d3e6fbb28e1e57536406b79805208571a",
+  "required_secret_env": "WOLFRAM_API_KEY",
+  "required_secret_name": "wolfram-alpha.api_key",
+  "signature_verified_configuration_probe": "PASS",
+  "query_wolfram_alpha_callable_without_secret": false,
+  "secret_fabrication": false,
+  "zero_spend": true,
+  "live_call_performed": false,
+  "provider_artifact": {
+    "artifact_id": 10264522172,
+    "name": "ess-docker-mcp-wolfram-secret-gate-v1",
+    "provider_reported_bytes": 4747,
+    "provider_reported_sha256": "07c9924d8e8e20467aa6ba2acc8e70d201f5fdc68c5dfa78594d88ab08b613d5",
+    "external_download_bytes": 4747,
+    "external_download_sha256": "07c9924d8e8e20467aa6ba2acc8e70d201f5fdc68c5dfa78594d88ab08b613d5",
+    "provider_to_external_equality": true
+  },
+  "claim_ceiling": {
+    "docker_catalog_adapter_present": true,
+    "tool_contract_present": true,
+    "missing_secret_fail_closed": true,
+    "live_mathematical_callability": false,
+    "production_ready": false,
+    "global_bind": false,
+    "external_actuation": false
+  }
+}
