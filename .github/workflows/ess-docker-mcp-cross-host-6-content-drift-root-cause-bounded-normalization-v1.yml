@@ -1,0 +1,161 @@
+name: ess-docker-mcp-cross-host-6-content-drift-root-cause-bounded-normalization-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-cross-host-6-content-drift-root-cause-bounded-normalization-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose-frozen-cross-host-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frozen host A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-cross-host-13-host-a
+          path: evidence/frozen/host-a
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34621290828
+          github-token: ${{ github.token }}
+
+      - name: Download frozen host B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-cross-host-13-host-b
+          path: evidence/frozen/host-b
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34621290828
+          github-token: ${{ github.token }}
+
+      - name: Verify frozen host manifests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          for label in ('host-a','host-b'):
+              root=pathlib.Path('evidence/frozen')/label
+              errs=[]; checked=0
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip(): continue
+                  sha,size,rel=line.split('  ',2)
+                  b=(root/rel).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+              assert not errs,(label,errs)
+              print(label,'manifest_checked',checked,'errors',len(errs))
+          PY
+
+      - name: Diagnose six cross-host content drifts with bounded normalizers
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/six-drift-diagnosis
+          python - <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from drift_normalization import canonicalize_surface_response, diagnose_pair
+
+          base=pathlib.Path('evidence/frozen')
+          out=pathlib.Path('evidence/six-drift-diagnosis')
+          paths={
+            'hugging-face':'gateway/01-hugging-face/live.professional',
+            'context7':'gateway/03-context7/live.professional',
+            'astro-docs':'gateway/04-astro-docs/live.professional',
+            'gemini-api-docs':'gateway/06-gemini-api-docs/live.professional',
+            'javadocs':'gateway/07-javadocs/live.professional',
+            'ros2':'gateway/09-ros2/live.professional',
+          }
+          rows=[]
+          for surface,rel in paths.items():
+              a=(base/'host-a'/rel).read_text()
+              b=(base/'host-b'/rel).read_text()
+              d=diagnose_pair(surface,a,b)
+              ca=canonicalize_surface_response(surface,a)
+              cb=canonicalize_surface_response(surface,b)
+              row={
+                'surface':surface,
+                'classification':d['classification'],
+                'equal_after_bounded_normalization':d['equal_after_bounded_normalization'],
+                'raw_sha256_a':hashlib.sha256(a.encode()).hexdigest(),
+                'raw_sha256_b':hashlib.sha256(b.encode()).hexdigest(),
+                'canonical_sha256_a':hashlib.sha256(ca.encode()).hexdigest(),
+                'canonical_sha256_b':hashlib.sha256(cb.encode()).hexdigest(),
+                'canonical_bytes_equal':ca.encode()==cb.encode(),
+              }
+              if surface=='context7':
+                  blocks_a=[x.strip() for x in a.strip().split('----------') if x.strip()]
+                  blocks_b=[x.strip() for x in b.strip().split('----------') if x.strip()]
+                  row.update({'record_count_a':len(blocks_a),'record_count_b':len(blocks_b),'record_multiset_equal':sorted(blocks_a)==sorted(blocks_b)})
+              if surface=='ros2':
+                  va=json.loads(a); vb=json.loads(b)
+                  row.update({'item_count_a':len(va),'item_count_b':len(vb),'unique_count_a':len(set(va)),'unique_count_b':len(set(vb)),'item_set_equal':set(va)==set(vb)})
+              if surface=='gemini-api-docs':
+                  row.update({'raw_chars_a':len(a),'raw_chars_b':len(b),'bounded_normalization_policy':'IDENTITY_ONLY_FAIL_CLOSED'})
+              rows.append(row)
+
+          by={r['surface']:r for r in rows}
+          expected={
+            'hugging-face':'BOUNDED_TIMING_NOISE',
+            'astro-docs':'BOUNDED_TIMING_NOISE',
+            'javadocs':'BOUNDED_TIMING_NOISE',
+            'context7':'BOUNDED_RECORD_ORDER_NOISE',
+            'ros2':'BOUNDED_LIST_ORDER_NOISE',
+            'gemini-api-docs':'TRUE_CONTENT_DRIFT',
+          }
+          assert len(rows)==6
+          for s,c in expected.items(): assert by[s]['classification']==c,(s,by[s])
+          assert sum(r['equal_after_bounded_normalization'] for r in rows)==5
+          assert by['context7']['record_count_a']==5 and by['context7']['record_count_b']==5 and by['context7']['record_multiset_equal']
+          assert by['ros2']['item_count_a']==650 and by['ros2']['item_count_b']==650
+          assert by['ros2']['unique_count_a']==650 and by['ros2']['unique_count_b']==650 and by['ros2']['item_set_equal']
+          assert not by['gemini-api-docs']['equal_after_bounded_normalization']
+
+          summary={
+            'gate':'ESS_DOCKER_MCP_CROSS_HOST_6_CONTENT_DRIFT_ROOT_CAUSE_AND_BOUNDED_NORMALIZATION_V1',
+            'source_live_run_id':34621290828,
+            'source_live_head_sha':'7ee4ac07c301e90b6e41673f0afbff22acc2bed7',
+            'drift_surface_count':6,
+            'bounded_normalizable_count':5,
+            'true_content_drift_count':1,
+            'classifications':{r['surface']:r['classification'] for r in rows},
+            'rows':rows,
+            'verdict':'PASS_ROOT_CAUSE_CLASSIFIED__5_BOUNDED_NORMALIZATIONS_PROVEN__HOLD_GEMINI_TRUE_CONTENT_DRIFT',
+            'zero_spend':True,'secret_injected':False,'external_actuation':False,
+            'production_ready':False,'global_bind':False,
+            'claim_boundary':'FROZEN_EXACT_EVIDENCE_FROM_PRIOR_TWO_HOST_13_SURFACE_LIVE_RUN__FIVE_DRIFTS_PROVEN_BOUNDED_NOISE__GEMINI_API_DOCS_REMAINS_TRUE_CONTENT_DRIFT__NO_RETROACTIVE_13_OF_13_PASS'
+          }
+          (out/'diagnosis.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          (out/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Build SHA manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('evidence/six-drift-diagnosis'); rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          PY
+
+      - name: Upload diagnosis evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-cross-host-6-content-drift-root-cause-bounded-normalization-v1
+          path: evidence/six-drift-diagnosis/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
