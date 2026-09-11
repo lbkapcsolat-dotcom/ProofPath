@@ -1,0 +1,241 @@
+name: docker-mcp-catalog-full-reachability-matrix-v1
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/docker-mcp-catalog-full-reachability-matrix-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MCP_GATEWAY_VERSION: v0.43.3
+      DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze official registry and runtime catalog
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-reachability-v1 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          git clone --depth=1 https://github.com/docker/mcp-registry.git /tmp/mcp-registry
+          git -C /tmp/mcp-registry rev-parse HEAD | tee evidence/docker-mcp-reachability-v1/registry-head-sha.txt
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-mcp-reachability-v1/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-reachability-v1/docker-mcp-version.txt
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/docker-mcp-reachability-v1/catalog-pull.log 2>&1
+          docker mcp catalog show "$DOCKER_MCP_CATALOG" --format json > evidence/docker-mcp-reachability-v1/runtime-catalog.json
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build full reachability matrix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import csv,json,pathlib,re,subprocess
+          root=pathlib.Path('evidence/docker-mcp-reachability-v1')
+          reg=pathlib.Path('/tmp/mcp-registry')
+
+          # Snapshot every server-like definition file under official registry.
+          files=[]
+          for p in (reg/'servers').rglob('*'):
+            if p.is_file() and p.suffix.lower() in {'.yaml','.yml','.json'}:
+              files.append(p)
+          root.joinpath('registry-definition-files.txt').write_text('\n'.join(str(p.relative_to(reg)) for p in files)+'\n')
+
+          try:
+            import yaml
+          except Exception:
+            subprocess.check_call(['python','-m','pip','install','--quiet','pyyaml'])
+            import yaml
+
+          def load(p):
+            try:
+              txt=p.read_text(errors='replace')
+              return json.loads(txt) if p.suffix.lower()=='.json' else yaml.safe_load(txt)
+            except Exception:
+              return None
+
+          def walk_servers(obj,path_hint):
+            out=[]
+            if isinstance(obj,dict):
+              # Common Docker registry shapes: top-level name/title/type/image/remote,
+              # or mappings under server/servers.
+              candidate=obj.get('server') if isinstance(obj.get('server'),dict) else obj
+              name=(candidate.get('name') if isinstance(candidate,dict) else None) or path_hint
+              typ=(candidate.get('type') if isinstance(candidate,dict) else None)
+              image=(candidate.get('image') if isinstance(candidate,dict) else None)
+              remote=(candidate.get('remote') if isinstance(candidate,dict) else None)
+              secrets=(candidate.get('secrets') if isinstance(candidate,dict) else None)
+              config=(candidate.get('config') if isinstance(candidate,dict) else None)
+              tools=(candidate.get('tools') if isinstance(candidate,dict) else None)
+              if typ or image or remote or secrets or config or tools:
+                out.append((name,candidate))
+              if isinstance(obj.get('servers'),dict):
+                for k,v in obj['servers'].items():
+                  if isinstance(v,dict): out.append((k,v))
+            return out
+
+          entries={}
+          for p in files:
+            o=load(p)
+            hint=p.parent.name if p.parent.name!='servers' else p.stem
+            for name,d in walk_servers(o,hint):
+              if not name: continue
+              cur=entries.setdefault(str(name),{'registry_name':str(name),'source_files':[]})
+              cur['source_files'].append(str(p.relative_to(reg)))
+              for k in ['type','image','remote','secrets','config','tools','description','title','dynamic']:
+                if k in d and d[k] not in (None,[],{},''): cur[k]=d[k]
+
+          # Fallback to server directory names so registry presence is never lost if schema evolves.
+          for d in (reg/'servers').iterdir():
+            if d.is_dir(): entries.setdefault(d.name,{'registry_name':d.name,'source_files':[]})
+
+          runtime=json.loads(root.joinpath('runtime-catalog.json').read_text())
+          runtime_names=set()
+          def collect_names(o):
+            if isinstance(o,dict):
+              if isinstance(o.get('servers'),dict): runtime_names.update(map(str,o['servers'].keys()))
+              for k,v in o.items():
+                if k in {'name','serverName'} and isinstance(v,str): runtime_names.add(v)
+                collect_names(v)
+            elif isinstance(o,list):
+              for v in o: collect_names(v)
+          collect_names(runtime)
+
+          known_chatgpt={
+            'github','notion','supabase','stripe','mongodb','mongodb-atlas','hugging-face','context7','linear',
+            'asana','airtable','slack','figma','canva','dropbox','hubspot','posthog','mixpanel','sentry','zoom',
+            'google-drive','gmail','google-calendar','monday','monday-com','clickhouse','neon','cloudinary','amplitude'
+          }
+          broken_deprecated={'deepwiki'}
+
+          rows=[]
+          for name in sorted(entries):
+            e=entries[name]
+            typ=e.get('type') or ('remote' if e.get('remote') else 'image' if e.get('image') else 'unknown')
+            remote=e.get('remote') if isinstance(e.get('remote'),dict) else {}
+            remote_url=remote.get('url') if isinstance(remote,dict) else None
+            transport=remote.get('transport_type') if isinstance(remote,dict) else None
+            image=e.get('image') if isinstance(e.get('image'),str) else ''
+            secrets=e.get('secrets') or []
+            secret_required=bool(secrets)
+            runtime_present=name in runtime_names
+            canon=re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-')
+            direct_chatgpt=canon in known_chatgpt
+            deprecated=name in broken_deprecated or (transport=='sse' and bool(remote_url))
+
+            if not runtime_present:
+              reach='REGISTRY_PRESENT_CATALOG_MISSING'
+            elif deprecated:
+              reach='BROKEN_OR_DEPRECATED'
+            elif typ=='remote':
+              reach='DOCKER_REMOTE_AUTH_REQUIRED' if secret_required else 'DOCKER_REMOTE_SECRETLESS'
+            elif typ in {'image','stdio','container'} or image:
+              reach='DOCKER_LOCAL_IMAGE_AUTH_REQUIRED' if secret_required else 'DOCKER_LOCAL_IMAGE_SECRETLESS'
+            else:
+              reach='HOLD'
+            if direct_chatgpt:
+              # Preserve Docker reachability separately while surfacing direct ChatGPT plane.
+              chatgpt_class='DIRECT_CHATGPT_CALLABLE'
+            else:
+              chatgpt_class='NO_DIRECT_CHATGPT_MATCH_PROVEN'
+            rows.append({
+              'server':name,'registry_type':typ,'image':image,'remote_url':remote_url or '',
+              'transport':transport or '', 'secret_required':secret_required,
+              'runtime_catalog_present':runtime_present,'docker_reachability':reach,
+              'chatgpt_reachability':chatgpt_class,'deprecated_or_known_issue':deprecated,
+              'source_files':'|'.join(sorted(set(e.get('source_files',[]))))
+            })
+
+          with root.joinpath('docker-mcp-full-reachability-matrix.csv').open('w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+          root.joinpath('docker-mcp-full-reachability-matrix.json').write_text(json.dumps(rows,indent=2,sort_keys=True))
+
+          from collections import Counter
+          docker_counts=Counter(r['docker_reachability'] for r in rows)
+          cg_counts=Counter(r['chatgpt_reachability'] for r in rows)
+          summary={
+            'gate':'DOCKER_MCP_CATALOG_FULL_REACHABILITY_MATRIX_V1',
+            'verdict':'PASS_MATRIX_BUILT_FROM_OFFICIAL_REGISTRY_AND_RUNTIME_CATALOG',
+            'registry_server_count':len(rows),
+            'runtime_name_count_detected':len(runtime_names),
+            'registry_present_catalog_missing':sum(1 for r in rows if not r['runtime_catalog_present']),
+            'runtime_present_registry_rows':sum(1 for r in rows if r['runtime_catalog_present']),
+            'docker_reachability_counts':dict(docker_counts),
+            'chatgpt_reachability_counts':dict(cg_counts),
+            'classification_note':'DIRECT_CHATGPT_CALLABLE is an exact-name allowlist of connectors already exposed in the current ChatGPT environment; absence is not proof of global unavailability.',
+            'claim_ceiling':'REACHABILITY_CLASSIFICATION_ONLY__NO_BULK_ENABLE__NO_AUTH_BYPASS__ZERO_SPEND'
+          }
+          root.joinpath('summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+
+          # ESS relevance shortlist. Conservative keyword scoring, never auto-enables anything.
+          kw={'research':6,'paper':6,'scholar':6,'arxiv':6,'science':5,'math':5,'wolfram':8,'theorem':7,'lean':7,'proof':7,
+              'documentation':4,'docs':4,'github':4,'hugging':5,'context':3,'database':2,'postgres':2,'observability':4,'grafana':4,
+              'security':5,'supply':4,'openapi':5,'python':4,'code':2,'semantic':4,'knowledge':3}
+          scored=[]
+          for r in rows:
+            text=(' '.join([r['server'],r['source_files'],r['image'],r['remote_url']])).lower()
+            score=sum(v for k,v in kw.items() if k in text)
+            if r['docker_reachability'] in {'DOCKER_LOCAL_IMAGE_SECRETLESS','DOCKER_REMOTE_SECRETLESS'}: score+=3
+            if r['deprecated_or_known_issue']: score-=20
+            if score>0: scored.append((score,r))
+          scored.sort(key=lambda x:(-x[0],x[1]['server']))
+          top=[dict(score=s,**r) for s,r in scored[:30]]
+          root.joinpath('ess-top30.json').write_text(json.dumps(top,indent=2,sort_keys=True))
+          root.joinpath('ess-top30.txt').write_text('\n'.join(f"{x['score']:02d} {x['server']} | {x['docker_reachability']} | {x['chatgpt_reachability']}" for x in top)+'\n')
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Hash evidence and build receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd evidence/docker-mcp-reachability-v1
+          sha256sum docker-mcp-full-reachability-matrix.csv docker-mcp-full-reachability-matrix.json summary.json ess-top30.json ess-top30.txt runtime-catalog.json registry-head-sha.txt > sha256-manifest.txt
+          python - <<'PY'
+          import json,pathlib,os
+          root=pathlib.Path('.')
+          s=json.loads(root.joinpath('summary.json').read_text())
+          receipt={
+            **s,
+            'github_repository':os.environ.get('GITHUB_REPOSITORY'),
+            'github_sha':os.environ.get('GITHUB_SHA'),
+            'registry_head_sha':root.joinpath('registry-head-sha.txt').read_text().strip(),
+            'sha256_manifest':'sha256-manifest.txt',
+            'zero_spend':True,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False
+          }
+          root.joinpath('bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+          sha256sum bounded-receipt.json >> sha256-manifest.txt
+
+      - name: Upload matrix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-mcp-catalog-full-reachability-matrix-v1
+          path: evidence/docker-mcp-reachability-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
