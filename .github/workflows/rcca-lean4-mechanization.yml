@@ -1,0 +1,264 @@
+name: RCCA Lean4 Mechanization
+
+on:
+  push:
+    branches:
+      - main
+      - ess-rcca-lean4-mechanization-v1
+    paths:
+      - 'formal/rcca-lean4/**'
+      - '.github/workflows/rcca-lean4-mechanization.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'formal/rcca-lean4/**'
+      - '.github/workflows/rcca-lean4-mechanization.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  proof-escape-scanner-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify scanner catches proof escapes without false-positive control
+        run: |
+          set -euo pipefail
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          printf '%s\n' 'theorem synthetic : True := by sorry' > /tmp/inline-proof-escape.lean
+          printf '%s\n' 'private axiom hiddenEscape : False' > /tmp/private-axiom-proof-escape.lean
+          printf '%s\n' 'theorem synthetic : True := by trivial' > /tmp/safe-proof.lean
+          grep -nE "$ESCAPE_RE" /tmp/inline-proof-escape.lean
+          grep -nE "$ESCAPE_RE" /tmp/private-axiom-proof-escape.lean
+          if grep -nE "$ESCAPE_RE" /tmp/safe-proof.lean; then
+            echo 'FAIL_SCANNER_FALSE_POSITIVE_SAFE_CONTROL'
+            exit 43
+          fi
+          echo 'PASS_SCANNER_CAUGHT_INLINE_AND_MODIFIED_DECLARATION_PROOF_ESCAPES'
+
+  build-a:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Lean and build RCCA
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/rcca-lean4
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Compile theorem harness and reject proof escapes
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean RCCATest.lean
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          if grep -nE "$ESCAPE_RE" RCCA.lean RCCATest.lean; then
+            echo 'FAIL_PROOF_ESCAPE_TOKEN'
+            exit 41
+          fi
+
+      - name: Materialize deterministic proof artifact A
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          test -f .lake/build/lib/lean/RCCA.olean
+          mkdir -p out
+          cp RCCA.lean out/RCCA.lean
+          cp .lake/build/lib/lean/RCCA.olean out/RCCA.olean
+          SOURCE_SHA=$(sha256sum out/RCCA.lean | awk '{print $1}')
+          OLEAN_SHA=$(sha256sum out/RCCA.olean | awk '{print $1}')
+          TEST_SHA=$(sha256sum RCCATest.lean | awk '{print $1}')
+          LAKE_SHA=$(sha256sum lakefile.lean | awk '{print $1}')
+          TOOLCHAIN_SHA=$(sha256sum lean-toolchain | awk '{print $1}')
+          LEAN_VERSION=$(~/.elan/bin/lean --version | head -n1)
+          LAKE_VERSION=$(~/.elan/bin/lake --version | head -n1)
+          printf 'commit_sha=%s\nlean_source_sha256=%s\nlean_olean_sha256=%s\ntest_source_sha256=%s\nlakefile_sha256=%s\ntoolchain_file_sha256=%s\nlean_version=%s\nlake_version=%s\n' \
+            "$GITHUB_SHA" "$SOURCE_SHA" "$OLEAN_SHA" "$TEST_SHA" "$LAKE_SHA" "$TOOLCHAIN_SHA" "$LEAN_VERSION" "$LAKE_VERSION" > out/semantic-manifest.txt
+          RUNTIME_FP=$(printf '%s|%s|%s|%s|%s' "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH" "$(hostname)" "$(cat /etc/machine-id 2>/dev/null || true)" | sha256sum | awk '{print $1}')
+          printf 'job=build-a\nrunner_name=%s\nrunner_os=%s\nrunner_arch=%s\nruntime_fingerprint=%s\ncommit_sha=%s\n' \
+            "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH" "$RUNTIME_FP" "$GITHUB_SHA" > out/runner-receipt.txt
+          cd out
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean semantic-manifest.txt
+          sha256sum proof-artifact.tar > proof-artifact.tar.sha256
+
+      - name: Upload build A evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-build-a
+          path: formal/rcca-lean4/out/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  build-b:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Lean and build RCCA
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/rcca-lean4
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Compile theorem harness and reject proof escapes
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean RCCATest.lean
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          if grep -nE "$ESCAPE_RE" RCCA.lean RCCATest.lean; then
+            echo 'FAIL_PROOF_ESCAPE_TOKEN'
+            exit 41
+          fi
+
+      - name: Materialize deterministic proof artifact B
+        working-directory: formal/rcca-lean4
+        run: |
+          set -euo pipefail
+          test -f .lake/build/lib/lean/RCCA.olean
+          mkdir -p out
+          cp RCCA.lean out/RCCA.lean
+          cp .lake/build/lib/lean/RCCA.olean out/RCCA.olean
+          SOURCE_SHA=$(sha256sum out/RCCA.lean | awk '{print $1}')
+          OLEAN_SHA=$(sha256sum out/RCCA.olean | awk '{print $1}')
+          TEST_SHA=$(sha256sum RCCATest.lean | awk '{print $1}')
+          LAKE_SHA=$(sha256sum lakefile.lean | awk '{print $1}')
+          TOOLCHAIN_SHA=$(sha256sum lean-toolchain | awk '{print $1}')
+          LEAN_VERSION=$(~/.elan/bin/lean --version | head -n1)
+          LAKE_VERSION=$(~/.elan/bin/lake --version | head -n1)
+          printf 'commit_sha=%s\nlean_source_sha256=%s\nlean_olean_sha256=%s\ntest_source_sha256=%s\nlakefile_sha256=%s\ntoolchain_file_sha256=%s\nlean_version=%s\nlake_version=%s\n' \
+            "$GITHUB_SHA" "$SOURCE_SHA" "$OLEAN_SHA" "$TEST_SHA" "$LAKE_SHA" "$TOOLCHAIN_SHA" "$LEAN_VERSION" "$LAKE_VERSION" > out/semantic-manifest.txt
+          RUNTIME_FP=$(printf '%s|%s|%s|%s|%s' "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH" "$(hostname)" "$(cat /etc/machine-id 2>/dev/null || true)" | sha256sum | awk '{print $1}')
+          printf 'job=build-b\nrunner_name=%s\nrunner_os=%s\nrunner_arch=%s\nruntime_fingerprint=%s\ncommit_sha=%s\n' \
+            "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH" "$RUNTIME_FP" "$GITHUB_SHA" > out/runner-receipt.txt
+          cd out
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean semantic-manifest.txt
+          sha256sum proof-artifact.tar > proof-artifact.tar.sha256
+
+      - name: Upload build B evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-build-b
+          path: formal/rcca-lean4/out/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  proofpath-regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record Node and commit identity
+        run: |
+          node --version
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run ProofPath core model regression
+        run: node tests.mjs
+      - name: Run ProofPath UI static regression
+        run: node test-ui.mjs
+      - name: Run CSC committed regression
+        run: node csc-2026/test.cjs
+
+  compare:
+    needs: [proof-escape-scanner-test, build-a, build-b, proofpath-regression]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download build A
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: rcca-build-a
+          path: build-a
+
+      - name: Download build B
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: rcca-build-b
+          path: build-b
+
+      - name: Verify isolated runtime and exact artifact equality
+        run: |
+          set -euo pipefail
+          cmp build-a/RCCA.lean build-b/RCCA.lean
+          cmp build-a/RCCA.olean build-b/RCCA.olean
+          cmp build-a/semantic-manifest.txt build-b/semantic-manifest.txt
+          cmp build-a/proof-artifact.tar build-b/proof-artifact.tar
+          (cd build-a && sha256sum -c proof-artifact.tar.sha256)
+          (cd build-b && sha256sum -c proof-artifact.tar.sha256)
+          A_FP=$(sed -n 's/^runtime_fingerprint=//p' build-a/runner-receipt.txt)
+          B_FP=$(sed -n 's/^runtime_fingerprint=//p' build-b/runner-receipt.txt)
+          test -n "$A_FP"
+          test -n "$B_FP"
+          test "$A_FP" != "$B_FP"
+          A_SHA=$(sha256sum build-a/proof-artifact.tar | awk '{print $1}')
+          B_SHA=$(sha256sum build-b/proof-artifact.tar | awk '{print $1}')
+          test "$A_SHA" = "$B_SHA"
+          mkdir -p equality
+          cp build-a/proof-artifact.tar equality/proof-artifact.tar
+          cp build-a/semantic-manifest.txt equality/semantic-manifest.txt
+          cp build-a/runner-receipt.txt equality/runner-a.txt
+          cp build-b/runner-receipt.txt equality/runner-b.txt
+          python3 - "$A_SHA" "$A_FP" "$B_FP" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          artifact_sha, runtime_a, runtime_b, commit_sha = sys.argv[1:]
+          receipt = {
+              "gate_id": "EQUILIBRIUM_INTEGRATED_AXIOMS_CORE_RCCA_LEAN4_MECHANIZATION_AND_SECOND_ISOLATED_BUILD_ARTIFACT_EQUALITY_V1",
+              "verdict": "PASS_TWO_ISOLATED_LEAN4_BUILDS_AND_EXACT_ARTIFACT_EQUALITY",
+              "commit_sha": commit_sha,
+              "lean_toolchain": "leanprover/lean4:v4.33.1",
+              "runtime_a_fingerprint": runtime_a,
+              "runtime_b_fingerprint": runtime_b,
+              "distinct_runtime_identity": runtime_a != runtime_b,
+              "proof_artifact_sha256": artifact_sha,
+              "source_equality": True,
+              "olean_equality": True,
+              "semantic_manifest_equality": True,
+              "proof_artifact_equality": True,
+              "predecessor_nonweakening_mechanized": True,
+              "historical_rollback_boundary_mechanized": True,
+              "proof_escape_tokens_rejected": True,
+              "proof_escape_scanner_selftest": True,
+              "proofpath_regression": True,
+              "core_admission": False,
+              "runtime_admission": False,
+              "production_promotion": False,
+              "pointer_promotion": False,
+              "global_bind": False,
+              "zero_spend": True,
+              "claim_ceiling": "MECHANIZED_RCCA_CORE_THEOREMS_AND_TWO_BUILD_ARTIFACT_EQUALITY_ONLY"
+          }
+          with open("equality/artifact-equality-receipt.json", "w", encoding="utf-8", newline="\n") as f:
+              json.dump(receipt, f, sort_keys=True, separators=(",", ":"))
+              f.write("\n")
+          PY
+          sha256sum equality/artifact-equality-receipt.json > equality/artifact-equality-receipt.json.sha256
+
+      - name: Upload equality receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-artifact-equality-receipt
+          path: equality/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
