@@ -1,0 +1,103 @@
+name: ess-docker-mcp-provider-artifact-tamper-cross-run-receipt-swap-chain-break-canaries-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/custody_chain.py'
+      - 'ess_docker_mcp_router/provider_custody_gate_runner.py'
+      - 'ess_docker_mcp_router/test_provider_custody_chain.py'
+      - '.github/workflows/ess-docker-mcp-provider-artifact-tamper-cross-run-receipt-swap-chain-break-canaries-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_RUN_ID: '34635898456'
+  SOURCE_HEAD_SHA: d13b3adf44334306ab2e2bb2bf57b955d923e97d
+  SOURCE_ARTIFACT_ID: '10278580751'
+  SOURCE_ARTIFACT_SHA256: e088c06bc353261c0c8892915557d2cc1ffcb5ef7f5a27388df69b7a4c4e31a4
+  SOURCE_FINAL_RECEIPT: evidence/receipts/ESS_DOCKER_MCP_12_SURFACE_ROUTER_EXECUTOR_RECEIPT_AND_INDEPENDENT_REPLAY_BIND_V1_FINAL_READBACK_RECEIPT.json
+
+jobs:
+  provider-custody-tamper-canaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify focused custody contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_provider_custody_chain.py
+
+      - name: Recover pinned source provider artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/ess-source-artifact
+          curl --fail --location --silent --show-error --max-time 240 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID/zip" \
+            -o /tmp/ess-source-artifact.zip
+          printf '%s  %s\n' "$SOURCE_ARTIFACT_SHA256" /tmp/ess-source-artifact.zip | sha256sum -c -
+          unzip -q /tmp/ess-source-artifact.zip -d /tmp/ess-source-artifact
+
+      - name: Run provider custody tamper and chain-break canaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf evidence/provider-custody-tamper-chain-v1
+          python ess_docker_mcp_router/provider_custody_gate_runner.py \
+            --artifact-zip /tmp/ess-source-artifact.zip \
+            --artifact-root /tmp/ess-source-artifact \
+            --final-receipt "$SOURCE_FINAL_RECEIPT" \
+            --artifact-id "$SOURCE_ARTIFACT_ID" \
+            --artifact-sha256 "$SOURCE_ARTIFACT_SHA256" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-head-sha "$SOURCE_HEAD_SHA" \
+            --out-dir evidence/provider-custody-tamper-chain-v1
+
+      - name: Verify bounded output manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd evidence/provider-custody-tamper-chain-v1
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('.')
+          checked=0; errors=[]
+          for line in (root/'sha256-manifest.txt').read_text().splitlines():
+              if not line.strip(): continue
+              digest,size,rel=line.split('  ',2)
+              p=root/rel
+              if not p.is_file(): errors.append(f'missing:{rel}'); continue
+              b=p.read_bytes(); checked+=1
+              if len(b)!=int(size): errors.append(f'bytes:{rel}')
+              if hashlib.sha256(b).hexdigest()!=digest: errors.append(f'sha:{rel}')
+          summary=json.loads((root/'summary.json').read_text())
+          canaries=json.loads((root/'tamper-canaries.json').read_text())
+          assert checked==4,(checked,errors)
+          assert not errors,errors
+          assert summary['source_internal_manifest_checked']==313
+          assert summary['tamper_canary_count']==8
+          assert summary['tamper_canary_status_counts']=={'DENY_PASS':8}
+          assert len(canaries)==8 and all(x['status']=='DENY_PASS' for x in canaries)
+          print(json.dumps({'manifest_checked':checked,'errors':len(errors),'tamper_canaries':len(canaries)},sort_keys=True))
+          PY
+
+      - name: Upload provider custody evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-provider-artifact-tamper-cross-run-receipt-swap-chain-break-canaries-v1
+          path: evidence/provider-custody-tamper-chain-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
