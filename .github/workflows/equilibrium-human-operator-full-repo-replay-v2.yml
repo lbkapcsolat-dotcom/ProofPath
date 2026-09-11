@@ -1,0 +1,233 @@
+name: exact-full-repo-hosted-runner-replay-artifact-equality-v2
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/equilibrium-human-operator-full-repo-replay-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_ARTIFACT_ID: '10262204792'
+  SOURCE_NAME: equilibrium_repo_docker_env_ci_v3_ci_dry_run.zip
+  EXPECTED_SOURCE_BYTES: '27636349'
+  EXPECTED_SOURCE_SHA256: 77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77
+  EXPECTED_REPO_ROOT: equilibrium_repo_docker_env_ci_v1
+
+jobs:
+  exact-full-repo-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Record provider runner identity
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence
+          {
+            echo "github_repository=${GITHUB_REPOSITORY}"
+            echo "github_sha=${GITHUB_SHA}"
+            echo "github_ref=${GITHUB_REF}"
+            echo "source_artifact_id=${SOURCE_ARTIFACT_ID}"
+            uname -a
+            docker version
+            docker compose version
+            node --version
+            npm --version
+            python --version
+          } | tee evidence/runner-identity.txt
+
+      - name: Recover exact source from prior provider-native artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --max-time 180 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            -o evidence/provider-source-artifact.zip
+          unzip -p evidence/provider-source-artifact.zip source.zip > evidence/source.zip
+          bytes="$(stat -c '%s' evidence/source.zip)"
+          sha="$(sha256sum evidence/source.zip | awk '{print $1}')"
+          printf 'provider_artifact_id=%s\nbytes=%s\nsha256=%s\n' "$SOURCE_ARTIFACT_ID" "$bytes" "$sha" \
+            | tee evidence/provider-source-readback.txt
+          test "$bytes" = "$EXPECTED_SOURCE_BYTES"
+          test "$sha" = "$EXPECTED_SOURCE_SHA256"
+          rm evidence/provider-source-artifact.zip
+          echo PASS_EXACT_SOURCE_BYTES_ON_HOSTED_RUNNER | tee evidence/gate-status.txt
+
+      - name: Materialize exact source and freeze entry manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          source=Path('evidence/source.zip')
+          out=Path('materialized'); out.mkdir(exist_ok=True)
+          rows=[]
+          with zipfile.ZipFile(source) as z:
+              for info in z.infolist():
+                  row={'path':info.filename,'is_dir':info.is_dir(),'compressed_bytes':info.compress_size,'uncompressed_bytes':info.file_size,'crc32':f'{info.CRC:08x}'}
+                  if not info.is_dir(): row['sha256']=hashlib.sha256(z.read(info.filename)).hexdigest()
+                  rows.append(row)
+              z.extractall(out)
+          Path('evidence/source-entry-manifest.json').write_text(json.dumps(rows,indent=2,sort_keys=True),encoding='utf-8')
+          roots=sorted({r['path'].split('/',1)[0] for r in rows if r['path']})
+          assert roots == [os.environ['EXPECTED_REPO_ROOT']], roots
+          print(f'entries={len(rows)} root={roots[0]}')
+          PY
+          echo "REPO_DIR=$GITHUB_WORKSPACE/materialized/${EXPECTED_REPO_ROOT}" >> "$GITHUB_ENV"
+
+      - name: Declare build transformation and clean archived dependency trees
+        run: |
+          set -euxo pipefail
+          cp "$REPO_DIR/.env.example" "$REPO_DIR/.env"
+          {
+            echo 'SOURCE_IDENTITY_BOUNDARY:'
+            echo '- source.zip was byte/SHA verified before extraction.'
+            echo '- archive extraction and dependency cleanup are declared build transformations.'
+            echo '- archived node_modules are not treated as runtime authority.'
+            echo '- npm ci reconstructs dependencies from package-lock.json.'
+          } | tee evidence/transformation-boundary.txt
+          find "$REPO_DIR" -type d -name node_modules -prune -print | tee evidence/archived-node-modules.txt
+          rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/frontend/node_modules"
+
+      - name: Install clean dependencies
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          npm ci --include=dev --no-audit --no-fund 2>&1 | tee "$GITHUB_WORKSPACE/evidence/npm-ci-clean.log"
+          test -x node_modules/.bin/vitest
+          node_modules/.bin/vitest --version | tee "$GITHUB_WORKSPACE/evidence/vitest-version.txt"
+          python -m pip install --upgrade pip 2>&1 | tee "$GITHUB_WORKSPACE/evidence/pip-upgrade.log"
+          pip install -r backend/requirements.txt 2>&1 | tee "$GITHUB_WORKSPACE/evidence/pip-install.log"
+
+      - name: Frontend contract tests
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          npm run test:contract:frontend 2>&1 | tee "$GITHUB_WORKSPACE/evidence/frontend-contract-test.log"
+
+      - name: Backend contract tests
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          PYTHONPATH=. pytest tests/contract/backend_contract_test.py 2>&1 | tee "$GITHUB_WORKSPACE/evidence/backend-contract-test.log"
+
+      - name: Frontend build
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          VITE_API_BASE_URL: http://localhost:8000
+        run: |
+          set -euxo pipefail
+          npm run build:frontend 2>&1 | tee "$GITHUB_WORKSPACE/evidence/frontend-build.log"
+
+      - name: Full Docker Compose build
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          docker compose config > "$GITHUB_WORKSPACE/evidence/docker-compose-config.txt"
+          docker compose build --pull --no-cache 2>&1 | tee "$GITHUB_WORKSPACE/evidence/docker-compose-build.log"
+          docker compose images --format json > "$GITHUB_WORKSPACE/evidence/docker-compose-images.jsonl"
+
+      - name: Full Docker Compose runtime and endpoint smoke
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          cleanup() {
+            docker compose logs --no-color > "$GITHUB_WORKSPACE/evidence/docker-compose.log" 2>&1 || true
+            docker compose ps --all > "$GITHUB_WORKSPACE/evidence/docker-compose-ps.txt" 2>&1 || true
+            docker compose down --remove-orphans || true
+          }
+          trap cleanup EXIT
+          docker compose up -d
+          ready=0
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/healthz > "$GITHUB_WORKSPACE/evidence/healthz.json"; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          curl --fail --silent 'http://127.0.0.1:8000/api/health/latest?date=2026-04-15' > "$GITHUB_WORKSPACE/evidence/health.json"
+          curl --fail --silent 'http://127.0.0.1:8000/api/calendar/day?date=2026-04-15' > "$GITHUB_WORKSPACE/evidence/calendar.json"
+          curl --fail --silent -X POST 'http://127.0.0.1:8000/api/microcheck' \
+            -H 'Content-Type: application/json' \
+            -d '{"date":"2026-04-15","mentalClarity":3,"decisionLoad":4,"recoveryFeeling":2,"submittedAt":"2026-04-15T09:50:00+02:00"}' \
+            > "$GITHUB_WORKSPACE/evidence/microcheck.json"
+          curl --fail --silent http://127.0.0.1:4173/ > "$GITHUB_WORKSPACE/evidence/frontend-root.html"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          e=Path(os.environ['GITHUB_WORKSPACE'])/'evidence'
+          hz=json.loads((e/'healthz.json').read_text()); h=json.loads((e/'health.json').read_text())
+          c=json.loads((e/'calendar.json').read_text()); m=json.loads((e/'microcheck.json').read_text())
+          assert hz['ok'] is True and hz['service']=='equilibrium-backend'
+          assert h['data']['date']=='2026-04-15' and h['data']['hrvRmssd']==34
+          assert c['data']['date']=='2026-04-15' and c['data']['meetingCount']==4
+          assert m['data']['date']=='2026-04-15' and m['data']['decisionLoad']==4
+          assert (e/'frontend-root.html').stat().st_size > 0
+          print('PASS_FULL_COMPOSE_RUNTIME_AND_ENDPOINT_SMOKE')
+          PY
+
+      - name: Build bounded receipt and output SHA256 manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          e=Path('evidence'); source=e/'source.zip'
+          sha=hashlib.sha256(source.read_bytes()).hexdigest(); size=source.stat().st_size
+          assert sha==os.environ['EXPECTED_SOURCE_SHA256']; assert size==int(os.environ['EXPECTED_SOURCE_BYTES'])
+          receipt={
+            'gate':'EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY_V1',
+            'status':'PASS_HOSTED_FULL_REPO_REPLAY_PROVIDER_ARTIFACT_PENDING_EXTERNAL_EQUALITY_READBACK',
+            'source_provider_artifact_id':os.environ['SOURCE_ARTIFACT_ID'],
+            'source_bytes':size,'source_sha256':sha,'github_repository':os.environ['GITHUB_REPOSITORY'],
+            'github_sha':os.environ['GITHUB_SHA'],'github_ref':os.environ['GITHUB_REF'],
+            'full_repo_materialized':True,'frontend_contract_tests':'PASS','backend_contract_tests':'PASS',
+            'frontend_build':'PASS','docker_compose_build':'PASS','docker_compose_runtime':'PASS','endpoint_smoke':'PASS',
+            'provider_artifact_external_readback':'PENDING','drive_artifact_upload_and_readback':'PENDING',
+            'exact_provider_to_drive_artifact_equality':'PENDING','production_ready':False,'runtime_admission':False,
+            'global_bind':False,'external_actuation':False}
+          (e/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True),encoding='utf-8')
+          rows=[]
+          for p in sorted(e.iterdir()):
+            if p.is_file() and p.name!='output-sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (e/'output-sha256-manifest.txt').write_text('\n'.join(rows)+'\n',encoding='utf-8')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider-native replay evidence
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: equilibrium-human-operator-full-repo-replay-evidence-v2
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record provider artifact outputs
+        if: always()
+        run: |
+          echo "artifact_id=${{ steps.upload.outputs.artifact-id }}"
+          echo "artifact_url=${{ steps.upload.outputs.artifact-url }}"
+          echo "artifact_digest=${{ steps.upload.outputs.artifact-digest }}"
