@@ -1,0 +1,85 @@
+name: HV V6.1 Replay Revocation Restart Conformance V1
+
+on:
+  push:
+    branches:
+      - ess-v6-1-real-repository-control-plane-canary-v1
+    paths:
+      - 'control-plane-canary/v6_1/hv_v6_1_runtime_enforcement_v1.py'
+      - 'control-plane-canary/v6_1/hv_v6_1_restart_worker_v1.py'
+      - 'control-plane-canary/v6_1/test_hv_v6_1_restart_durability_v1.py'
+      - 'control-plane-canary/v6_1/run_hv_v6_1_restart_conformance_v1.py'
+      - '.github/workflows/hv-v6-1-replay-revocation-restart-conformance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restart-durability-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact provider commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pinned cryptography dependency
+        run: python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+
+      - name: Record provider identity
+        run: |
+          python --version
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+
+      - name: Run restart durability conformance
+        working-directory: control-plane-canary/v6_1
+        run: |
+          mkdir -p out
+          python -m py_compile hv_v6_1_restart_worker_v1.py test_hv_v6_1_restart_durability_v1.py run_hv_v6_1_restart_conformance_v1.py
+          python run_hv_v6_1_restart_conformance_v1.py > out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json')
+          r = json.loads(p.read_text(encoding='utf-8'))
+          assert r['tests_total'] == 12
+          assert r['tests_passed'] == 12
+          assert r['fresh_process_restart'] is True
+          assert r['replay_nonce_survives_restart'] is True
+          assert r['revocation_survives_restart'] is True
+          assert r['concurrent_double_spend_exactly_once'] is True
+          assert r['corrupt_state_fail_closed'] is True
+          assert r['schema_mismatch_fail_closed'] is True
+          assert r['claims']['general_runtime_admission'] is False
+          assert r['claims']['production_readiness'] is False
+          assert r['claims']['global_bind'] is False
+          assert r['claims']['pointer_promotion'] is False
+          assert r['verdict'] == 'PASS_HV_V6_1_REPLAY_REVOCATION_DURABLE_STATE_AND_RESTART_CONFORMANCE_12_OF_12'
+          PY
+          sha256sum out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json > out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json.sha256
+
+      - name: Run previous runtime enforcement nonregression
+        working-directory: control-plane-canary/v6_1
+        run: |
+          python test_hv_v6_1_runtime_enforcement_v1.py
+
+      - name: Upload provider-native restart receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: hv-v6-1-replay-revocation-restart-conformance-${{ github.run_id }}
+          path: |
+            control-plane-canary/v6_1/out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json
+            control-plane-canary/v6_1/out/HV_V6_1_REPLAY_REVOCATION_RESTART_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
