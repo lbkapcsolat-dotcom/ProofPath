@@ -1,0 +1,30 @@
+{
+  "gate": "ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_AND_ROUTING_V1",
+  "profile_id": "ess-docker-mcp-13-proven-live-v1",
+  "surface_count": 13,
+  "zero_spend": true,
+  "read_only_only": true,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "surfaces": [
+    {"name":"hugging-face","tool":"hub_repo_search","transport":"gateway-profile","evidence":"TOP20_SECRETLESS_LIVE_CALLABILITY_SWEEP_V1 + HUGGINGFACE_LIVE_CANARY_V2"},
+    {"name":"paper-search","tool":"search_arxiv","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"context7","tool":"resolve-library-id","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"astro-docs","tool":"search_astro_docs","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"docker-docs","tool":"fetch_docker_docs","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"gemini-api-docs","tool":"get_current_model","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"javadocs","tool":"search_artifacts","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"maven-tools-mcp","tool":"get_latest_version","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"ros2","tool":"ros2_interface_list","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"aws-cdk-mcp-server","tool":"CDKGeneralGuidance","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"aws-terraform","tool":"SearchAwsProviderDocs","transport":"gateway-profile","evidence":"ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1"},
+    {"name":"openapi-schema","tool":"list-endpoints","transport":"direct-image","image_digest":"sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a","evidence":"ESS_DOCKER_MCP_REMAINING_4_HOLDS_DIAGNOSIS_AND_SURFACE_RECOVERY_V1"},
+    {"name":"rust-mcp-filesystem","tool":"list_directory","transport":"direct-image","image_digest":"sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242","evidence":"ESS_DOCKER_MCP_REMAINING_4_HOLDS_DIAGNOSIS_AND_SURFACE_RECOVERY_V1"}
+  ],
+  "excluded_holds": [
+    {"name":"atlas-docs","reason":"UPSTREAM_HOLD"},
+    {"name":"cloudflare-docs","reason":"DOCKER_GATEWAY_TRANSPORT_HOLD"}
+  ],
+  "claim_boundary": "CONTROLLED_ROUTING_OVER_PROVEN_READ_ONLY_SURFACES_ONLY__NO_PRODUCTION_READY__NO_GLOBAL_BIND"
+}
