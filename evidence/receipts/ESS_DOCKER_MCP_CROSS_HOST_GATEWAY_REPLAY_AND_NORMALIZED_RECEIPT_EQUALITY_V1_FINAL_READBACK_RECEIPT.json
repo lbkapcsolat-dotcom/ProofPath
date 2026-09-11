@@ -1,0 +1,70 @@
+{
+  "gate": "ESS_DOCKER_MCP_CROSS_HOST_GATEWAY_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY_V1",
+  "verdict": "PASS_BOUNDED_TWO_DISTINCT_GITHUB_HOSTED_RUNNER_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY",
+  "method_lineage": {
+    "v1_negative_method_run_id": 34618050216,
+    "v1_negative_reason": "HOSTNAME_WAS_TOO_STRICT_AS_VM_IDENTITY_AUTHORITY__GITHUB_RUNNER_TEMPLATE_REUSED_HOSTNAME",
+    "v2_negative_method_run_id": 34618273824,
+    "v2_negative_reason": "RAW_DOCKER_CLI_RESPONSE_CONTAINED_VARIABLE_TOOL_CALL_DURATION_PREFIX",
+    "response_normalizer_tdd": {
+      "red_run_id": 34618529873,
+      "red_head_sha": "6642441571c22ce0e1201e703abd92c5683ea29e",
+      "red_expected_failure": "ImportError: cannot import name 'normalize_tool_response' from 'normalized_replay'",
+      "green_run_id": 34618620703,
+      "green_head_sha": "dfb0ed970c397c2cd9dffff3ad6ffdbde1c288e8",
+      "focused_tests_passed": 3,
+      "focused_tests_failed": 0,
+      "normalization_contract": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE"
+    }
+  },
+  "live_integration": {
+    "github_workflow_run_id": 34618848179,
+    "github_head_sha": "60f279ccfd4f71c8efd24d0b6fa3e48618a8b025",
+    "provider_artifact_id": 10270773676,
+    "provider_artifact_bytes": 9903,
+    "provider_artifact_sha256": "fcb0c409cba1aaaedc235c6b8b28dde267c4afb06890059de74d4e77882e9b84",
+    "external_download_sha256": "fcb0c409cba1aaaedc235c6b8b28dde267c4afb06890059de74d4e77882e9b84",
+    "internal_manifest_checked": 5,
+    "internal_manifest_errors": 0,
+    "gateway_version": "v0.43.3",
+    "surface": "paper-search",
+    "tool": "search_arxiv",
+    "transport": "gateway-profile",
+    "signature_verification": true,
+    "host_a_identity": {
+      "boot_id": "1e896288-7c59-4267-9dec-7436257db454",
+      "product_uuid": "ca8cd1b3-95a6-4e0e-aa5d-bf044d3e86fd",
+      "runner_name": "GitHub Actions 1000001050",
+      "raw_response_sha256": "80c23b1a131cc2feede7466cc235ea881c40f43915f39a1d902488729ce7cd7b"
+    },
+    "host_b_identity": {
+      "boot_id": "60f3378a-4e4b-41b2-90e4-53a06a668f37",
+      "product_uuid": "fe5b1e3a-a8ed-4bc5-9727-c8d443902a4c",
+      "runner_name": "GitHub Actions 1000001048",
+      "raw_response_sha256": "725259edce1b18689a30b2eda3d3b68f8b624bfaef5174b7806c62be3d7743ee"
+    },
+    "distinct_host_identity": true,
+    "identity_authority_fields": ["boot_id", "product_uuid", "runner_name"],
+    "shared_template_hostname_allowed": true,
+    "request_sha256_equal": true,
+    "route_sha256_equal": true,
+    "raw_response_equal": false,
+    "professional_response_sha256_equal": true,
+    "professional_response_bytes_equal": true,
+    "professional_response_sha256": "f0a3875d1deab48c2ccb7f5da0c4b175ef19957bfe8c25cbbdef3548548ca5d7",
+    "raw_receipt_equal": false,
+    "normalized_receipt_equal": true,
+    "normalized_receipt_sha256": "b68d73c8a4facbb29c9d3ae9208e1d32a63c43f229179deb1c1cb0f0819c4b4c"
+  },
+  "normalization_contract": {
+    "response": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE",
+    "receipt": "REMOVE_ONLY_RUNTIME_META",
+    "professional_content_must_remain_exact": true
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "TWO_DISTINCT_GITHUB_HOSTED_RUNNER_VMS__SAME_ROUTER_SELECTED_PAPER_SEARCH_GATEWAY_PROFILE_ROUTE__EXACT_PROFESSIONAL_RESPONSE_EQUALITY_AFTER_ONLY_CLI_TIMING_PREFIX_REMOVAL__NORMALIZED_RECEIPT_EQUALITY_AFTER_ONLY_RUNTIME_META_REMOVAL__NOT_ALL_13_SURFACES__NOT_PRODUCTION_READY__NOT_GLOBAL_BIND"
+}
