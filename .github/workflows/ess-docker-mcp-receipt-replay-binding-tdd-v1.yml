@@ -1,0 +1,25 @@
+name: ess-docker-mcp-receipt-replay-binding-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_receipt_replay_binding.py'
+      - 'ess_docker_mcp_router/receipt_binding.py'
+      - '.github/workflows/ess-docker-mcp-receipt-replay-binding-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-receipt-replay-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused receipt and independent replay contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_receipt_replay_binding.py
