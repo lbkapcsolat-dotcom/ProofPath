@@ -1,0 +1,62 @@
+{
+  "gate": "ESS_DOCKER_MCP_CROSS_HOST_DUAL_TRANSPORT_REPLAY_AND_RECEIPT_EQUALITY_V1",
+  "verdict": "PASS_BOUNDED_TWO_DISTINCT_HOSTS_TWO_TRANSPORT_PLANES_NORMALIZED_RECEIPT_EQUALITY",
+  "live_integration": {
+    "github_workflow_run_id": 34620632850,
+    "github_head_sha": "2c64f6c366e23178df4288f3243cf0edf63e4447",
+    "provider_artifact_id": 10271863975,
+    "provider_artifact_bytes": 9358,
+    "provider_artifact_sha256": "8651b17d7fd759a5464523ec337145f60f197c977753c3770f4d09f5e7af919d",
+    "external_download_sha256": "8651b17d7fd759a5464523ec337145f60f197c977753c3770f4d09f5e7af919d",
+    "internal_manifest_checked": 4,
+    "internal_manifest_errors": 0,
+    "host_a_identity": {
+      "boot_id": "d7a14a0e-330a-4b06-a939-6d8d8cdc9522",
+      "product_uuid": "1d802f77-688a-4902-8c84-024128c35d2c",
+      "runner_name": "GitHub Actions 1000001055"
+    },
+    "host_b_identity": {
+      "boot_id": "70dc7178-8ecd-473b-812c-cbbe39a759d9",
+      "product_uuid": "8da79bbd-38ee-441f-bdf7-0ec9bf3ceab7",
+      "runner_name": "GitHub Actions 1000001054"
+    },
+    "distinct_host_identity": true,
+    "identity_authority_fields": ["boot_id", "product_uuid", "runner_name"],
+    "gateway_profile_plane": {
+      "surface": "paper-search",
+      "tool": "search_arxiv",
+      "transport": "gateway-profile",
+      "request_sha256_equal": true,
+      "route_sha256_equal": true,
+      "raw_response_equal": false,
+      "professional_response_sha256_equal": true,
+      "professional_response_bytes_equal": true,
+      "professional_response_sha256": "f0a3875d1deab48c2ccb7f5da0c4b175ef19957bfe8c25cbbdef3548548ca5d7",
+      "response_normalization": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE"
+    },
+    "direct_image_plane": {
+      "surface": "openapi-schema",
+      "tool": "list-endpoints",
+      "transport": "direct-image",
+      "image_digest": "sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a",
+      "request_sha256_equal": true,
+      "route_sha256_equal": true,
+      "input_sha256_equal": true,
+      "response_sha256_equal": true,
+      "response_bytes_equal": true,
+      "response_sha256": "65d54d06d2082a361d40505bb00fdf6bedf9c3490597d871590488f314e03e53",
+      "network_disabled": true,
+      "read_only_mount": true
+    },
+    "raw_receipt_equal": false,
+    "normalized_receipt_equal": true,
+    "normalized_receipt_sha256": "2f7423d33fee53e7c503a09bef1cc1711eea32904dd6bee4adc9f0503323ad55",
+    "receipt_normalization": "REMOVE_ONLY_RUNTIME_META"
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "TWO_DISTINCT_GITHUB_HOSTED_RUNNER_VMS__TWO_EXECUTION_PLANES_GATEWAY_PROFILE_AND_DIRECT_IMAGE__PAPER_SEARCH_AND_OPENAPI_SCHEMA_ONLY__NOT_ALL_13_SURFACES__NOT_PRODUCTION_READY__NOT_GLOBAL_BIND"
+}
