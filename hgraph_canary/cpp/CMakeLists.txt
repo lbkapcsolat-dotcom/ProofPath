@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(ess_hgraph_cpp_canary LANGUAGES CXX)
 
-find_package(hgraph CONFIG REQUIRED)
+if(NOT TARGET hgraph::core)
+    find_package(hgraph CONFIG REQUIRED)
+endif()
 
 add_executable(ess_hgraph_cpp_canary
     test_claim_gate_cpp.cpp
