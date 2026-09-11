@@ -28,3 +28,32 @@ jobs:
         run: |
           set -euo pipefail
           python3 formal/rcca-lean4/coverage/test_coverage.py
+      - name: Materialize bounded coverage receipt
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          root = Path.cwd()
+          here = root / 'formal/rcca-lean4/coverage'
+          sys.path.insert(0, str(here))
+          from coverage_check import validate_coverage
+          report = validate_coverage(root)
+          report['workflow_commit'] = '${{ github.sha }}'
+          report['gate_id'] = 'EQUILIBRIUM_INTEGRATED_AXIOMS_CORE_RCCA_SPEC_TO_LEAN_AXIOM_THEOREM_COVERAGE_BIJECTION_AND_NO_ORPHAN_PROOF_V1'
+          out = here / 'RCCA_SPEC_TO_LEAN_COVERAGE_RECEIPT_V1.json'
+          out.write_text(json.dumps(report, sort_keys=True, separators=(',', ':')) + '\n', encoding='utf-8')
+          digest = hashlib.sha256(out.read_bytes()).hexdigest()
+          (here / 'RCCA_SPEC_TO_LEAN_COVERAGE_RECEIPT_V1.json.sha256').write_text(digest + '  ' + out.name + '\n', encoding='utf-8')
+          PY
+      - name: Upload bounded coverage receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rcca-spec-to-lean-coverage-receipt
+          path: |
+            formal/rcca-lean4/coverage/RCCA_SPEC_TO_LEAN_COVERAGE_RECEIPT_V1.json
+            formal/rcca-lean4/coverage/RCCA_SPEC_TO_LEAN_COVERAGE_RECEIPT_V1.json.sha256
+            formal/rcca-lean4/coverage/rcca-spec-to-lean-coverage.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

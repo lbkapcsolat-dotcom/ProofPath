@@ -1,0 +1,70 @@
+{
+  "schema": "RCCA_SPEC_TO_LEAN_COVERAGE_V1",
+  "spec": {
+    "drive_id": "1BTwkIu9tQYRYfiWRIkKc44Gi3423RdispjOPAnQb4KE",
+    "revision_id": "ANLCKQnIQaax6jGT6rGo8WSjR54jSknxF_FkRJSPpqFHYebuGMTLr9fWh27VtYAUEPE7Wr70Tu5PtjW8xsd6ifvqjhgVL82upQDRVL_FQgU",
+    "title": "EQUILIBRIUM_INTEGRATED_AXIOMS_CORE_RECOVERY_CUSTODY_CURRENTNESS_AUTHORITY_FORMAL_SPEC_AND_COUNTERMODEL_V1"
+  },
+  "lean": {
+    "path": "formal/rcca-lean4/RCCA.lean",
+    "sha256": "c31496672026e2aa1ef1139dfe30652919bdaabb8ba66c3715b903a3d4b294bf"
+  },
+  "proof_custody": {
+    "canonical_main_commit": "015a8f418912efd44de0b4edf1650b9374a6e899",
+    "release_tag": "ess-rcca-canonical-main-proof-v1",
+    "release_id": 386843824,
+    "manifest_sha256": "79318e830db2f85176df618db4e580119a94a946adfc54563ca3649436a27428",
+    "bundle_sha256": "db0d134b9b4696292c006b0e05521a8465f0a7b0e5c254c1bb6634ccd7d1cdd5"
+  },
+  "obligations": {
+    "axioms": [
+      {"id":"RCCA-01","title":"DIMENSIONAL_SEPARATION","symbols":["Snapshot","Bundle","Replica","RuntimeWitness","RecoveryWitness","Recoverable","Current","ValidRecovery","RestoreExecutable","runtime_recovery_authority_separation"]},
+      {"id":"RCCA-02","title":"EXACT_BYTE_CUSTODY","symbols":["Exact","Readable","Recoverable","restore_requires_recoverable","cm_exact_but_mutable"]},
+      {"id":"RCCA-03","title":"IMMUTABILITY_IS_NOT_AUTHORITY","symbols":["Immutable","Current","ValidRecovery","RestoreExecutable","cm_exact_immutable_but_superseded","cm_recoverable_without_recovery_witness","cm_strong_custody_without_authority"]},
+      {"id":"RCCA-04","title":"EXACTNESS_IS_NOT_IMMUTABILITY","symbols":["Exact","Immutable","cm_exact_but_mutable"]},
+      {"id":"RCCA-05","title":"CURRENTNESS_REQUIRES_AUTHENTICATED_LINEAGE_RESOLUTION","symbols":["Current","superseded_bundle_not_current","cm_exact_immutable_but_superseded"]},
+      {"id":"RCCA-06","title":"SUPERSESSION_CHANGES_CURRENTNESS_NOT_HISTORY","symbols":["HistoricalValid","superseded_bundle_not_current","cm_supersession_with_audit_persistence"]},
+      {"id":"RCCA-07","title":"RECOVERABILITY_IS_NOT_RESTORE_AUTHORITY","symbols":["Recoverable","restore_requires_recovery_authority","cm_recoverable_without_recovery_witness"]},
+      {"id":"RCCA-08","title":"HISTORICAL_ROLLBACK_REQUIRES_EXPLICIT_RECOVERY_AUTHORITY","symbols":["RestoreExecutable","restore_requires_recovery_authority","cm_authorized_historical_rollback"]},
+      {"id":"RCCA-09","title":"RUNTIME_AUTHORITY_CANNOT_SUBSTITUTE_FOR_RECOVERY_AUTHORITY","symbols":["RuntimeWitness","RecoveryWitness","RuntimeAuthorized","runtime_recovery_authority_separation","cm_runtime_token_not_recovery_token"]},
+      {"id":"RCCA-10","title":"EXACT_RECOVERY_WITNESS_BINDING_AND_NONREPLAY","symbols":["RecoveryWitness","ValidRecovery","recovery_witness_bundle_mismatch_invalid","recovery_witness_consumed_invalid","recovery_witness_revoked_invalid","recovery_witness_replay_invalid","recovery_witness_expired_invalid","recovery_witness_wrong_policy_invalid","recovery_witness_wrong_epoch_invalid","cm_recovery_witness_wrong_bundle","cm_stale_policy_or_epoch"]},
+      {"id":"RCCA-11","title":"ENFORCEMENT_EVIDENCE_SEPARATION","symbols":["ConfiguredImmutable","ProviderEnforcedImmutable","Immutable","configured_immutability_not_enforcement","immutable_requires_provider_enforcement","cm_configured_not_enforced"]},
+      {"id":"RCCA-12","title":"NONCOMPENSATORY_RECOVERY_CLAIM_CEILING","symbols":["ClaimLevel","meet","ClaimCeiling","claim_ceiling_authority_bottom","cm_strong_custody_without_authority"]}
+    ],
+    "countermodels": [
+      {"id":"CM-RCCA-01","title":"EXACT_BUT_MUTABLE","primary_theorem":"cm_exact_but_mutable","symbols":["cm_exact_but_mutable"]},
+      {"id":"CM-RCCA-02","title":"IMMUTABLE_WRONG_BYTES","primary_theorem":"cm_immutable_wrong_bytes","symbols":["cm_immutable_wrong_bytes"]},
+      {"id":"CM-RCCA-03","title":"EXACT_IMMUTABLE_BUT_SUPERSEDED","primary_theorem":"cm_exact_immutable_but_superseded","symbols":["cm_exact_immutable_but_superseded"]},
+      {"id":"CM-RCCA-04","title":"CURRENT_BUT_UNREADABLE","primary_theorem":"cm_current_but_unreadable","symbols":["cm_current_but_unreadable"]},
+      {"id":"CM-RCCA-05","title":"RECOVERABLE_WITHOUT_RECOVERY_WITNESS","primary_theorem":"cm_recoverable_without_recovery_witness","symbols":["cm_recoverable_without_recovery_witness"]},
+      {"id":"CM-RCCA-06","title":"RUNTIME_TOKEN_AS_RECOVERY_TOKEN","primary_theorem":"cm_runtime_token_not_recovery_token","symbols":["cm_runtime_token_not_recovery_token"]},
+      {"id":"CM-RCCA-07","title":"RECOVERY_WITNESS_BOUND_TO_DIFFERENT_BUNDLE","primary_theorem":"cm_recovery_witness_wrong_bundle","symbols":["cm_recovery_witness_wrong_bundle"]},
+      {"id":"CM-RCCA-08","title":"STALE_POLICY_OR_EPOCH","primary_theorem":"cm_stale_policy_or_epoch","symbols":["cm_stale_policy_or_epoch"]},
+      {"id":"CM-RCCA-09","title":"CONFIGURED_BUT_NOT_ENFORCED_IMMUTABILITY","primary_theorem":"cm_configured_not_enforced","symbols":["cm_configured_not_enforced"]},
+      {"id":"CM-RCCA-10","title":"AUTHORIZED_HISTORICAL_ROLLBACK","primary_theorem":"cm_authorized_historical_rollback","symbols":["cm_authorized_historical_rollback"]},
+      {"id":"CM-RCCA-11","title":"STRONG_CUSTODY_WITHOUT_ACTION_AUTHORITY","primary_theorem":"cm_strong_custody_without_authority","symbols":["cm_strong_custody_without_authority"]},
+      {"id":"CM-RCCA-12","title":"SUPERSESSION_WITH_AUDIT_PERSISTENCE","primary_theorem":"cm_supersession_with_audit_persistence","symbols":["cm_supersession_with_audit_persistence"]}
+    ],
+    "derived_theorems": [
+      {"id":"T-RCCA-01","title":"NO_CUSTODY_TO_AUTHORITY_ESCALATION","symbols":["restore_requires_recovery_authority","cm_recoverable_without_recovery_witness","claim_ceiling_authority_bottom"]},
+      {"id":"T-RCCA-02","title":"SUPERSESSION_DEMOTES_CURRENTNESS_ONLY","symbols":["superseded_bundle_not_current","HistoricalValid","cm_supersession_with_audit_persistence"]},
+      {"id":"T-RCCA-03","title":"HISTORICAL_ROLLBACK_REQUIRES_EXPLICIT_W_R","symbols":["restore_requires_recovery_authority","runtime_recovery_authority_separation","cm_authorized_historical_rollback"]},
+      {"id":"T-RCCA-04","title":"NONCOMPENSATORY_RECOVERY_CEILING","symbols":["ClaimCeiling","claim_ceiling_authority_bottom"]},
+      {"id":"T-RCCA-05","title":"REPLICA_MULTIPLICITY_DOES_NOT_CREATE_AUTHORITY","symbols":["Replica","Current","ValidRecovery","RuntimeAuthorized","cm_recoverable_without_recovery_witness"]},
+      {"id":"T-RCCA-06","title":"RECOVERY_EXECUTION_IS_EXACT_CONTEXT_BOUND","symbols":["ValidRecovery","recovery_witness_bundle_mismatch_invalid","recovery_witness_consumed_invalid","recovery_witness_revoked_invalid","recovery_witness_replay_invalid","recovery_witness_expired_invalid","recovery_witness_wrong_policy_invalid","recovery_witness_wrong_epoch_invalid"]},
+      {"id":"T-RCCA-07","title":"ENFORCEMENT_CLAIM_REQUIRES_ENFORCEMENT_EVIDENCE","symbols":["immutable_requires_provider_enforcement","configured_immutability_not_enforcement"]},
+      {"id":"T-RCCA-08","title":"REFINEMENT_NONWEAKENING","symbols":["ExecRCCA","rcca_refinement_nonweakening"]}
+    ]
+  },
+  "scope": {
+    "primary_obligations": 32,
+    "compatibility_obligations_pco": "OUT_OF_THIS_BIJECTION__PRESERVED_AS_PREDECESSOR_SCOPE",
+    "core_admission": false,
+    "runtime_admission": false,
+    "production_promotion": false,
+    "pointer_promotion": false,
+    "global_bind": false,
+    "zero_spend": true,
+    "claim_ceiling": "PINNED_SPEC_TO_CANONICAL_LEAN_COVERAGE_BIJECTION_AND_NO_ORPHAN_PROOF_ONLY"
+  }
+}
