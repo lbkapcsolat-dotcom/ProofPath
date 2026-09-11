@@ -173,7 +173,7 @@ jobs:
       - name: Record Node and commit identity
         run: |
           node --version
-          git rev-parse HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Run ProofPath core model regression
         run: node tests.mjs
       - name: Run ProofPath UI static regression
