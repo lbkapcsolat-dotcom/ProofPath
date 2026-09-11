@@ -1,0 +1,36 @@
+name: RCCA Lean4 Mechanization
+
+on:
+  push:
+    branches:
+      - ess-rcca-lean4-mechanization-v1
+    paths:
+      - 'formal/rcca-lean4/**'
+      - '.github/workflows/rcca-lean4-mechanization.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  red-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Lean and build package
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/rcca-lean4
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Compile theorem harness
+        working-directory: formal/rcca-lean4
+        run: ~/.elan/bin/lake env lean RCCATest.lean
