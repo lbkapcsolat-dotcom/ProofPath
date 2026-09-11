@@ -1,0 +1,189 @@
+name: ess-docker-mcp-catalog-discovery-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-catalog-discovery-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  ESS_PROFILE_ID: ess-controlled-v1
+
+jobs:
+  discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v4
+
+      - name: Record baseline Docker runtime
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-discovery
+          docker version | tee evidence/docker-mcp-discovery/docker-version.txt
+          docker compose version | tee evidence/docker-mcp-discovery/docker-compose-version.txt
+
+      - name: Install pinned Docker MCP Gateway CLI plugin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import json, os, pathlib, re, urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+              headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'}
+          )
+          with urllib.request.urlopen(req, timeout=60) as r:
+              release=json.load(r)
+          assets=release.get('assets',[])
+          rows=[{'name':a['name'],'url':a['browser_download_url'],'size':a.get('size')} for a in assets]
+          pathlib.Path('evidence/docker-mcp-discovery/release-assets.json').write_text(json.dumps(rows,indent=2,sort_keys=True))
+          candidates=[]
+          for a in assets:
+              n=a['name'].lower()
+              if 'linux' in n and ('amd64' in n or 'x86_64' in n) and not any(x in n for x in ['sha256','checksum','sbom']):
+                  candidates.append(a)
+          if not candidates:
+              raise SystemExit('HOLD_NO_LINUX_AMD64_GATEWAY_ASSET')
+          # Prefer an archive if present, otherwise a raw binary.
+          candidates.sort(key=lambda a: (0 if a['name'].lower().endswith(('.tar.gz','.tgz','.zip')) else 1, len(a['name'])))
+          chosen=candidates[0]
+          pathlib.Path('/tmp/mcp_asset_url').write_text(chosen['browser_download_url'])
+          pathlib.Path('/tmp/mcp_asset_name').write_text(chosen['name'])
+          print(json.dumps({'tag':tag,'asset':chosen['name'],'size':chosen.get('size')},sort_keys=True))
+          PY
+          ASSET_URL="$(cat /tmp/mcp_asset_url)"
+          ASSET_NAME="$(cat /tmp/mcp_asset_name)"
+          curl --fail --location --silent --show-error --max-time 180 "$ASSET_URL" -o "/tmp/$ASSET_NAME"
+          mkdir -p /tmp/mcp-extract "$HOME/.docker/cli-plugins"
+          case "$ASSET_NAME" in
+            *.tar.gz|*.tgz) tar -xzf "/tmp/$ASSET_NAME" -C /tmp/mcp-extract ;;
+            *.zip) unzip -q "/tmp/$ASSET_NAME" -d /tmp/mcp-extract ;;
+            *) cp "/tmp/$ASSET_NAME" /tmp/mcp-extract/docker-mcp ;;
+          esac
+          CANDIDATE="$(find /tmp/mcp-extract -type f \( -name 'docker-mcp' -o -name 'docker-mcp-*' -o -name 'mcp-gateway' \) | head -n1)"
+          test -n "$CANDIDATE"
+          install -m 0755 "$CANDIDATE" "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-discovery/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-mcp-discovery/docker-mcp-version.txt
+
+      - name: Pull and enumerate official Docker MCP Catalog
+        run: |
+          set -euxo pipefail
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" 2>&1 | tee evidence/docker-mcp-discovery/catalog-pull.log
+          docker mcp catalog ls --format=json > evidence/docker-mcp-discovery/catalogs.json
+          docker mcp catalog server ls "$DOCKER_MCP_CATALOG" --filter name=wolfram-alpha --format json > evidence/docker-mcp-discovery/wolfram-list.json
+          docker mcp catalog server ls "$DOCKER_MCP_CATALOG" --filter name=paper-search --format json > evidence/docker-mcp-discovery/paper-search-list.json
+          docker mcp catalog server ls "$DOCKER_MCP_CATALOG" --filter name=context7 --format json > evidence/docker-mcp-discovery/context7-list.json
+          test -s evidence/docker-mcp-discovery/wolfram-list.json
+          test -s evidence/docker-mcp-discovery/paper-search-list.json
+          test -s evidence/docker-mcp-discovery/context7-list.json
+
+      - name: Inspect target servers and freeze catalog definitions
+        run: |
+          set -euxo pipefail
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" wolfram-alpha --format json > evidence/docker-mcp-discovery/wolfram-inspect.json
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" paper-search --format json > evidence/docker-mcp-discovery/paper-search-inspect.json
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" context7 --format json > evidence/docker-mcp-discovery/context7-inspect.json
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('evidence/docker-mcp-discovery')
+          summary={}
+          for name in ['wolfram','paper-search','context7']:
+              p=root/f'{name}-inspect.json'
+              b=p.read_bytes()
+              obj=json.loads(b)
+              text=json.dumps(obj).lower()
+              summary[name]={
+                  'bytes':len(b),
+                  'sha256':hashlib.sha256(b).hexdigest(),
+                  'mentions_secret':('secret' in text or 'api_key' in text or 'api key' in text),
+              }
+          (root/'target-server-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Create narrow ESS controlled profile
+        run: |
+          set -euxo pipefail
+          docker mcp profile create --name ESS_CONTROLLED_V1 --id "$ESS_PROFILE_ID" \
+            --server catalog://mcp/docker-mcp-catalog/wolfram-alpha \
+            --server catalog://mcp/docker-mcp-catalog/paper-search \
+            --server catalog://mcp/docker-mcp-catalog/context7 2>&1 | tee evidence/docker-mcp-discovery/profile-create.log
+          docker mcp profile show "$ESS_PROFILE_ID" > evidence/docker-mcp-discovery/profile-show.txt
+          docker mcp profile export "$ESS_PROFILE_ID" evidence/docker-mcp-discovery/ess-controlled-v1-profile.json
+
+      - name: Fail-closed configuration probes
+        run: |
+          set -euo pipefail
+          # No secrets are injected in this gate. Secret-backed servers may HOLD by design.
+          for server in wolfram-alpha context7; do
+            set +e
+            timeout --signal=TERM --kill-after=5s 90s docker mcp gateway run --dry-run --servers "$server" --verify-signatures \
+              > "evidence/docker-mcp-discovery/${server}-dry-run.log" 2>&1
+            rc=$?
+            set -e
+            printf '%s\n' "$rc" > "evidence/docker-mcp-discovery/${server}-dry-run.exit"
+          done
+          # Paper Search has no secret requirement in the public catalog and should expose tools.
+          timeout --signal=TERM --kill-after=5s 150s docker mcp tools --format json --gateway-arg=--servers=paper-search ls \
+            > evidence/docker-mcp-discovery/paper-search-tools.json 2> evidence/docker-mcp-discovery/paper-search-tools.stderr
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('evidence/docker-mcp-discovery/paper-search-tools.json')
+          raw=p.read_text()
+          obj=json.loads(raw)
+          text=json.dumps(obj).lower()
+          if 'search_arxiv' not in text:
+              raise SystemExit('HOLD_PAPER_SEARCH_TOOL_SURFACE_MISSING_SEARCH_ARXIV')
+          print('PASS_PAPER_SEARCH_TOOL_SURFACE_SEARCH_ARXIV')
+          PY
+          docker mcp tools call --help > evidence/docker-mcp-discovery/tools-call-help.txt 2>&1 || true
+
+      - name: Build discovery receipt
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-mcp-discovery')
+          rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          receipt={
+            'gate':'ESS_DOCKER_MCP_CATALOG_DISCOVERY_ZERO_SPEND_AND_CONTROLLED_PROFILE_BIND_V1',
+            'status':'PASS_DISCOVERY_AND_CONTROLLED_PROFILE__PAPER_SEARCH_TOOL_SURFACE_PASS__SECRET_BACKED_CALLABILITY_PENDING',
+            'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+            'profile_id':os.environ['ESS_PROFILE_ID'],
+            'zero_spend':True,
+            'catalog':'mcp/docker-mcp-catalog:latest',
+            'targets':['wolfram-alpha','paper-search','context7'],
+            'paper_search_tool_surface':'PASS_SEARCH_ARXIV_PRESENT',
+            'wolfram_live_call':'HOLD_SECRET_REQUIRED_OR_CONFIGURATION_PENDING',
+            'context7_live_call':'HOLD_SECRET_REQUIRED_OR_CONFIGURATION_PENDING',
+            'production_ready':False,
+            'global_bind':False,
+            'external_actuation':False,
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload discovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-catalog-discovery-v1
+          path: evidence/docker-mcp-discovery/
+          if-no-files-found: error
+          retention-days: 30
