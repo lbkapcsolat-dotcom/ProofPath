@@ -1,0 +1,76 @@
+{
+  "gate": "ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_AND_ROUTING_V1",
+  "verdict": "PASS_BOUNDED_CONTROLLED_PROFILE_AND_FAIL_CLOSED_ROUTING",
+  "cardinality_correction": {
+    "previous_label": 12,
+    "evidence_backed_surface_count": 13,
+    "derivation": "1_TOP20_EXISTING_LIVE_PASS + 10_SAFE_ARGUMENT_LIVE_PASS + 2_DIRECT_IMAGE_RECOVERIES = 13",
+    "overclaim_prevented": true
+  },
+  "authority_sources": [
+    {
+      "path": "evidence/receipts/ESS_DOCKER_MCP_TOP20_SECRETLESS_LIVE_CALLABILITY_SWEEP_V1_FINAL_READBACK_RECEIPT.json",
+      "blob_sha": "017daa5163042c2235bd91f5a1af9690ea7de9b9",
+      "contribution": "hugging-face LIVE_PASS"
+    },
+    {
+      "path": "evidence/receipts/ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1_FINAL_READBACK_RECEIPT.json",
+      "blob_sha": "b6d0a94cefa195a4dc7d14066553c4f9514ca958",
+      "contribution": "10 distinct LIVE_PASS surfaces"
+    },
+    {
+      "path": "evidence/receipts/ESS_DOCKER_MCP_REMAINING_4_HOLDS_DIAGNOSIS_AND_SURFACE_RECOVERY_V1_FINAL_READBACK_RECEIPT.json",
+      "blob_sha": "cc4b3572bb9933a80733126673ad48eec251201a",
+      "contribution": "openapi-schema + rust-mcp-filesystem direct-image LIVE_PASS"
+    }
+  ],
+  "red_phase": {
+    "github_workflow_run_id": 34614537256,
+    "github_head_sha": "4a47d9589783dd03244aaf8009d0c10e352697b9",
+    "status": "EXPECTED_FAILURE",
+    "focused_failure": "ModuleNotFoundError: No module named 'router'",
+    "setup_passed": true,
+    "reason": "required router implementation absent"
+  },
+  "green_phase": {
+    "github_workflow_run_id": 34614625930,
+    "github_head_sha": "73b9ef3f17558f4c922d0db5baebe02b3586a90a",
+    "provider_artifact_id": 10269882642,
+    "provider_artifact_bytes": 1985,
+    "provider_artifact_sha256": "5b76c72d55966b791f04dc75ae9781c97e4a75b72b752c7667cc127373861a9d",
+    "external_download_sha256": "5b76c72d55966b791f04dc75ae9781c97e4a75b72b752c7667cc127373861a9d",
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "internal_manifest_checked": 3,
+    "internal_manifest_errors": 0
+  },
+  "controlled_profile": {
+    "surface_count": 13,
+    "positive_routes": 13,
+    "default_policy": "DENY",
+    "gateway_profile_surfaces": 11,
+    "direct_image_surfaces": 2,
+    "excluded_holds": ["atlas-docs", "cloudflare-docs"],
+    "profile_sha256": "bdd0556c474a05c4e091a97d87179ae1f94c294911cb7b58de7dea1b2f2e91b9",
+    "policy_sha256": "7bd8fb111243a15b127726e9cf7f2ef3ee3943ca6e6b1935fe999f159f0d1c29",
+    "router_sha256": "9a4b4494f369ce32a7863ff7770b79afb89c0c6b7a1d46fcc7bf362ef688c712",
+    "tests_sha256": "e40d0f7de0416aa71b539fee4e2df0a450e2b3967718133d0b28cb65c1f9793f"
+  },
+  "negative_controls": [
+    "FORBIDDEN_INTENT",
+    "UNKNOWN_DOMAIN",
+    "WRONG_ROUTE",
+    "WRONG_TOOL",
+    "TRANSPORT_MISMATCH_DIRECT_TO_GATEWAY",
+    "TRANSPORT_MISMATCH_GATEWAY_TO_DIRECT",
+    "HOLD_SURFACE_EXCLUSION",
+    "INTENT_NOT_ALLOWLISTED"
+  ],
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "live_bulk_invocation_performed": false,
+  "claim_boundary": "CONTROLLED_PROFILE_AND_DETERMINISTIC_FAIL_CLOSED_ROUTING_CONTRACT_OVER_13_PREVIOUSLY_PROVEN_READ_ONLY_SURFACES__NO_NEW_BULK_LIVE_CALLABILITY_CLAIM__NO_PRODUCTION_READY__NO_GLOBAL_BIND"
+}
