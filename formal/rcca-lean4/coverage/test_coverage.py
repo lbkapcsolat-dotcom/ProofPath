@@ -23,6 +23,16 @@ def test_full_spec_to_lean_coverage_bijection():
     assert report["verdict"] == "PASS_RCCA_SPEC_TO_LEAN_COVERAGE_BIJECTION_AND_NO_ORPHAN_PROOF"
 
 
+def test_workflow_is_persistent_main_gate():
+    workflow = (ROOT / ".github/workflows/rcca-spec-lean-coverage.yml").read_text(encoding="utf-8")
+    assert "pull_request:" in workflow
+    assert "branches:\n      - main" in workflow
+    assert workflow.count("- main") >= 2
+    assert "formal/rcca-lean4/RCCA.lean" in workflow
+    assert "formal/rcca-lean4/coverage/**" in workflow
+
+
 if __name__ == "__main__":
     test_full_spec_to_lean_coverage_bijection()
+    test_workflow_is_persistent_main_gate()
     print("PASS_TEST_RCCA_SPEC_TO_LEAN_COVERAGE_BIJECTION")
