@@ -1,0 +1,93 @@
+{
+  "gate": "ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_ROUTER_TO_EXECUTOR_FULL_MATRIX_AND_NEGATIVE_ROUTE_CANARIES_V1",
+  "verdict": "PASS_12_OF_12_ROUTER_TO_EXECUTOR_LIVE_BINDING__4_OF_4_NEGATIVE_ROUTE_CANARIES_FAIL_CLOSED",
+  "router_executor_binding_tdd": {
+    "red_run_id": 34633167562,
+    "red_job_id": 103374665600,
+    "red_observed_failure": "ModuleNotFoundError: No module named 'executor_binding'",
+    "green_run_id": 34633254930,
+    "green_job_id": 103374951121,
+    "green_test_count": 3
+  },
+  "direct_contract_projection_tdd": {
+    "red_head_sha": "0957e832e61a99281b77bf939765f03ea6080c24",
+    "red_run_id": 34633928572,
+    "red_job_id": 103377148207,
+    "red_observed_failure": "Direct executor projection test failed because top-level surface was absent while the canonical executor_contract was nested",
+    "green_head_sha": "c973361953a54b0c62584d90a19249cd512e3c36",
+    "green_run_id": 34634020598,
+    "green_status": "success",
+    "green_test_count": 4,
+    "implementation_boundary": "For direct-image routes only, plan_execution projects the exact canonical executor_contract fields to the plan top level; gateway-profile plan semantics are unchanged; validate_execution_trace still compares against the nested canonical executor_contract"
+  },
+  "initial_live_attempt": {
+    "run_id": 34633429805,
+    "job_id": 103375526280,
+    "head_sha": "7d9255e47c5235600e16c4459b2a2acc6f370eba",
+    "gateway_live_binding_count_before_failure": 10,
+    "negative_canary_count_before_failure": 4,
+    "direct_image_live_calls_executed": 0,
+    "classification": "MECHANICAL_WORKFLOW_HOLD_ONLY",
+    "root_cause": "Go direct-image executor attempted to unmarshal the whole execution-plan object as a direct Contract instead of consuming the canonical projected executor contract; failure occurred before the first direct-image MCP call",
+    "semantic_hold_inferred": false
+  },
+  "final_live_integration": {
+    "run_id": 34634274865,
+    "job_id": 103378263978,
+    "head_sha": "78a2bb61769534d04cd0c45811ccebcce207efdd",
+    "provider_conclusion": "success",
+    "positive_surface_count": 12,
+    "gateway_profile_count": 10,
+    "direct_image_count": 2,
+    "positive_status_counts": {
+      "LIVE_BOUND_PASS": 12
+    },
+    "negative_canary_count": 4,
+    "negative_status_counts": {
+      "DENY_NO_EXECUTOR_PASS": 4
+    },
+    "positive_surfaces": [
+      "hugging-face",
+      "paper-search",
+      "context7",
+      "astro-docs",
+      "docker-docs",
+      "javadocs",
+      "maven-tools-mcp",
+      "ros2",
+      "aws-cdk-mcp-server",
+      "aws-terraform",
+      "openapi-schema",
+      "rust-mcp-filesystem"
+    ],
+    "negative_canaries": {
+      "wrong-tool": "WRONG_TOOL",
+      "wrong-transport": "TRANSPORT_MISMATCH",
+      "write-intent": "FORBIDDEN_INTENT",
+      "gemini-quarantine": "QUARANTINED_NONDETERMINISTIC_SURFACE"
+    },
+    "gemini_quarantine_preserved": true,
+    "gemini_executor_invoked": false,
+    "input_sha256_before_equals_after": true,
+    "input_sha256_diff_bytes": 0
+  },
+  "final_artifact": {
+    "provider_artifact_id": 10277298744,
+    "provider_artifact_bytes": 170961,
+    "provider_artifact_sha256": "ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091",
+    "external_download_sha256": "ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091",
+    "external_sha256_equal": true,
+    "internal_manifest_checked": 166,
+    "internal_manifest_errors": 0,
+    "bounded_receipt_sha256": "0a6735092573640dc5c7b93585b42cc96b13d06bb403c6c8e210ed70d7a109bf",
+    "summary_sha256": "e7b1711cbd5fecde0f42c0db7b0a71cfed3d45c33fe92ff3bf5a492ca17d90ca",
+    "manifest_sha256": "d829fccd8e4b90cca85a54b5624c5d3c38868a33dc3bf1c063a1d74f2facc42b"
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "claim_boundary": "ROUTER_DECISION_TO_EXECUTOR_INVOCATION_BINDING_OVER_12_ROUTABLE_READ_ONLY_SURFACES__10_GATEWAY_PROFILE_PLUS_2_DIGEST_PINNED_DIRECT_IMAGE__4_NEGATIVE_ROUTES_DENIED_BEFORE_EXECUTOR__GEMINI_QUARANTINE_PRESERVED__NO_PRODUCTION_READY__NO_RUNTIME_ADMISSION__NO_GLOBAL_BIND"
+}
