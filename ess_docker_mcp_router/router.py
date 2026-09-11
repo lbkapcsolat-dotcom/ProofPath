@@ -10,13 +10,15 @@ def load_policy(path):
     return json.loads(Path(path).read_text())
 
 
-def _deny(reason):
-    return {
+def _deny(reason, **details):
+    result = {
         "decision": "DENY",
         "reason": reason,
         "read_only": True,
         "external_actuation": False,
     }
+    result.update(details)
+    return result
 
 
 def route_request(request, profile, policy):
@@ -29,6 +31,7 @@ def route_request(request, profile, policy):
     allowed_intents = set(policy.get("allowed_intents", []))
     forbidden_intents = set(policy.get("forbidden_intents", []))
     excluded = set(policy.get("excluded_surfaces", []))
+    quarantined_domains = policy.get("quarantined_domains", {})
 
     if domain not in routes:
         return _deny("UNKNOWN_DOMAIN")
@@ -36,6 +39,16 @@ def route_request(request, profile, policy):
         return _deny("FORBIDDEN_INTENT")
     if intent not in allowed_intents:
         return _deny("INTENT_NOT_ALLOWLISTED")
+
+    quarantine = quarantined_domains.get(domain)
+    if quarantine is not None:
+        return _deny(
+            "QUARANTINED_NONDETERMINISTIC_SURFACE",
+            surface=quarantine.get("surface"),
+            tool=quarantine.get("tool"),
+            quarantine_policy_reason=quarantine.get("reason"),
+            quarantine_evidence_gate=quarantine.get("evidence_gate"),
+        )
 
     expected = routes[domain]
     surface = expected["surface"]
