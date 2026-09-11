@@ -12,11 +12,11 @@ def claim_gate(
     human_gate: TS[bool],
     rollback_plan: TS[bool],
 ) -> TS[str]:
-    """Minimal fail-closed ESS control-contract canary.
+    """Intentionally mutated ESS control-contract canary.
 
-    This is an isolated reference-runtime canary only. It does not perform
-    canonical writes, runtime admission, production promotion, pointer
-    promotion, or global binding.
+    MUTATION: the production-independent-validation guard is deliberately
+    weakened from >= 6 to > 6. This branch exists only to prove that the
+    Wolfram oracle detects a semantic regression missed by the smoke suite.
     """
     if not current_pointer_present.value:
         return "HOLD:MISSING_CURRENT_POINTER"
@@ -27,7 +27,7 @@ def claim_gate(
     if requested_claim_rank.value > evidence_level_rank.value:
         return "HOLD:CLAIM_EXCEEDS_EVIDENCE"
 
-    if requested_claim_rank.value >= 6 and not independent_validation.value:
+    if requested_claim_rank.value > 6 and not independent_validation.value:
         return "HOLD:PRODUCTION_OVERCLAIM"
 
     if irreversible_action.value and not (human_gate.value and rollback_plan.value):
