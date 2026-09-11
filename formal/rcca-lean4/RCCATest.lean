@@ -15,6 +15,7 @@ open RCCA
 #check recovery_witness_wrong_epoch_invalid
 #check superseded_bundle_not_current
 #check configured_immutability_not_enforcement
+#check immutable_requires_provider_enforcement
 #check claim_ceiling_authority_bottom
 #check cm_exact_but_mutable
 #check cm_immutable_wrong_bytes
@@ -49,6 +50,14 @@ def testMutableReplica : Replica := {
   enforcedImmutable := false
 }
 
+def testEnforcedReplica : Replica := {
+  byteDigest := 55
+  readable := true
+  immutable := true
+  configuredImmutable := true
+  enforcedImmutable := true
+}
+
 example : Exact testBundle testMutableReplica := by
   rfl
 
@@ -60,6 +69,12 @@ example : ConfiguredImmutable testMutableReplica := by
 
 example : ¬ ProviderEnforcedImmutable testMutableReplica := by
   simp [ProviderEnforcedImmutable, testMutableReplica]
+
+example : Immutable testEnforcedReplica := by
+  simp [Immutable, ProviderEnforcedImmutable, testEnforcedReplica]
+
+example (r : Replica) (h : Immutable r) : ProviderEnforcedImmutable r :=
+  immutable_requires_provider_enforcement r h
 
 example : Current testBundle testSnapshot1 := by
   rfl
