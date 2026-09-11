@@ -1,0 +1,316 @@
+name: exact-full-repo-hosted-runner-replay-artifact-equality-v1
+
+on:
+  push:
+    branches:
+      - equilibrium-human-operator-runtime-evidence-v1
+    paths:
+      - '.github/workflows/equilibrium-human-operator-full-repo-replay-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_DRIVE_ID: 16hjdP2yePlpf89I0uW56tONlmBi1N8NH
+  SOURCE_NAME: equilibrium_repo_docker_env_ci_v3_ci_dry_run.zip
+  EXPECTED_SOURCE_BYTES: '27636349'
+  EXPECTED_SOURCE_SHA256: 77a049b19510a495fd236a935e41fb3caf8a04e0d2a2a33b287bb743a813fb77
+  EXPECTED_REPO_ROOT: equilibrium_repo_docker_env_ci_v1
+
+jobs:
+  exact-full-repo-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Record provider-native runner identity
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence
+          {
+            echo "github_repository=${GITHUB_REPOSITORY}"
+            echo "github_sha=${GITHUB_SHA}"
+            echo "github_ref=${GITHUB_REF}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            uname -a
+            docker version
+            docker compose version
+            node --version
+            npm --version
+            python --version
+          } | tee evidence/runner-identity.txt
+
+      - name: Fetch exact canonical source package bytes and verify before extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          : > evidence/source-fetch-attempts.log
+
+          verify_candidate() {
+            local file="$1"
+            local label="$2"
+            if [ ! -f "$file" ]; then
+              echo "$label missing" | tee -a evidence/source-fetch-attempts.log
+              return 1
+            fi
+            local bytes sha
+            bytes="$(stat -c '%s' "$file")"
+            sha="$(sha256sum "$file" | awk '{print $1}')"
+            echo "$label bytes=$bytes sha256=$sha" | tee -a evidence/source-fetch-attempts.log
+            [ "$bytes" = "$EXPECTED_SOURCE_BYTES" ] && [ "$sha" = "$EXPECTED_SOURCE_SHA256" ]
+          }
+
+          urls=(
+            "https://drive.usercontent.google.com/download?id=${SOURCE_DRIVE_ID}&export=download&confirm=t"
+            "https://drive.google.com/uc?export=download&id=${SOURCE_DRIVE_ID}&confirm=t"
+          )
+
+          ok=0
+          n=0
+          for url in "${urls[@]}"; do
+            n=$((n+1))
+            rm -f evidence/source.zip
+            echo "attempt=$n url_class=google_drive_direct" | tee -a evidence/source-fetch-attempts.log
+            if curl --fail --location --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 20 \
+              "$url" -o evidence/source.zip; then
+              if verify_candidate evidence/source.zip "attempt_$n"; then
+                ok=1
+                break
+              fi
+            else
+              echo "attempt_$n curl_failed" | tee -a evidence/source-fetch-attempts.log
+            fi
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "HOLD_SOURCE_BYTE_TRANSFER_TO_HOSTED_RUNNER" | tee evidence/gate-status.txt
+            exit 42
+          fi
+
+          cp evidence/source.zip "evidence/${SOURCE_NAME}"
+          printf '%s  %s\n' "$EXPECTED_SOURCE_SHA256" "$SOURCE_NAME" > evidence/source-sha256.txt
+          printf '%s\n' "$EXPECTED_SOURCE_BYTES" > evidence/source-size.txt
+          printf 'PASS_EXACT_SOURCE_BYTES_ON_HOSTED_RUNNER\n' | tee evidence/gate-status.txt
+
+      - name: Materialize exact source archive and freeze pre-transform entry manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+
+          source = Path('evidence/source.zip')
+          out = Path('materialized')
+          out.mkdir(exist_ok=True)
+
+          rows = []
+          with zipfile.ZipFile(source) as z:
+              for info in z.infolist():
+                  row = {
+                      'path': info.filename,
+                      'is_dir': info.is_dir(),
+                      'compressed_bytes': info.compress_size,
+                      'uncompressed_bytes': info.file_size,
+                      'crc32': f'{info.CRC:08x}',
+                  }
+                  if not info.is_dir():
+                      b = z.read(info.filename)
+                      row['sha256'] = hashlib.sha256(b).hexdigest()
+                  rows.append(row)
+              z.extractall(out)
+
+          Path('evidence/source-entry-manifest.json').write_text(
+              json.dumps(rows, indent=2, sort_keys=True), encoding='utf-8'
+          )
+          roots = sorted({p.split('/', 1)[0] for p in (r['path'] for r in rows) if p})
+          assert roots == [os.environ['EXPECTED_REPO_ROOT']], roots
+          print(f'entries={len(rows)} root={roots[0]}')
+          PY
+
+          test -d "materialized/${EXPECTED_REPO_ROOT}"
+          echo "REPO_DIR=$GITHUB_WORKSPACE/materialized/${EXPECTED_REPO_ROOT}" >> "$GITHUB_ENV"
+
+      - name: Declare transformation boundary and prepare runtime env
+        run: |
+          set -euxo pipefail
+          cat > evidence/transformation-boundary.txt <<'EOF'
+          SOURCE_IDENTITY_BOUNDARY:
+          - source.zip is verified for exact byte size and SHA256 before extraction.
+          - extraction is a declared transformation from canonical ZIP bytes to filesystem materialization.
+          - dependency installation, test execution, frontend build, Docker build and container runtime are declared downstream transformations.
+          - exact artifact equality is asserted only for the preserved source.zip bytes and later downloaded provider artifact bytes, never for mutable build directories.
+          EOF
+          cp "$REPO_DIR/.env.example" "$REPO_DIR/.env"
+
+      - name: Install dependencies from materialized full repo
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          npm ci 2>&1 | tee "$GITHUB_WORKSPACE/evidence/npm-ci.log"
+          python -m pip install --upgrade pip 2>&1 | tee "$GITHUB_WORKSPACE/evidence/pip-upgrade.log"
+          pip install -r backend/requirements.txt 2>&1 | tee "$GITHUB_WORKSPACE/evidence/pip-install.log"
+
+      - name: Frontend contract tests
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          npm run test:contract:frontend 2>&1 | tee "$GITHUB_WORKSPACE/evidence/frontend-contract-test.log"
+
+      - name: Backend contract tests
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          PYTHONPATH=. pytest tests/contract/backend_contract_test.py 2>&1 | tee "$GITHUB_WORKSPACE/evidence/backend-contract-test.log"
+
+      - name: Frontend build
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          VITE_API_BASE_URL: http://localhost:8000
+        run: |
+          set -euxo pipefail
+          npm run build:frontend 2>&1 | tee "$GITHUB_WORKSPACE/evidence/frontend-build.log"
+
+      - name: Full Docker Compose build from materialized repo
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          docker compose config > "$GITHUB_WORKSPACE/evidence/docker-compose-config.txt"
+          docker compose build --pull --no-cache 2>&1 | tee "$GITHUB_WORKSPACE/evidence/docker-compose-build.log"
+          docker compose images --format json > "$GITHUB_WORKSPACE/evidence/docker-compose-images.jsonl"
+
+      - name: Full Docker Compose runtime and endpoint smoke
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euxo pipefail
+          cleanup() {
+            docker compose logs --no-color > "$GITHUB_WORKSPACE/evidence/docker-compose.log" 2>&1 || true
+            docker compose ps --all > "$GITHUB_WORKSPACE/evidence/docker-compose-ps.txt" 2>&1 || true
+            docker compose down --remove-orphans || true
+          }
+          trap cleanup EXIT
+
+          docker compose up -d
+
+          ready=0
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/healthz > "$GITHUB_WORKSPACE/evidence/healthz.json"; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" = "1" ]
+
+          curl --fail --silent 'http://127.0.0.1:8000/api/health/latest?date=2026-04-15' > "$GITHUB_WORKSPACE/evidence/health.json"
+          curl --fail --silent 'http://127.0.0.1:8000/api/calendar/day?date=2026-04-15' > "$GITHUB_WORKSPACE/evidence/calendar.json"
+          curl --fail --silent -X POST 'http://127.0.0.1:8000/api/microcheck' \
+            -H 'Content-Type: application/json' \
+            -d '{"date":"2026-04-15","mentalClarity":3,"decisionLoad":4,"recoveryFeeling":2,"submittedAt":"2026-04-15T09:50:00+02:00"}' \
+            > "$GITHUB_WORKSPACE/evidence/microcheck.json"
+          curl --fail --silent http://127.0.0.1:4173/ > "$GITHUB_WORKSPACE/evidence/frontend-root.html"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          e = Path(__import__('os').environ['GITHUB_WORKSPACE']) / 'evidence'
+          healthz = json.loads((e/'healthz.json').read_text())
+          health = json.loads((e/'health.json').read_text())
+          calendar = json.loads((e/'calendar.json').read_text())
+          micro = json.loads((e/'microcheck.json').read_text())
+          assert healthz['ok'] is True and healthz['service'] == 'equilibrium-backend'
+          assert health['data']['date'] == '2026-04-15' and health['data']['hrvRmssd'] == 34
+          assert calendar['data']['date'] == '2026-04-15' and calendar['data']['meetingCount'] == 4
+          assert micro['data']['date'] == '2026-04-15' and micro['data']['decisionLoad'] == 4
+          assert (e/'frontend-root.html').stat().st_size > 0
+          print('PASS_FULL_COMPOSE_RUNTIME_AND_ENDPOINT_SMOKE')
+          PY
+
+      - name: Build bounded evidence receipt and output SHA256 manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          e = Path('evidence')
+          source = e / 'source.zip'
+          actual_source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+          actual_source_bytes = source.stat().st_size
+          expected_sha = os.environ['EXPECTED_SOURCE_SHA256']
+          expected_bytes = int(os.environ['EXPECTED_SOURCE_BYTES'])
+          assert actual_source_sha == expected_sha
+          assert actual_source_bytes == expected_bytes
+
+          receipt = {
+              'gate': 'EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY_V1',
+              'status': 'PASS_HOSTED_FULL_REPO_REPLAY_PROVIDER_ARTIFACT_PENDING_EXTERNAL_EQUALITY_READBACK',
+              'source_drive_id': os.environ['SOURCE_DRIVE_ID'],
+              'source_name': os.environ['SOURCE_NAME'],
+              'source_bytes_expected': expected_bytes,
+              'source_bytes_actual': actual_source_bytes,
+              'source_sha256_expected': expected_sha,
+              'source_sha256_actual': actual_source_sha,
+              'github_repository': os.environ.get('GITHUB_REPOSITORY'),
+              'github_sha': os.environ.get('GITHUB_SHA'),
+              'github_ref': os.environ.get('GITHUB_REF'),
+              'runner_os': os.environ.get('RUNNER_OS'),
+              'full_repo_materialized': True,
+              'frontend_contract_tests': 'PASS',
+              'backend_contract_tests': 'PASS',
+              'frontend_build': 'PASS',
+              'docker_compose_build': 'PASS',
+              'docker_compose_runtime': 'PASS',
+              'endpoint_smoke': 'PASS',
+              'provider_artifact_external_readback': 'PENDING',
+              'drive_artifact_upload_and_readback': 'PENDING',
+              'exact_provider_to_drive_artifact_equality': 'PENDING',
+              'production_ready': False,
+              'runtime_admission': False,
+              'global_bind': False,
+              'external_actuation': False,
+          }
+          (e/'bounded-receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding='utf-8')
+
+          rows = []
+          for p in sorted(e.iterdir()):
+              if p.is_file() and p.name != 'output-sha256-manifest.txt':
+                  b = p.read_bytes()
+                  rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (e/'output-sha256-manifest.txt').write_text('\n'.join(rows) + '\n', encoding='utf-8')
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload provider-native full replay evidence artifact
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: equilibrium-human-operator-full-repo-replay-evidence-v1
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record provider artifact outputs in job log
+        if: always()
+        run: |
+          {
+            echo "artifact_id=${{ steps.upload.outputs.artifact-id }}"
+            echo "artifact_url=${{ steps.upload.outputs.artifact-url }}"
+            echo "artifact_digest=${{ steps.upload.outputs.artifact-digest }}"
+          } | tee provider-artifact-outputs.txt
