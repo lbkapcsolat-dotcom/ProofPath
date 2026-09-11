@@ -1,0 +1,81 @@
+name: ess-docker-mcp-13-surface-controlled-routing-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/**'
+      - '.github/workflows/ess-docker-mcp-13-surface-controlled-routing-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  router-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record authority inputs
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/ess-docker-mcp-13-routing-v1
+          sha256sum \
+            ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json \
+            ess_docker_mcp_router/policy.json \
+            ess_docker_mcp_router/test_router.py \
+            | tee evidence/ess-docker-mcp-13-routing-v1/input-sha256.txt
+      - name: Run focused router contract tests
+        working-directory: ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_router.py 2>&1 | tee ../evidence/ess-docker-mcp-13-routing-v1/test-output.txt
+      - name: Build bounded receipt
+        if: success()
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/ess-docker-mcp-13-routing-v1')
+          profile=pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json')
+          policy=pathlib.Path('ess_docker_mcp_router/policy.json')
+          router=pathlib.Path('ess_docker_mcp_router/router.py')
+          tests=pathlib.Path('ess_docker_mcp_router/test_router.py')
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          receipt={
+            'gate':'ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_AND_ROUTING_V1',
+            'verdict':'PASS_CONTROLLED_PROFILE_AND_FAIL_CLOSED_ROUTING_CONTRACT',
+            'github_repository':os.environ['GITHUB_REPOSITORY'],
+            'github_sha':os.environ['GITHUB_SHA'],
+            'surface_count':13,
+            'profile_sha256':sha(profile),
+            'policy_sha256':sha(policy),
+            'router_sha256':sha(router),
+            'tests_sha256':sha(tests),
+            'positive_routes':13,
+            'negative_controls':['FORBIDDEN_INTENT','UNKNOWN_DOMAIN','WRONG_ROUTE','WRONG_TOOL','TRANSPORT_MISMATCH','HOLD_SURFACE_EXCLUSION','INTENT_NOT_ALLOWLISTED'],
+            'default_policy':'DENY',
+            'zero_spend':True,
+            'secret_injected':False,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False,
+            'claim_boundary':'ROUTING_POLICY_AND_CONTROLLED_PROFILE_CONTRACT_ONLY__NO_LIVE_BULK_INVOCATION__NO_PRODUCTION_READY__NO_GLOBAL_BIND'
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          rows=[]
+          for p in sorted(root.iterdir()):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-13-surface-controlled-routing-v1
+          path: evidence/ess-docker-mcp-13-routing-v1/
+          if-no-files-found: error
+          retention-days: 30
