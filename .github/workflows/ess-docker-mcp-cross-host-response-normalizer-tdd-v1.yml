@@ -1,0 +1,25 @@
+name: ess-docker-mcp-cross-host-response-normalizer-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_cross_host_response_normalization.py'
+      - 'ess_docker_mcp_router/normalized_replay.py'
+      - '.github/workflows/ess-docker-mcp-cross-host-response-normalizer-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-normalizer-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run focused cross-host response normalizer tests
+        working-directory: ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_cross_host_response_normalization.py
