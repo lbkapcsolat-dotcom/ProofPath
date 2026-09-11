@@ -1,0 +1,355 @@
+name: ess-docker-mcp-remaining-4-holds-diagnosis-and-surface-recovery-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-remaining-4-holds-diagnosis-and-surface-recovery-v1.yml'
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+
+jobs:
+  remaining-4-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          mkdir -p "$ROOT" "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-recovery-v1'
+          (root/'gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+          docker mcp feature enable profiles >/tmp/profile-feature.out 2>/tmp/profile-feature.err || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+
+      - name: Freeze official contracts and prepare bounded synthetic inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          for s in atlas-docs cloudflare-docs openapi-schema rust-mcp-filesystem; do
+            docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" "$s" --format json > "$ROOT/$s-inspect.json"
+          done
+
+          cat > "$ROOT/synthetic-openapi.yaml" <<'EOF'
+          openapi: 3.0.3
+          info:
+            title: ESS Synthetic Canary API
+            version: 1.0.0
+          paths:
+            /health:
+              get:
+                summary: Synthetic health endpoint
+                responses:
+                  '200':
+                    description: OK
+          components:
+            schemas:
+              Health:
+                type: object
+                properties:
+                  status:
+                    type: string
+          EOF
+          sed -i 's/^          //' "$ROOT/synthetic-openapi.yaml"
+          chmod 0444 "$ROOT/synthetic-openapi.yaml"
+
+          mkdir -p "$ROOT/rust-readonly"
+          printf 'ESS_READ_ONLY_CANARY\n' > "$ROOT/rust-readonly/canary.txt"
+          chmod 0444 "$ROOT/rust-readonly/canary.txt"
+          chmod 0555 "$ROOT/rust-readonly"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-before.txt"
+
+          cat > "$ROOT/config.yaml" <<EOF
+          atlas-docs:
+            api_url: https://atlas.cartograph.app/api
+          openapi-schema:
+            SchemaPath: $ROOT/synthetic-openapi.yaml
+          rust-mcp-filesystem:
+            allow_write: false
+            enable_roots: false
+            allowed_directories:
+              - $ROOT/rust-readonly
+          EOF
+          sed -i 's/^          //' "$ROOT/config.yaml"
+          docker mcp config write "$(cat "$ROOT/config.yaml")"
+          docker mcp config read > "$ROOT/config-readback.yaml"
+
+          python - <<'PY'
+          import json,os,pathlib,yaml
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-recovery-v1'
+          out={}
+          for name in ['atlas-docs','cloudflare-docs','openapi-schema','rust-mcp-filesystem']:
+              o=json.loads((root/f'{name}-inspect.json').read_text())
+              s=o['snapshot']['server']
+              out[name]={
+                'type':s.get('type'),
+                'remote':s.get('remote'),
+                'secrets':s.get('secrets') or [],
+                'tools':[t.get('name') for t in (s.get('tools') or [])],
+                'config':s.get('config') or []
+              }
+          (root/'official-contract-summary.json').write_text(json.dumps(out,indent=2,sort_keys=True))
+
+          # Cloudflare registry transport is stale: freeze an explicit, bounded current-endpoint override.
+          cf=out['cloudflare-docs']
+          current={
+            'registry':{
+              'cloudflare-docs-current':{
+                'title':'Cloudflare Docs Current Transport',
+                'description':'Read-only Cloudflare documentation search.',
+                'type':'remote',
+                'remote':{'transport_type':'streamable-http','url':'https://docs.mcp.cloudflare.com/mcp'},
+                'tools':[
+                  {'name':'search_cloudflare_documentation'},
+                  {'name':'migrate_pages_to_workers_guide'}
+                ]
+              }
+            }
+          }
+          (root/'cloudflare-current-catalog.yaml').write_text(yaml.safe_dump(current,sort_keys=False))
+          boundary={
+            'source_server':'cloudflare-docs',
+            'source_remote':cf.get('remote'),
+            'target_server':'cloudflare-docs-current',
+            'target_remote':current['registry']['cloudflare-docs-current']['remote'],
+            'changed_fields':['remote.url','remote.transport_type'],
+            'secret_required':False,
+            'read_only_tools':['search_cloudflare_documentation','migrate_pages_to_workers_guide']
+          }
+          (root/'cloudflare-transformation-boundary.json').write_text(json.dumps(boundary,indent=2,sort_keys=True))
+          PY
+
+      - name: Diagnose and recover Atlas Docs
+        shell: bash
+        run: |
+          set +e
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          D="$ROOT/atlas-docs"
+          mkdir -p "$D"
+          profile=ess-recover-atlas-docs
+          docker mcp profile create --name "ESS Recover Atlas Docs" --id "$profile" \
+            --server "catalog://mcp/docker-mcp-catalog/atlas-docs" >"$D/profile-create.out" 2>"$D/profile-create.err"
+          pc=$?
+          if [ "$pc" -ne 0 ]; then echo 'atlas-docs,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
+          lc=$?
+          if [ "$lc" -ne 0 ]; then echo 'atlas-docs,TRANSPORT_HOLD,TOOL_DISCOVERY_FAILED' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures call list_docs >"$D/live.out" 2>"$D/live.err"
+          rc=$?
+          curl --fail --silent --show-error --max-time 30 https://atlas.cartograph.app/api/docs >"$D/direct-api.out" 2>"$D/direct-api.err"
+          cc=$?
+          if [ "$rc" -eq 0 ] && [ -s "$D/live.out" ]; then
+            echo 'atlas-docs,LIVE_PASS,DEFAULT_PUBLIC_API_LIST_DOCS' > "$D/result.csv"
+          elif [ "$cc" -ne 0 ]; then
+            echo 'atlas-docs,UPSTREAM_HOLD,DEFAULT_ATLAS_API_UNREACHABLE_OR_ERROR' > "$D/result.csv"
+          else
+            echo 'atlas-docs,LIVE_CALL_HOLD,MCP_CALL_FAILED_WHILE_DIRECT_API_RESPONDED' > "$D/result.csv"
+          fi
+
+      - name: Diagnose and recover OpenAPI Schema
+        shell: bash
+        run: |
+          set +e
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          D="$ROOT/openapi-schema"
+          mkdir -p "$D"
+          profile=ess-recover-openapi-schema
+          docker mcp profile create --name "ESS Recover OpenAPI Schema" --id "$profile" \
+            --server "catalog://mcp/docker-mcp-catalog/openapi-schema" >"$D/profile-create.out" 2>"$D/profile-create.err"
+          pc=$?
+          if [ "$pc" -ne 0 ]; then echo 'openapi-schema,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
+          lc=$?
+          if [ "$lc" -ne 0 ]; then echo 'openapi-schema,TRANSPORT_HOLD,TOOL_DISCOVERY_FAILED' > "$D/result.csv"; exit 0; fi
+          grep -F 'list-endpoints' "$D/tools.json" > "$D/list-endpoints-present.txt"
+          gc=$?
+          if [ "$gc" -ne 0 ]; then echo 'openapi-schema,TOOL_CONTRACT_HOLD,LIST_ENDPOINTS_MISSING' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures \
+            call list-endpoints "openapiSchemaPath=$ROOT/synthetic-openapi.yaml" >"$D/live.out" 2>"$D/live.err"
+          rc=$?
+          if [ "$rc" -eq 0 ] && grep -Fq '/health' "$D/live.out"; then
+            echo 'openapi-schema,LIVE_PASS,SYNTHETIC_READONLY_SCHEMA_LIST_ENDPOINTS' > "$D/result.csv"
+          else
+            echo 'openapi-schema,LIVE_CALL_HOLD,SCHEMA_MOUNT_OR_PATH_CONTRACT_FAILED' > "$D/result.csv"
+          fi
+
+      - name: Diagnose and recover Rust MCP Filesystem
+        shell: bash
+        run: |
+          set +e
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          D="$ROOT/rust-mcp-filesystem"
+          mkdir -p "$D"
+          profile=ess-recover-rust-fs
+          docker mcp profile create --name "ESS Recover Rust FS" --id "$profile" \
+            --server "catalog://mcp/docker-mcp-catalog/rust-mcp-filesystem" >"$D/profile-create.out" 2>"$D/profile-create.err"
+          pc=$?
+          if [ "$pc" -ne 0 ]; then echo 'rust-mcp-filesystem,TRANSPORT_HOLD,PROFILE_CREATE_FAILED' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures ls >"$D/tools.json" 2>"$D/tools.err"
+          lc=$?
+          if [ "$lc" -ne 0 ]; then echo 'rust-mcp-filesystem,TRANSPORT_HOLD,TOOL_DISCOVERY_FAILED' > "$D/result.csv"; exit 0; fi
+          python - "$D/tools.json" > "$D/contract-check.txt" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1])); tools=o if isinstance(o,list) else o.get('tools',[])
+          t=next((x for x in tools if x.get('name')=='list_directory'),None)
+          assert t, 'list_directory missing'
+          a=t.get('annotations') or {}
+          assert a.get('readOnlyHint') is True
+          assert a.get('destructiveHint') is not True
+          print('PASS_READONLY_LIST_DIRECTORY_CONTRACT')
+          PY
+          cc=$?
+          if [ "$cc" -ne 0 ]; then echo 'rust-mcp-filesystem,TOOL_CONTRACT_HOLD,READONLY_LIST_DIRECTORY_CONTRACT_MISSING' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools \
+            --gateway-arg="--profile=$profile" --gateway-arg=--verify-signatures \
+            call list_directory "path=$ROOT/rust-readonly" >"$D/live.out" 2>"$D/live.err"
+          rc=$?
+          sha256sum "$ROOT/rust-readonly/canary.txt" > "$D/input-sha256-after.txt"
+          if [ "$rc" -eq 0 ] && grep -Fq 'canary.txt' "$D/live.out"; then
+            echo 'rust-mcp-filesystem,LIVE_PASS,READONLY_ALLOWED_DIRECTORY_LIST' > "$D/result.csv"
+          else
+            echo 'rust-mcp-filesystem,LIVE_CALL_HOLD,READONLY_VOLUME_OR_PATH_CONTRACT_FAILED' > "$D/result.csv"
+          fi
+
+      - name: Diagnose and recover Cloudflare Docs current transport
+        shell: bash
+        run: |
+          set +e
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          D="$ROOT/cloudflare-docs"
+          mkdir -p "$D"
+          docker mcp feature disable dynamic-tools >"$D/dynamic-disable.out" 2>"$D/dynamic-disable.err"
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
+            --gateway-arg="--catalog=$ROOT/cloudflare-current-catalog.yaml" \
+            --gateway-arg=--servers=cloudflare-docs-current \
+            ls >"$D/tools.json" 2>"$D/tools.err"
+          lc=$?
+          if [ "$lc" -ne 0 ]; then
+            echo 'cloudflare-docs,TRANSPORT_HOLD,CURRENT_STREAMABLE_HTTP_INITIALIZE_FAILED' > "$D/result.csv"
+            exit 0
+          fi
+          python - "$D/tools.json" > "$D/contract-check.txt" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1])); tools=o if isinstance(o,list) else o.get('tools',[])
+          t=next((x for x in tools if x.get('name')=='search_cloudflare_documentation'),None)
+          assert t, 'search_cloudflare_documentation missing'
+          a=t.get('annotations') or {}
+          assert a.get('readOnlyHint') is True
+          print('PASS_CLOUDFLARE_DOCS_READONLY_TOOL_CONTRACT')
+          PY
+          cc=$?
+          if [ "$cc" -ne 0 ]; then echo 'cloudflare-docs,TOOL_CONTRACT_HOLD,CURRENT_ENDPOINT_TOOL_MISSING' > "$D/result.csv"; exit 0; fi
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools \
+            --gateway-arg="--catalog=$ROOT/cloudflare-current-catalog.yaml" \
+            --gateway-arg=--servers=cloudflare-docs-current \
+            call search_cloudflare_documentation 'query=Workers health checks and observability' >"$D/live.out" 2>"$D/live.err"
+          rc=$?
+          if [ "$rc" -eq 0 ] && [ -s "$D/live.out" ]; then
+            echo 'cloudflare-docs,LIVE_PASS,CURRENT_STREAMABLE_HTTP_READONLY_DOC_SEARCH' > "$D/result.csv"
+          else
+            echo 'cloudflare-docs,LIVE_CALL_HOLD,CURRENT_ENDPOINT_TOOL_CALL_FAILED' > "$D/result.csv"
+          fi
+
+      - name: Consolidate four-way diagnosis and verify no input mutation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-after.txt"
+          diff -u "$ROOT/input-sha256-before.txt" "$ROOT/input-sha256-after.txt" > "$ROOT/input-sha256-diff.txt"
+          printf 'server,status,reason\n' > "$ROOT/results.csv"
+          cat "$ROOT/atlas-docs/result.csv" >> "$ROOT/results.csv"
+          cat "$ROOT/cloudflare-docs/result.csv" >> "$ROOT/results.csv"
+          cat "$ROOT/openapi-schema/result.csv" >> "$ROOT/results.csv"
+          cat "$ROOT/rust-mcp-filesystem/result.csv" >> "$ROOT/results.csv"
+          python - <<'PY'
+          import csv,json,pathlib,collections,os
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-recovery-v1'
+          rows=list(csv.DictReader((root/'results.csv').open()))
+          assert len(rows)==4, rows
+          assert {r['server'] for r in rows}=={'atlas-docs','cloudflare-docs','openapi-schema','rust-mcp-filesystem'}
+          counts=dict(collections.Counter(r['status'] for r in rows))
+          summary={
+            'gate':'ESS_DOCKER_MCP_REMAINING_4_HOLDS_DIAGNOSIS_AND_SURFACE_RECOVERY_V1',
+            'server_count':4,
+            'status_counts':counts,
+            'rows':rows,
+            'zero_spend':True,
+            'secret_injected':False,
+            'synthetic_or_public_inputs_only':True,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False,
+            'cloudflare_transport_override_explicit':True,
+            'input_mutation_detected':False
+          }
+          (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Hash evidence and build bounded receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-recovery-v1"
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-recovery-v1'
+          rows=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          summary=json.loads((root/'summary.json').read_text())
+          receipt={**summary,
+            'verdict':'PASS_BOUNDED_FOUR_WAY_DIAGNOSIS_EXECUTED',
+            'github_repository':os.environ.get('GITHUB_REPOSITORY'),
+            'github_sha':os.environ.get('GITHUB_SHA'),
+            'gateway_version':os.environ.get('MCP_GATEWAY_VERSION'),
+            'sha256_manifest':'sha256-manifest.txt'}
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+          sha256sum "$ROOT/bounded-receipt.json" >> "$ROOT/sha256-manifest.txt"
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-remaining-4-holds-diagnosis-and-surface-recovery-v1
+          path: evidence/ess-docker-mcp-remaining-4-recovery-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
