@@ -107,15 +107,62 @@ jobs:
           {
             echo 'SOURCE_IDENTITY_BOUNDARY:'
             echo '- canonical source.zip was exact-byte verified before extraction.'
-            echo '- extraction, dependency cleanup/install, tests and Docker execution are declared transformations.'
+            echo '- extraction, dependency cleanup/install, lock transport rewrite, tests and Docker execution are declared transformations.'
             echo '- archived node_modules are not runtime authority.'
-            echo '- dependencies are reconstructed from package-lock.json using pinned npm.'
+            echo '- dependency package integrity hashes remain authoritative.'
           } | tee evidence/transformation-boundary.txt
           find "$REPO_DIR" -type d -name node_modules -prune -print | tee evidence/archived-node-modules.txt
           rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/frontend/node_modules"
 
+      - name: Rewrite runner-local lockfile transport only
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          repo = Path(os.environ['REPO_DIR'])
+          evidence = Path(os.environ['GITHUB_WORKSPACE']) / 'evidence'
+          lock = repo / 'package-lock.json'
+          original = lock.read_bytes()
+          old = b'https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/'
+          new = b'https://registry.npmjs.org/'
+          count = original.count(old)
+          assert count > 0, 'expected internal proxy URLs not found'
+          derived = original.replace(old, new)
+          assert old not in derived
+
+          before = json.loads(original)
+          after = json.loads(derived)
+          def integrities(obj):
+              out=[]
+              if isinstance(obj, dict):
+                  for k,v in obj.items():
+                      if k == 'integrity': out.append(v)
+                      else: out.extend(integrities(v))
+              elif isinstance(obj, list):
+                  for v in obj: out.extend(integrities(v))
+              return sorted(out)
+          assert integrities(before) == integrities(after), 'integrity set changed'
+
+          (evidence/'package-lock.canonical.json').write_bytes(original)
+          lock.write_bytes(derived)
+          receipt = {
+              'transform':'RUNNER_LOCAL_PACKAGE_LOCK_TRANSPORT_REWRITE_V1',
+              'replacement_count':count,
+              'canonical_sha256':hashlib.sha256(original).hexdigest(),
+              'derived_sha256':hashlib.sha256(derived).hexdigest(),
+              'integrity_values_preserved':True,
+              'source_zip_unchanged':True,
+          }
+          (evidence/'lock-transport-rewrite-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True),encoding='utf-8')
+          print(json.dumps(receipt,sort_keys=True))
+          PY
+
       - name: Install clean deterministic dependencies
         working-directory: ${{ env.REPO_DIR }}
+        env:
+          npm_config_registry: https://registry.npmjs.org/
         run: |
           set -euxo pipefail
           timeout --signal=TERM --kill-after=10s 240s npm ci --include=dev --no-audit --no-fund 2>&1 | tee "$GITHUB_WORKSPACE/evidence/npm-ci-clean.log"
@@ -199,7 +246,7 @@ jobs:
           from pathlib import Path
           e=Path('evidence'); source=e/'source.zip'; sha=hashlib.sha256(source.read_bytes()).hexdigest(); size=source.stat().st_size
           assert sha==os.environ['EXPECTED_SOURCE_SHA256']; assert size==int(os.environ['EXPECTED_SOURCE_BYTES'])
-          receipt={'gate':'EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY_V1','status':'PASS_HOSTED_FULL_REPO_REPLAY_PROVIDER_ARTIFACT_PENDING_EXTERNAL_EQUALITY_READBACK','source_provider_artifact_id':os.environ['SOURCE_ARTIFACT_ID'],'source_bytes':size,'source_sha256':sha,'npm_version':os.environ['NPM_VERSION'],'github_repository':os.environ['GITHUB_REPOSITORY'],'github_sha':os.environ['GITHUB_SHA'],'github_ref':os.environ['GITHUB_REF'],'full_repo_materialized':True,'frontend_contract_tests':'PASS','backend_contract_tests':'PASS','frontend_build':'PASS','docker_compose_build':'PASS','docker_compose_runtime':'PASS','endpoint_smoke':'PASS','provider_artifact_external_readback':'PENDING','drive_artifact_upload_and_readback':'PENDING','exact_provider_to_drive_artifact_equality':'PENDING','production_ready':False,'runtime_admission':False,'global_bind':False,'external_actuation':False}
+          receipt={'gate':'EXACT_FULL_REPO_HOSTED_RUNNER_REPLAY_AND_ARTIFACT_EQUALITY_V1','status':'PASS_HOSTED_FULL_REPO_REPLAY_PROVIDER_ARTIFACT_PENDING_EXTERNAL_EQUALITY_READBACK','source_provider_artifact_id':os.environ['SOURCE_ARTIFACT_ID'],'source_bytes':size,'source_sha256':sha,'npm_version':os.environ['NPM_VERSION'],'lock_transport_rewrite':'DECLARED_RUNNER_LOCAL_ONLY','github_repository':os.environ['GITHUB_REPOSITORY'],'github_sha':os.environ['GITHUB_SHA'],'github_ref':os.environ['GITHUB_REF'],'full_repo_materialized':True,'frontend_contract_tests':'PASS','backend_contract_tests':'PASS','frontend_build':'PASS','docker_compose_build':'PASS','docker_compose_runtime':'PASS','endpoint_smoke':'PASS','provider_artifact_external_readback':'PENDING','drive_artifact_upload_and_readback':'PENDING','exact_provider_to_drive_artifact_equality':'PENDING','production_ready':False,'runtime_admission':False,'global_bind':False,'external_actuation':False}
           (e/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True),encoding='utf-8')
           rows=[]
           for p in sorted(e.iterdir()):
