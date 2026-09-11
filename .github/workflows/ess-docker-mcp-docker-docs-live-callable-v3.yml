@@ -1,0 +1,195 @@
+name: ess-docker-mcp-docker-docs-live-callable-v3
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-docker-docs-live-callable-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+
+jobs:
+  docker-docs-persistent-session-v3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-docs-v3 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-docs-v3/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-docs-v3/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-docs-v3/docker-mcp-version.txt
+
+      - name: Freeze official Docker Docs contract
+        run: |
+          set -euxo pipefail
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/docker-docs-v3/catalog-pull.log 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" docker-docs --format json > evidence/docker-docs-v3/docker-docs-inspect.json
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence/docker-docs-v3')
+          o=json.loads((root/'docker-docs-inspect.json').read_text()); s=o['snapshot']['server']; r=s.get('remote') or {}
+          assert o.get('type')=='remote' and s.get('type')=='remote'
+          assert o.get('endpoint')=='https://mcp-docs.docker.com/mcp'
+          assert r.get('transport_type')=='streamable-http' and r.get('url')=='https://mcp-docs.docker.com/mcp'
+          assert not s.get('secrets')
+          (root/'contract-summary.json').write_text(json.dumps({'server':'docker-docs','type':'remote','remote_url':r['url'],'transport_type':r['transport_type'],'secret_required':False,'catalog_contract':'PASS'},indent=2,sort_keys=True))
+          print('PASS_DOCKER_DOCS_CATALOG_CONTRACT')
+          PY
+          docker mcp feature enable dynamic-tools > evidence/docker-docs-v3/dynamic-tools-enable.log 2>&1 || true
+          docker mcp feature list > evidence/docker-docs-v3/features.txt
+
+      - name: Build exact persistent-session MCP client
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/docker-docs-client
+          cd /tmp/docker-docs-client
+          cat > go.mod <<'EOF'
+          module ess-docker-docs-canary
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "os/exec"
+            "path/filepath"
+            "strings"
+            "time"
+            "github.com/modelcontextprotocol/go-sdk/mcp"
+          )
+
+          func writeJSON(path string, v any) error {
+            b, err := json.MarshalIndent(v, "", "  ")
+            if err != nil { return err }
+            return os.WriteFile(path, append(b, '\n'), 0644)
+          }
+
+          func main() {
+            root := os.Getenv("EVIDENCE_DIR")
+            must := func(err error) { if err != nil { panic(err) } }
+            ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+            defer cancel()
+
+            cmd := exec.CommandContext(ctx, "docker", "mcp", "gateway", "run", "--servers=docker-docs")
+            stderr, err := os.Create(filepath.Join(root, "gateway-stderr.log")); must(err); defer stderr.Close()
+            cmd.Stderr = stderr
+
+            client := mcp.NewClient(&mcp.Implementation{Name:"ess-docker-docs-canary", Version:"1.0.0"}, nil)
+            session, err := client.Connect(ctx, &mcp.CommandTransport{Command:cmd}, nil); must(err)
+            defer session.Close()
+
+            before, err := session.ListTools(ctx, &mcp.ListToolsParams{}); must(err)
+            must(writeJSON(filepath.Join(root,"tools-before-add.json"), before))
+
+            add, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"mcp-add", Arguments:map[string]any{"name":"docker-docs"}})
+            if err != nil { panic(fmt.Errorf("mcp-add call failed: %w", err)) }
+            must(writeJSON(filepath.Join(root,"mcp-add-result.json"), add))
+            if add.IsError { panic("mcp-add returned IsError") }
+
+            after, err := session.ListTools(ctx, &mcp.ListToolsParams{}); must(err)
+            must(writeJSON(filepath.Join(root,"tools-after-add.json"), after))
+
+            var selected *mcp.Tool
+            for _, t := range after.Tools {
+              n := strings.ToLower(t.Name+" "+t.Description)
+              if strings.HasPrefix(t.Name,"mcp-") || t.Name=="code-mode" { continue }
+              if strings.Contains(n,"search") || strings.Contains(n,"doc") || strings.Contains(n,"docker") || strings.Contains(n,"query") {
+                selected=t; if strings.Contains(n,"search") { break }
+              }
+            }
+            if selected==nil { panic(fmt.Sprintf("no Docker Docs tool after mcp-add; count=%d",len(after.Tools))) }
+
+            raw, err := json.Marshal(selected); must(err)
+            var toolMap map[string]any; must(json.Unmarshal(raw,&toolMap))
+            must(writeJSON(filepath.Join(root,"selected-tool.json"), toolMap))
+            schema, _ := toolMap["inputSchema"].(map[string]any)
+            if schema==nil { schema,_=toolMap["input_schema"].(map[string]any) }
+            props,_ := schema["properties"].(map[string]any)
+            preferred := []string{"query","search_query","q","text","question","topic"}
+            key := ""
+            for _,k := range preferred { if _,ok:=props[k]; ok { key=k; break } }
+            if key=="" { panic(fmt.Sprintf("no supported string search property in schema: %v",schema)) }
+
+            query := "Docker Compose depends_on service_healthy healthcheck semantics and recommended configuration"
+            res, err := session.CallTool(ctx,&mcp.CallToolParams{Name:selected.Name,Arguments:map[string]any{key:query}})
+            if err != nil { panic(fmt.Errorf("docs tool call failed: %w",err)) }
+            must(writeJSON(filepath.Join(root,"live-docs-query.json"),res))
+            if res.IsError { panic("docs tool returned IsError") }
+            rb,_:=json.Marshal(res); low:=strings.ToLower(string(rb))
+            if !(strings.Contains(low,"compose") || strings.Contains(low,"depends_on") || strings.Contains(low,"health") || strings.Contains(low,"docker")) {
+              panic("live docs response lacks expected Docker/Compose evidence")
+            }
+            must(writeJSON(filepath.Join(root,"selected-call-summary.json"),map[string]any{"tool":selected.Name,"argument_key":key,"query":query}))
+            fmt.Println("PASS_DOCKER_MCP_DOCKER_DOCS_PERSISTENT_SESSION_LIVE_CALLABLE")
+          }
+          EOF
+          go mod download
+          go version | tee "$GITHUB_WORKSPACE/evidence/docker-docs-v3/go-version.txt"
+
+      - name: Execute persistent-session live canary
+        env:
+          EVIDENCE_DIR: ${{ github.workspace }}/evidence/docker-docs-v3
+        run: |
+          set -euxo pipefail
+          cd /tmp/docker-docs-client
+          timeout --signal=TERM --kill-after=10s 150s go run . \
+            > "$EVIDENCE_DIR/persistent-client.out" \
+            2> "$EVIDENCE_DIR/persistent-client.err"
+          grep -F 'PASS_DOCKER_MCP_DOCKER_DOCS_PERSISTENT_SESSION_LIVE_CALLABLE' "$EVIDENCE_DIR/persistent-client.out"
+          echo PASS_DOCKER_MCP_DOCKER_DOCS_LIVE_CALLABLE | tee "$EVIDENCE_DIR/gate-status.txt"
+
+      - name: Build bounded receipt and SHA manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-docs-v3')
+          c=json.loads((root/'contract-summary.json').read_text()); s=json.loads((root/'selected-call-summary.json').read_text())
+          receipt={'gate':'DOCKER_DOCS_LIVE_CALLABLE_V1','implementation':'V3_SINGLE_PERSISTENT_MCP_SESSION','status':'PASS_DOCKER_MCP_DOCKER_DOCS_LIVE_CALLABLE','gateway_version':os.environ['MCP_GATEWAY_VERSION'],'server':'docker-docs','tool':s['tool'],'argument_key':s['argument_key'],'remote_url':c['remote_url'],'transport_type':c['transport_type'],'query_scope':s['query'],'zero_spend':True,'secret_injected':False,'read_only_query':True,'external_actuation':False,'production_ready':False,'global_bind':False,'session_chain':['initialize','tools/list','mcp-add(docker-docs)','tools/list','docs tool call']}
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          rows=[]
+          for p in sorted(root.iterdir()):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-docker-docs-live-callable-v3
+          path: evidence/docker-docs-v3/
+          if-no-files-found: error
+          retention-days: 30
