@@ -182,6 +182,10 @@ def verify_provider_custody(
         p_rec = primary_files[surface]["receipt"]
         r_rec = replay_files[surface]["receipt"]
         cmp_row = comparison_rows[surface]
+        actual_replay_rel = replay_files[surface]["path"].relative_to(root).as_posix()
+        expected_replay_rel = cmp_row.get("replay_receipt_path")
+        if expected_replay_rel != actual_replay_rel:
+            raise CustodyChainError(f"REPLAY_RECEIPT_PATH_MISMATCH:{surface}")
         if p_idx.get("receipt_sha256") != p_rec.get("receipt_sha256") or p_idx.get("response_sha256") != p_rec.get("response_sha256"):
             raise CustodyChainError(f"PRIMARY_RECEIPT_SET_MISMATCH:{surface}")
         if r_idx.get("receipt_sha256") != r_rec.get("receipt_sha256") or r_idx.get("response_sha256") != r_rec.get("response_sha256"):
