@@ -1,0 +1,29 @@
+name: ess-docker-mcp-gemini-quarantine-policy-v1
+
+on:
+  push:
+    branches:
+      - equilibrium-human-operator-runtime-evidence-v1
+    paths:
+      - 'ess_docker_mcp_router/**'
+      - '.github/workflows/ess-docker-mcp-gemini-quarantine-policy-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quarantine-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused Gemini quarantine contract
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_gemini_quarantine.py
+      - name: Full router regression suite
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_router.py test_dispatcher.py test_normalized_replay.py test_cross_host_response_normalization.py test_cross_host_13_surface_coverage.py test_gemini_quarantine.py
