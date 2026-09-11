@@ -1,0 +1,356 @@
+name: ess-docker-mcp-gemini-api-docs-true-content-drift-source-pin-temporal-replay-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-gemini-api-docs-true-content-drift-source-pin-temporal-replay-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  REGISTRY_COMMIT: 8c773729f13f036da8c909be503fe433923a9aa2
+  SOURCE_COMMIT: 8e8aa1543e1cb5f0bc0b1d5056da48f07a8e6332
+  LLMS_TXT_URL: https://ai.google.dev/gemini-api/docs/llms.txt
+
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        host_label: [host-a, host-b]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze host and source metadata authority
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/gemini-temporal/${{ matrix.host_label }}"
+          mkdir -p "$ROOT/source" "$ROOT/replays"
+          python - <<'PY'
+          import json,os,pathlib,socket
+          root=pathlib.Path('evidence/gemini-temporal/${{ matrix.host_label }}')
+          def read(path):
+              try:return pathlib.Path(path).read_text().strip()
+              except Exception:return None
+          identity={
+            'host_label':'${{ matrix.host_label }}',
+            'hostname':socket.gethostname(),
+            'boot_id':read('/proc/sys/kernel/random/boot_id'),
+            'product_uuid':read('/sys/class/dmi/id/product_uuid'),
+            'runner_name':os.environ.get('RUNNER_NAME'),
+            'runner_os':os.environ.get('RUNNER_OS'),
+            'github_run_id':os.environ.get('GITHUB_RUN_ID'),
+          }
+          (root/'host-identity.json').write_text(json.dumps(identity,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(identity,indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 60 \
+            "https://raw.githubusercontent.com/docker/mcp-registry/${REGISTRY_COMMIT}/servers/gemini-api-docs/server.yaml" \
+            -o "$ROOT/source/server.yaml"
+          grep -F "commit: ${SOURCE_COMMIT}" "$ROOT/source/server.yaml"
+          curl --fail --location --silent --show-error --max-time 60 \
+            "https://raw.githubusercontent.com/kgprs/gemini-api-docs-mcp/${SOURCE_COMMIT}/gemini_docs_mcp/server.py" \
+            -o "$ROOT/source/server.py"
+          curl --fail --location --silent --show-error --max-time 60 \
+            "https://raw.githubusercontent.com/kgprs/gemini-api-docs-mcp/${SOURCE_COMMIT}/gemini_docs_mcp/ingest.py" \
+            -o "$ROOT/source/ingest.py"
+          python - <<'PY'
+          import pathlib
+          root=pathlib.Path('evidence/gemini-temporal/${{ matrix.host_label }}/source')
+          server=(root/'server.py').read_text(); ingest=(root/'ingest.py').read_text()
+          assert 'await ingest_docs()' in server
+          assert 'SELECT content FROM docs WHERE title LIKE \'%Gemini Models%\' LIMIT 1' in server
+          assert 'ORDER BY' not in server.split("SELECT content FROM docs WHERE title LIKE '%Gemini Models%' LIMIT 1")[0][-200:]
+          assert 'LLMS_TXT_URL = "https://ai.google.dev/gemini-api/docs/llms.txt"' in ingest
+          assert 'await asyncio.gather(*tasks)' in ingest
+          print('source_static_witness_ok')
+          PY
+          sha256sum "$ROOT/source/server.yaml" "$ROOT/source/server.py" "$ROOT/source/ingest.py" > "$ROOT/source/source-sha256.txt"
+
+      - name: Install pinned Docker MCP Gateway and bind exact image digest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/gemini-temporal/${{ matrix.host_label }}"
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+          docker mcp feature enable profiles > "$ROOT/profile-feature.out" 2> "$ROOT/profile-feature.err" || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" gemini-api-docs --format json > "$ROOT/gemini-inspect.json"
+          python - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('evidence/gemini-temporal/${{ matrix.host_label }}')
+          s=json.loads((root/'gemini-inspect.json').read_text())['snapshot']['server']
+          image=s['image']
+          assert '@sha256:' in image,image
+          (root/'image-authority.json').write_text(json.dumps({'image':image},indent=2,sort_keys=True)+'\n')
+          print(image)
+          PY
+          PROFILE="ess-gemini-temporal-${{ matrix.host_label }}"
+          docker mcp profile create --name "ESS Gemini Temporal ${{ matrix.host_label }}" --id "$PROFILE" \
+            --server catalog://mcp/docker-mcp-catalog/gemini-api-docs > "$ROOT/profile-create.out" 2> "$ROOT/profile-create.err"
+          timeout --signal=TERM --kill-after=10s 120s docker mcp tools --format json \
+            --gateway-arg="--profile=$PROFILE" --gateway-arg=--verify-signatures ls > "$ROOT/runtime-tools.json" 2> "$ROOT/runtime-tools.err"
+          grep -F '"get_current_model"' "$ROOT/runtime-tools.json"
+
+      - name: Build direct stdio MCP replay client
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/ess-gemini-replay
+          cat > /tmp/ess-gemini-replay/go.mod <<'EOF'
+          module ess-gemini-replay
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-gemini-replay/main.go <<'EOF'
+          package main
+          import("context";"encoding/json";"os";"os/exec";"time";"github.com/modelcontextprotocol/go-sdk/mcp")
+          func must(e error){if e!=nil{panic(e)}}
+          func main(){
+            out:=os.Args[1]; dbdir:=os.Args[2]; network:=os.Args[3]; image:=os.Getenv("GEMINI_IMAGE")
+            ctx,cancel:=context.WithTimeout(context.Background(),180*time.Second); defer cancel()
+            args:=[]string{"run","--rm","-i","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","--tmpfs","/root/.cache:rw,noexec,nosuid,size=64m","-v",dbdir+":/data:rw"}
+            if network=="none"{args=append(args,"--network","none")}
+            args=append(args,image)
+            cmd:=exec.CommandContext(ctx,"docker",args...)
+            c:=mcp.NewClient(&mcp.Implementation{Name:"ess-gemini-temporal",Version:"1.0.0"},nil)
+            s,e:=c.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil); must(e); defer s.Close()
+            r,e:=s.CallTool(ctx,&mcp.CallToolParams{Name:"get_current_model",Arguments:map[string]any{}}); must(e); if r.IsError{panic("tool error")}
+            b,e:=json.MarshalIndent(r,"","  "); must(e); must(os.WriteFile(out,append(b,'\n'),0644))
+          }
+          EOF
+          cd /tmp/ess-gemini-replay && go mod tidy && go build -o /tmp/ess-gemini-replay/canary .
+
+      - name: Execute three fresh-ingest temporal replays and one frozen-DB control
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/gemini-temporal/${{ matrix.host_label }}"
+          export GEMINI_IMAGE="$(python -c 'import json;print(json.load(open("'"$ROOT"'/image-authority.json"))["image"])')"
+          for i in 1 2 3; do
+            D="$ROOT/replays/live-$i"; mkdir -p "$D/db"
+            date -u +%Y-%m-%dT%H:%M:%S.%NZ > "$D/start-utc.txt"
+            curl --fail --location --silent --show-error --max-time 60 "$LLMS_TXT_URL" -o "$D/llms.txt"
+            sha256sum "$D/llms.txt" > "$D/llms.sha256"
+            timeout --signal=TERM --kill-after=10s 210s /tmp/ess-gemini-replay/canary "$D/result.json" "$GITHUB_WORKSPACE/$D/db" bridge > "$D/client.out" 2> "$D/client.err"
+            date -u +%Y-%m-%dT%H:%M:%S.%NZ > "$D/end-utc.txt"
+            python - "$D" <<'PY'
+          import hashlib,json,pathlib,sqlite3,sys
+          d=pathlib.Path(sys.argv[1]); obj=json.loads((d/'result.json').read_text())
+          texts=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('type')=='text' and isinstance(x.get('text'),str): texts.append(x['text'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(obj); assert texts,'NO_TEXT_CONTENT'; response=texts[0]
+          (d/'response.txt').write_text(response)
+          db=d/'db'/'database.db'; assert db.exists(),db
+          con=sqlite3.connect(db)
+          cols='rowid,title,url,content_hash,length(content)'
+          title=list(con.execute(f"SELECT {cols} FROM docs WHERE title LIKE '%Gemini Models%' ORDER BY rowid"))
+          fallback=list(con.execute(f"SELECT {cols} FROM docs WHERE url LIKE '%/models%' ORDER BY rowid"))
+          selected=list(con.execute("SELECT rowid,title,url,content_hash,length(content) FROM docs WHERE title LIKE '%Gemini Models%' LIMIT 1"))
+          mode='title-like'
+          if not selected:
+              selected=list(con.execute("SELECT rowid,title,url,content_hash,length(content) FROM docs WHERE url LIKE '%/models%' LIMIT 1")); mode='url-fallback'
+          con.close(); assert selected,'NO_MODEL_SELECTION'
+          def rows(v):return [{'rowid':r[0],'title':r[1],'url':r[2],'content_hash':r[3],'content_length':r[4]} for r in v]
+          stable_candidates=sorted([{'title':r[1],'url':r[2],'content_hash':r[3],'content_length':r[4]} for r in (title if title else fallback)],key=lambda x:(x['title'],x['url'],x['content_hash']))
+          evidence={'response_sha256':hashlib.sha256(response.encode()).hexdigest(),'response_chars':len(response),'selection_mode':mode,'selected':rows(selected)[0],'title_candidates':rows(title),'fallback_candidates':rows(fallback),'stable_candidate_set':stable_candidates,'stable_candidate_set_sha256':hashlib.sha256(json.dumps(stable_candidates,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+          (d/'db-selection.json').write_text(json.dumps(evidence,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(evidence,indent=2,sort_keys=True))
+          PY
+            sleep 3
+          done
+
+          # Frozen-DB control: replay the exact database from live-1 twice with network disabled.
+          for j in 1 2; do
+            D="$ROOT/replays/frozen-$j"; mkdir -p "$D/db"
+            cp "$ROOT/replays/live-1/db/database.db" "$D/db/database.db"
+            sha256sum "$D/db/database.db" > "$D/db-before.sha256"
+            timeout --signal=TERM --kill-after=10s 120s /tmp/ess-gemini-replay/canary "$D/result.json" "$GITHUB_WORKSPACE/$D/db" none > "$D/client.out" 2> "$D/client.err"
+            sha256sum "$D/db/database.db" > "$D/db-after.sha256"
+            cmp "$D/db-before.sha256" "$D/db-after.sha256"
+            python - "$D" <<'PY'
+          import hashlib,json,pathlib,sys
+          d=pathlib.Path(sys.argv[1]); obj=json.loads((d/'result.json').read_text()); texts=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if x.get('type')=='text' and isinstance(x.get('text'),str): texts.append(x['text'])
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(obj); assert texts
+          (d/'response.txt').write_text(texts[0]); (d/'response.sha256').write_text(hashlib.sha256(texts[0].encode()).hexdigest()+'\n')
+          PY
+          done
+          cmp "$ROOT/replays/frozen-1/response.txt" "$ROOT/replays/frozen-2/response.txt"
+
+      - name: Build host temporal bundle and manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/gemini-temporal/${{ matrix.host_label }}"
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('evidence/gemini-temporal/${{ matrix.host_label }}')
+          image=json.loads((root/'image-authority.json').read_text())['image']
+          lives=[]
+          for i in (1,2,3):
+              d=root/'replays'/f'live-{i}'
+              sel=json.loads((d/'db-selection.json').read_text())
+              lives.append({'attempt':i,'llms_sha256':(d/'llms.sha256').read_text().split()[0],'response_sha256':sel['response_sha256'],'response_chars':sel['response_chars'],'selection_mode':sel['selection_mode'],'selected':sel['selected'],'stable_candidate_set_sha256':sel['stable_candidate_set_sha256'],'stable_candidate_set':sel['stable_candidate_set'],'start_utc':(d/'start-utc.txt').read_text().strip(),'end_utc':(d/'end-utc.txt').read_text().strip()})
+          frozen=[(root/'replays'/f'frozen-{j}'/'response.sha256').read_text().strip() for j in (1,2)]
+          source_shas={}
+          for line in (root/'source'/'source-sha256.txt').read_text().splitlines():
+              sha,path=line.split(None,1); source_shas[path.strip()]=sha
+          bundle={'identity':json.loads((root/'host-identity.json').read_text()),'registry_commit':'8c773729f13f036da8c909be503fe433923a9aa2','source_commit':'8e8aa1543e1cb5f0bc0b1d5056da48f07a8e6332','image':image,'source_file_sha256':source_shas,'live_replays':lives,'frozen_db_control_response_sha256':frozen,'frozen_db_control_equal':len(set(frozen))==1}
+          (root/'host-bundle.json').write_text(json.dumps(bundle,indent=2,sort_keys=True)+'\n')
+          manifest=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); manifest.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(manifest)+'\n')
+          print(json.dumps(bundle,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload host temporal evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-gemini-temporal-${{ matrix.host_label }}
+          path: evidence/gemini-temporal/${{ matrix.host_label }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  compare:
+    needs: replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download host evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ess-gemini-temporal-*
+          path: evidence/downloaded
+      - name: Verify manifests and classify root cause
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/gemini-temporal-final
+          python - <<'PY'
+          import hashlib,json,pathlib,itertools
+          base=pathlib.Path('evidence/downloaded')
+          def verify(label):
+              root=base/f'ess-gemini-temporal-{label}'; errs=[]; checked=0
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip():continue
+                  sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size):errs.append(rel)
+              assert not errs,(label,errs)
+              return json.loads((root/'host-bundle.json').read_text()),checked
+          a,ca=verify('host-a'); b,cb=verify('host-b')
+          assert a['registry_commit']==b['registry_commit']=='8c773729f13f036da8c909be503fe433923a9aa2'
+          assert a['source_commit']==b['source_commit']=='8e8aa1543e1cb5f0bc0b1d5056da48f07a8e6332'
+          assert a['image']==b['image'] and '@sha256:' in a['image']
+          assert a['source_file_sha256']==b['source_file_sha256']
+          ia,ib=a['identity'],b['identity']
+          distinct=all(ia.get(k) and ib.get(k) and ia[k]!=ib[k] for k in ('boot_id','product_uuid','runner_name'))
+          assert distinct,(ia,ib)
+          assert a['frozen_db_control_equal'] and b['frozen_db_control_equal']
+
+          runs=[{'host':'host-a',**x} for x in a['live_replays']]+[{'host':'host-b',**x} for x in b['live_replays']]
+          llms_unique=sorted(set(x['llms_sha256'] for x in runs))
+          candidate_unique=sorted(set(x['stable_candidate_set_sha256'] for x in runs))
+          response_unique=sorted(set(x['response_sha256'] for x in runs))
+          selected_keys=[(x['selected']['title'],x['selected']['url'],x['selected']['content_hash']) for x in runs]
+          selected_unique=sorted(set(selected_keys))
+
+          implicit_order_pairs=[]
+          for x,y in itertools.combinations(runs,2):
+              if x['llms_sha256']==y['llms_sha256'] and x['stable_candidate_set_sha256']==y['stable_candidate_set_sha256'] and x['response_sha256']!=y['response_sha256']:
+                  implicit_order_pairs.append({'a':f"{x['host']}:{x['attempt']}",'b':f"{y['host']}:{y['attempt']}",'llms_sha256':x['llms_sha256'],'candidate_set_sha256':x['stable_candidate_set_sha256'],'response_a':x['response_sha256'],'response_b':y['response_sha256'],'selected_a':x['selected'],'selected_b':y['selected']})
+          upstream_temporal_drift=len(llms_unique)>1 or len(candidate_unique)>1
+          implicit_order_observed=bool(implicit_order_pairs)
+          frozen_control_stable=a['frozen_db_control_response_sha256'][0]==a['frozen_db_control_response_sha256'][1] and b['frozen_db_control_response_sha256'][0]==b['frozen_db_control_response_sha256'][1]
+
+          if implicit_order_observed:
+              verdict='PASS_IMPLICIT_DEFAULT_ORDER_DRIFT_PROVEN'
+          elif upstream_temporal_drift:
+              verdict='PASS_UPSTREAM_TEMPORAL_DRIFT_OBSERVED__HOLD_IMPLICIT_ORDER_NOT_DYNAMICALLY_PROVEN'
+          elif len(response_unique)==1:
+              verdict='PASS_OBSERVED_WINDOW_STABLE__HOLD_PRIOR_DRIFT_NOT_REPRODUCED'
+          else:
+              verdict='HOLD_UNCLASSIFIED_CONTENT_DRIFT'
+
+          summary={
+            'gate':'ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1',
+            'verdict':verdict,
+            'registry_commit':a['registry_commit'],'source_commit':a['source_commit'],'image':a['image'],
+            'distinct_host_identity':distinct,'host_a_manifest_checked':ca,'host_b_manifest_checked':cb,
+            'live_replay_count':len(runs),'llms_unique_count':len(llms_unique),'candidate_set_unique_count':len(candidate_unique),'response_unique_count':len(response_unique),'selected_candidate_unique_count':len(selected_unique),
+            'upstream_temporal_drift_observed':upstream_temporal_drift,'implicit_default_order_drift_observed':implicit_order_observed,'implicit_order_witness_pairs':implicit_order_pairs,
+            'frozen_db_control_stable':frozen_control_stable,
+            'static_source_witness':{
+              'startup_live_ingest':True,'concurrent_ingest_tasks':True,'get_current_model_limit_1_without_order_by':True,
+              'interpretation':'SOURCE_IS_SUSCEPTIBLE_TO_FRESH_INGEST_ORDER_AND_UPSTREAM_CORPUS_DRIFT'
+            },
+            'runs':runs,
+            'zero_spend':True,'secret_injected':False,'external_actuation':False,'production_ready':False,'runtime_admission':False,'global_bind':False,
+            'claim_boundary':'PINNED_REGISTRY_SOURCE_METADATA_AND_PINNED_IMAGE_DIGEST__PUBLIC_GET_ONLY_UPSTREAM_DOC_INGEST__TWO_DISTINCT_HOSTS__FRESH_DB_REPLAYS_PLUS_FROZEN_DB_NO_NETWORK_CONTROL__NO_NORMALIZATION_OF_GEMINI_CONTENT__NO_13_OF_13_PROMOTION'
+          }
+          out=pathlib.Path('evidence/gemini-temporal-final')
+          (out/'temporal-replay-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          (out/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({k:summary[k] for k in ['gate','verdict','live_replay_count','llms_unique_count','candidate_set_unique_count','response_unique_count','selected_candidate_unique_count','upstream_temporal_drift_observed','implicit_default_order_drift_observed','frozen_db_control_stable']},indent=2,sort_keys=True))
+          PY
+      - name: Build and verify final SHA manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('evidence/gemini-temporal-final'); rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          errs=[];checked=0
+          for line in (root/'sha256-manifest.txt').read_text().splitlines():
+              sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes();checked+=1
+              if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size):errs.append(rel)
+          assert checked==2 and not errs,(checked,errs)
+          print('final_manifest_checked',checked,'errors',len(errs))
+          PY
+      - name: Upload final Gemini temporal replay evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-gemini-api-docs-true-content-drift-source-pin-temporal-replay-v1
+          path: evidence/gemini-temporal-final/
+          if-no-files-found: error
+          retention-days: 30
