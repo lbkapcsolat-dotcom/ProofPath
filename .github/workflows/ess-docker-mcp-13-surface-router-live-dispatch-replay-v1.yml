@@ -1,0 +1,43 @@
+name: ess-docker-mcp-13-surface-router-live-dispatch-replay-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/dispatcher.py'
+      - 'ess_docker_mcp_router/test_dispatcher.py'
+      - '.github/workflows/ess-docker-mcp-13-surface-router-live-dispatch-replay-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  dispatcher-contract-red-green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record dispatcher authority inputs
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/ess-docker-mcp-13-live-dispatch-replay-v1
+          sha256sum \
+            ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json \
+            ess_docker_mcp_router/policy.json \
+            ess_docker_mcp_router/router.py \
+            ess_docker_mcp_router/test_dispatcher.py \
+            | tee evidence/ess-docker-mcp-13-live-dispatch-replay-v1/input-sha256.txt
+      - name: Run focused dispatcher contract tests
+        working-directory: ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          python -m unittest -v test_dispatcher.py 2>&1 | tee ../evidence/ess-docker-mcp-13-live-dispatch-replay-v1/dispatcher-test-output.txt
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-13-surface-router-live-dispatch-replay-v1-red-green
+          path: evidence/ess-docker-mcp-13-live-dispatch-replay-v1/
+          if-no-files-found: error
+          retention-days: 30
