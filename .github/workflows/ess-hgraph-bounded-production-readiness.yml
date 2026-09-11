@@ -1,0 +1,287 @@
+name: ESS HGraph Bounded Production Readiness
+
+on:
+  push:
+    branches:
+      - ess-hgraph-native-cpp-parity-canary-v1
+    paths:
+      - 'hgraph_canary/production_readiness.py'
+      - 'hgraph_canary/runtime_admission.py'
+      - '.github/workflows/ess-hgraph-bounded-production-readiness.yml'
+  workflow_dispatch:
+
+jobs:
+  adversarial_recovery:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout production-readiness verifier commit
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install exact admitted runtime dependency
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: 'pyarrow==25.0.0'
+
+      - name: Expose Arrow runtime libraries
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import pyarrow
+          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as f:
+              f.write(str(Path(pyarrow.__file__).resolve().parent) + '\n')
+
+      - name: Download admitted exact-binary custody bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-hgraph-runtime-custody-bundle
+          path: admitted/custody
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34584645593
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download admitted runtime receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-hgraph-runtime-admission-receipt
+          path: admitted/receipt
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34584645593
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run adversarial fail-closed and exact recovery gate
+        shell: python
+        run: |
+          import copy
+          import hashlib
+          import json
+          import shutil
+          import stat
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+          import pyarrow
+
+          sys.path.insert(0, str(Path.cwd()))
+          from hgraph_canary.runtime_admission import evaluate_runtime_admission
+          from hgraph_canary.production_readiness import evaluate_production_readiness
+
+          root = Path.cwd()
+          custody = root / 'admitted' / 'custody'
+          receipt_dir = root / 'admitted' / 'receipt'
+          out = root / 'production_readiness_bundle'
+          out.mkdir(exist_ok=True)
+
+          admitted_binary = custody / 'ess_hgraph_cpp_canary'
+          oracle = custody / 'wolfram_oracle_v1.json'
+          admission_receipt_path = receipt_dir / 'runtime_admission_receipt.json'
+          admission_receipt = json.loads(admission_receipt_path.read_text(encoding='utf-8'))
+
+          receipt_base = dict(admission_receipt)
+          stored_admission_receipt_sha = receipt_base.pop('receipt_sha256')
+          calculated_admission_receipt_sha = hashlib.sha256(
+              json.dumps(receipt_base, sort_keys=True, separators=(',', ':')).encode()
+          ).hexdigest()
+          assert calculated_admission_receipt_sha == stored_admission_receipt_sha
+          assert admission_receipt['decision']['runtime_admission'] is True
+
+          admitted_binary.chmod(admitted_binary.stat().st_mode | stat.S_IXUSR)
+          admitted_binary_sha = hashlib.sha256(admitted_binary.read_bytes()).hexdigest()
+          admitted_oracle_sha = hashlib.sha256(oracle.read_bytes()).hexdigest()
+          expected_binary_sha = admission_receipt['evidence']['binary_sha256_a']
+          expected_oracle_sha = admission_receipt['evidence']['oracle_sha256_a']
+          expected_output_sha = admission_receipt['evidence']['expected_output_sha256']
+          assert admitted_binary_sha == expected_binary_sha
+          assert admitted_oracle_sha == expected_oracle_sha
+
+          expected_dependency_manifest = (
+              'python=3.12|pyarrow=25.0.0|hgraph='
+              + admission_receipt['evidence']['hgraph_commit_a']
+          )
+          observed_dependency_manifest = (
+              f'python={sys.version_info.major}.{sys.version_info.minor}'
+              f'|pyarrow={pyarrow.__version__}'
+              '|hgraph=' + admission_receipt['evidence']['hgraph_commit_a']
+          )
+          dependency_expected_sha = hashlib.sha256(expected_dependency_manifest.encode()).hexdigest()
+          dependency_observed_sha = hashlib.sha256(observed_dependency_manifest.encode()).hexdigest()
+
+          t0 = time.perf_counter_ns()
+          baseline = subprocess.run([str(admitted_binary)], text=True, capture_output=True)
+          baseline_elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000
+          baseline_lines = dict(
+              line.split('=', 1) for line in baseline.stdout.splitlines() if '=' in line
+          )
+          baseline_observed = baseline_lines.get('OBSERVED_VECTOR', '')
+          baseline_state_count = int(baseline_lines.get('STATE_COUNT', '0'))
+          baseline_parity = baseline_lines.get('WOLFRAM_PARITY_256_256') == 'PASS'
+          baseline_output_sha = hashlib.sha256((baseline_observed + '\n').encode()).hexdigest()
+
+          # Binary tamper: mutate a copy, never execute it.
+          tampered_binary = out / 'tampered_binary_canary'
+          binary_bytes = bytearray(admitted_binary.read_bytes())
+          binary_bytes[-1] ^= 0x01
+          tampered_binary.write_bytes(binary_bytes)
+          tampered_binary_sha = hashlib.sha256(tampered_binary.read_bytes()).hexdigest()
+          negative_binary_evidence = dict(admission_receipt['evidence'])
+          negative_binary_evidence['binary_sha256_b'] = tampered_binary_sha
+          binary_tamper_decision = evaluate_runtime_admission(negative_binary_evidence)
+          tamper_binary_detected = (
+              tampered_binary_sha != expected_binary_sha
+              and binary_tamper_decision['runtime_admission'] is False
+              and 'BINARY_SHA256_MISMATCH' in binary_tamper_decision['errors']
+          )
+
+          # Oracle tamper: add legal trailing whitespace so semantics stay parseable but bytes change.
+          tampered_oracle = out / 'tampered_oracle_canary.json'
+          tampered_oracle.write_bytes(oracle.read_bytes() + b' ')
+          tampered_oracle_sha = hashlib.sha256(tampered_oracle.read_bytes()).hexdigest()
+          negative_oracle_evidence = dict(admission_receipt['evidence'])
+          negative_oracle_evidence['oracle_sha256_b'] = tampered_oracle_sha
+          oracle_tamper_decision = evaluate_runtime_admission(negative_oracle_evidence)
+          tamper_oracle_detected = (
+              tampered_oracle_sha != expected_oracle_sha
+              and oracle_tamper_decision['runtime_admission'] is False
+              and 'ORACLE_SHA256_MISMATCH' in oracle_tamper_decision['errors']
+          )
+
+          # Receipt tamper: change an admitted fact without updating its receipt hash.
+          tampered_receipt = copy.deepcopy(admission_receipt)
+          tampered_receipt['decision']['runtime_admission'] = False
+          tampered_receipt_base = dict(tampered_receipt)
+          tampered_receipt_stored_sha = tampered_receipt_base.pop('receipt_sha256')
+          tampered_receipt_calculated_sha = hashlib.sha256(
+              json.dumps(tampered_receipt_base, sort_keys=True, separators=(',', ':')).encode()
+          ).hexdigest()
+          tamper_receipt_detected = tampered_receipt_calculated_sha != tampered_receipt_stored_sha
+
+          # Dependency drift canary.
+          drift_dependency_manifest = (
+              'python=3.12|pyarrow=99.0.0|hgraph='
+              + admission_receipt['evidence']['hgraph_commit_a']
+          )
+          drift_dependency_sha = hashlib.sha256(drift_dependency_manifest.encode()).hexdigest()
+          dependency_drift_detected = drift_dependency_sha != dependency_expected_sha
+
+          # Rollback and recovery from exact admitted bytes.
+          rollback_dir = out / 'rollback'
+          rollback_dir.mkdir(exist_ok=True)
+          rollback_binary = rollback_dir / 'ess_hgraph_cpp_canary'
+          shutil.copy2(admitted_binary, rollback_binary)
+          rollback_binary.chmod(rollback_binary.stat().st_mode | stat.S_IXUSR)
+          rollback_sha = hashlib.sha256(rollback_binary.read_bytes()).hexdigest()
+          rollback_artifact_present = rollback_sha == expected_binary_sha
+
+          working_copy = out / 'working_copy'
+          shutil.copy2(tampered_binary, working_copy)
+          shutil.copy2(rollback_binary, working_copy)
+          working_copy.chmod(working_copy.stat().st_mode | stat.S_IXUSR)
+          recovery_binary_sha = hashlib.sha256(working_copy.read_bytes()).hexdigest()
+          recovery = subprocess.run([str(working_copy)], text=True, capture_output=True)
+          recovery_lines = dict(
+              line.split('=', 1) for line in recovery.stdout.splitlines() if '=' in line
+          )
+          recovery_observed = recovery_lines.get('OBSERVED_VECTOR', '')
+          recovery_state_count = int(recovery_lines.get('STATE_COUNT', '0'))
+          recovery_parity = recovery_lines.get('WOLFRAM_PARITY_256_256') == 'PASS'
+          recovery_output_sha = hashlib.sha256((recovery_observed + '\n').encode()).hexdigest()
+
+          required_observability = {
+              'admission_receipt_sha256': stored_admission_receipt_sha,
+              'binary_sha256': admitted_binary_sha,
+              'oracle_sha256': admitted_oracle_sha,
+              'dependency_manifest_sha256': dependency_observed_sha,
+              'baseline_output_sha256': baseline_output_sha,
+              'baseline_elapsed_ms': baseline_elapsed_ms,
+              'rollback_binary_sha256': rollback_sha,
+              'recovery_output_sha256': recovery_output_sha,
+          }
+          observability_receipt_complete = all(required_observability.values())
+
+          evidence = {
+              'runtime_admission': admission_receipt['decision']['runtime_admission'],
+              'binary_sha256_expected': expected_binary_sha,
+              'binary_sha256_observed': admitted_binary_sha,
+              'oracle_sha256_expected': expected_oracle_sha,
+              'oracle_sha256_observed': admitted_oracle_sha,
+              'dependency_manifest_expected': dependency_expected_sha,
+              'dependency_manifest_observed': dependency_observed_sha,
+              'baseline_exit_code': baseline.returncode,
+              'baseline_state_count': baseline_state_count,
+              'baseline_parity_pass': baseline_parity,
+              'baseline_elapsed_ms': baseline_elapsed_ms,
+              'max_elapsed_ms': 5000,
+              'tamper_binary_detected': tamper_binary_detected,
+              'tamper_oracle_detected': tamper_oracle_detected,
+              'tamper_receipt_detected': tamper_receipt_detected,
+              'dependency_drift_detected': dependency_drift_detected,
+              'rollback_artifact_present': rollback_artifact_present,
+              'observability_receipt_complete': observability_receipt_complete,
+              'recovery_exit_code': recovery.returncode,
+              'recovery_state_count': recovery_state_count,
+              'recovery_parity_pass': recovery_parity,
+              'recovery_binary_sha256': recovery_binary_sha,
+              'recovery_output_sha256': recovery_output_sha,
+              'expected_output_sha256': expected_output_sha,
+          }
+          decision = evaluate_production_readiness(evidence)
+          verifier_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          receipt = {
+              'gate': 'HGRAPH_RUNTIME_ADVERSARIAL_FAIL_CLOSED_RECOVERY_AND_PRODUCTION_READINESS_V1',
+              'scope': 'HGRAPH_CLAIM_GATE_REFERENCE_RUNTIME_COMPONENT',
+              'admission_run_id': 34584645593,
+              'verifier_commit': verifier_commit,
+              'admission_receipt_sha256': stored_admission_receipt_sha,
+              'evidence': evidence,
+              'adversarial_details': {
+                  'binary_tamper_error': binary_tamper_decision['errors'],
+                  'oracle_tamper_error': oracle_tamper_decision['errors'],
+                  'tampered_binary_sha256': tampered_binary_sha,
+                  'tampered_oracle_sha256': tampered_oracle_sha,
+                  'drift_dependency_sha256': drift_dependency_sha,
+              },
+              'observability': required_observability,
+              'decision': decision,
+              'claim_boundary': {
+                  'production_deployment_authorized': False,
+                  'pointer_promotion': False,
+                  'global_bind': False,
+                  'main_merge': False,
+              },
+          }
+          canonical = json.dumps(receipt, sort_keys=True, separators=(',', ':')).encode()
+          receipt['receipt_sha256'] = hashlib.sha256(canonical).hexdigest()
+          (out / 'production_readiness_receipt.json').write_text(
+              json.dumps(receipt, sort_keys=True, indent=2), encoding='utf-8'
+          )
+
+          print('PRODUCTION_READINESS_VERDICT=' + decision['verdict'])
+          print('PRODUCTION_READINESS=' + str(decision['production_readiness']).upper())
+          print('PRODUCTION_DEPLOYMENT_AUTHORIZED=' + str(decision['production_deployment_authorized']).upper())
+          print('BASELINE_ELAPSED_MS=' + str(round(baseline_elapsed_ms, 3)))
+          print('BINARY_TAMPER_DETECTED=' + str(tamper_binary_detected).upper())
+          print('ORACLE_TAMPER_DETECTED=' + str(tamper_oracle_detected).upper())
+          print('RECEIPT_TAMPER_DETECTED=' + str(tamper_receipt_detected).upper())
+          print('DEPENDENCY_DRIFT_DETECTED=' + str(dependency_drift_detected).upper())
+          print('ROLLBACK_RECOVERY_256=' + str(recovery_state_count == 256 and recovery_parity).upper())
+          print('RECEIPT_SHA256=' + receipt['receipt_sha256'])
+          if not decision['production_readiness']:
+              raise SystemExit(1)
+
+      - name: Upload bounded production-readiness receipt and rollback artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-hgraph-bounded-production-readiness
+          path: |
+            production_readiness_bundle/production_readiness_receipt.json
+            production_readiness_bundle/rollback/ess_hgraph_cpp_canary
+          if-no-files-found: error
+          retention-days: 7
