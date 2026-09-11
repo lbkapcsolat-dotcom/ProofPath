@@ -1,0 +1,144 @@
+name: ess-docker-mcp-paper-search-profile-live-canary-v2
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-paper-search-profile-live-canary-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PAPER_PROFILE: ess-paper-search-v1
+
+jobs:
+  paper-search-profile-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/docker-mcp-paper-search-v2 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/docker-mcp-paper-search-v2/gateway-release.json').write_text(json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/docker-mcp-paper-search-v2/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/docker-mcp-paper-search-v2/docker-mcp-version.txt
+
+      - name: Enable profiles and create Paper Search-only profile from official catalog
+        run: |
+          set -euxo pipefail
+          docker mcp feature enable profiles 2>&1 | tee evidence/docker-mcp-paper-search-v2/profile-feature-enable.log || true
+          docker mcp feature list > evidence/docker-mcp-paper-search-v2/features.txt
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" 2>&1 | tee evidence/docker-mcp-paper-search-v2/catalog-pull.log
+          docker mcp profile create --name ESS_PAPER_SEARCH_V1 --id "$PAPER_PROFILE" \
+            --server catalog://mcp/docker-mcp-catalog/paper-search \
+            2>&1 | tee evidence/docker-mcp-paper-search-v2/profile-create.log
+          docker mcp profile show "$PAPER_PROFILE" --format yaml > evidence/docker-mcp-paper-search-v2/profile-show.yaml
+          docker mcp profile export "$PAPER_PROFILE" evidence/docker-mcp-paper-search-v2/profile-export.json
+          grep -F 'paper-search' evidence/docker-mcp-paper-search-v2/profile-show.yaml
+          grep -F 'search_arxiv' evidence/docker-mcp-paper-search-v2/profile-show.yaml
+
+      - name: Profile-bound gateway dry-run with signature verification
+        run: |
+          set -euxo pipefail
+          docker mcp gateway run --dry-run --profile "$PAPER_PROFILE" --verify-signatures \
+            > evidence/docker-mcp-paper-search-v2/profile-dry-run.out \
+            2> evidence/docker-mcp-paper-search-v2/profile-dry-run.err
+          grep -F 'paper-search' evidence/docker-mcp-paper-search-v2/profile-dry-run.err || grep -F 'paper-search' evidence/docker-mcp-paper-search-v2/profile-dry-run.out
+
+      - name: List runtime tools through profile-bound gateway
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools --format json \
+              --gateway-arg=--profile="$PAPER_PROFILE" \
+              --gateway-arg=--verify-signatures \
+              ls \
+            > evidence/docker-mcp-paper-search-v2/runtime-tools.json \
+            2> evidence/docker-mcp-paper-search-v2/runtime-tools.err
+          test -s evidence/docker-mcp-paper-search-v2/runtime-tools.json
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('evidence/docker-mcp-paper-search-v2/runtime-tools.json')
+          obj=json.loads(p.read_text())
+          text=json.dumps(obj)
+          assert 'search_arxiv' in text, f'HOLD_SEARCH_ARXIV_RUNTIME_TOOL_MISSING:{text[:1000]}'
+          print('PASS_PROFILE_BOUND_RUNTIME_TOOL_DISCOVERY_SEARCH_ARXIV')
+          PY
+
+      - name: Execute live search_arxiv through profile-bound Docker MCP Gateway
+        run: |
+          set -euxo pipefail
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools \
+              --gateway-arg=--profile="$PAPER_PROFILE" \
+              --gateway-arg=--verify-signatures \
+              call search_arxiv \
+              'query=higher category theory homotopy theory' \
+              'max_results=3' \
+            > evidence/docker-mcp-paper-search-v2/search-arxiv-live.out \
+            2> evidence/docker-mcp-paper-search-v2/search-arxiv-live.err
+          test -s evidence/docker-mcp-paper-search-v2/search-arxiv-live.out
+          grep -Eiq 'arxiv|paper|title|category|homotopy' evidence/docker-mcp-paper-search-v2/search-arxiv-live.out
+          echo PASS_DOCKER_MCP_PAPER_SEARCH_PROFILE_BOUND_LIVE_CALLABLE | tee evidence/docker-mcp-paper-search-v2/gate-status.txt
+
+      - name: Build bounded receipt and SHA manifest
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/docker-mcp-paper-search-v2')
+          receipt={
+            'gate':'ESS_DOCKER_MCP_PAPER_SEARCH_LIVE_CALLABLE_CANARY_V1',
+            'implementation':'PROFILE_BOUND_V2',
+            'status':'PASS_DOCKER_MCP_PAPER_SEARCH_PROFILE_BOUND_LIVE_CALLABLE',
+            'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+            'profile_id':os.environ['PAPER_PROFILE'],
+            'server':'paper-search',
+            'tool':'search_arxiv',
+            'query':'higher category theory homotopy theory',
+            'max_results':3,
+            'signature_verification':True,
+            'zero_spend':True,
+            'secret_injected':False,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False,
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-paper-search-profile-live-canary-v2
+          path: evidence/docker-mcp-paper-search-v2/
+          if-no-files-found: error
+          retention-days: 30
