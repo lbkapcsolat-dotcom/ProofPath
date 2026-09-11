@@ -1,0 +1,47 @@
+{
+  "gate": "DEEPWIKI_LIVE_CALLABLE_V1",
+  "final_status": "HOLD_DOCKER_GATEWAY_REMOTE_SERVER_COMPATIBILITY",
+  "claim_boundary": {
+    "deepwiki_service_declared_broken": false,
+    "docker_gateway_remote_path_proven_callable": false,
+    "production_ready": false,
+    "global_bind": false,
+    "external_actuation": false
+  },
+  "environment": {
+    "docker_mcp_gateway": "v0.43.3",
+    "runner": "ubuntu-24.04",
+    "zero_spend": true,
+    "secrets_injected": false
+  },
+  "official_catalog_contract": {
+    "server": "deepwiki",
+    "type": "remote",
+    "url": "https://mcp.deepwiki.com/sse",
+    "transport": "sse",
+    "tools": ["ask_question", "read_wiki_contents", "read_wiki_structure"]
+  },
+  "bounded_current_transport_test": {
+    "target_url": "https://mcp.deepwiki.com/mcp",
+    "target_transport": "streamable-http",
+    "changed_fields": ["remote.url", "remote.transport_type"],
+    "tool_contract_preserved": true,
+    "dynamic_tools_disabled": true,
+    "stderr": "starting client: calling initialize: EOF"
+  },
+  "attempts": [
+    {"version": "V1", "run_id": 34604792903, "result": "PROFILE_PATH_NO_DEEPWIKI_TOOL_SURFACE", "note": "profiles currently image-only in gateway"},
+    {"version": "V2", "run_id": 34605003649, "result": "LEGACY_REMOTE_PATH_NO_DEEPWIKI_TOOL_SURFACE"},
+    {"version": "V3", "run_id": 34605163609, "result": "DYNAMIC_TOOLS_DISABLED_BUT_NO_DEEPWIKI_TOOL_SURFACE"},
+    {"version": "V4", "run_id": 34605397954, "result": "CURRENT_STREAMABLE_HTTP_INITIALIZE_EOF"}
+  ],
+  "provider_artifact": {
+    "id": 10266210226,
+    "name": "ess-docker-mcp-deepwiki-live-callable-v4",
+    "size_bytes": 3019,
+    "github_sha256": "da6cd0192245cbd0e1efd41f3ebc340c2107c586f03885a5a4f18aa71f245902",
+    "external_readback_sha256": "da6cd0192245cbd0e1efd41f3ebc340c2107c586f03885a5a4f18aa71f245902",
+    "byte_digest_equality": true
+  },
+  "next_action": "Proceed to DOCKER_DOCS_LIVE_CALLABLE_V1. Revisit DeepWiki only after Docker Gateway remote-server compatibility changes or a newer bounded gateway release is verified."
+}
