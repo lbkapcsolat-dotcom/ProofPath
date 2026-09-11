@@ -211,8 +211,9 @@ jobs:
           b=json.loads((broot/'raw-receipt.json').read_text())
           ia=a['runtime_meta']; ib=b['runtime_meta']
           assert ia['host_label'] != ib['host_label']
-          assert ia['hostname'] != ib['hostname'], (ia,ib)
-          assert ia['boot_id'] != ib['boot_id'], (ia,ib)
+          assert ia['boot_id'] and ib['boot_id'] and ia['boot_id'] != ib['boot_id'], (ia,ib)
+          assert ia['product_uuid'] and ib['product_uuid'] and ia['product_uuid'] != ib['product_uuid'], (ia,ib)
+          assert ia['runner_name'] and ib['runner_name'] and ia['runner_name'] != ib['runner_name'], (ia,ib)
           distinct=True
           assert a['request_sha256']==b['request_sha256']
           assert a['route_sha256']==b['route_sha256']
@@ -227,10 +228,14 @@ jobs:
           assert not raw_equal
           summary={
             'gate':'ESS_DOCKER_MCP_CROSS_HOST_GATEWAY_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY_V1',
+            'implementation':'V2_VM_UNIQUE_IDENTITY_FIELDS',
             'status':'PASS_BOUNDED_TWO_DISTINCT_GITHUB_HOSTED_RUNNER_REPLAY_AND_NORMALIZED_RECEIPT_EQUALITY',
             'host_a_identity':ia,
             'host_b_identity':ib,
             'distinct_host_identity':distinct,
+            'shared_template_hostname_allowed':ia.get('hostname')==ib.get('hostname'),
+            'shared_template_machine_id_allowed':ia.get('machine_id')==ib.get('machine_id'),
+            'identity_authority_fields':['boot_id','product_uuid','runner_name'],
             'request_sha256_equal':True,
             'route_sha256_equal':True,
             'response_sha256_equal':True,
@@ -248,7 +253,7 @@ jobs:
             'external_actuation':False,
             'production_ready':False,
             'global_bind':False,
-            'claim_boundary':'TWO_DISTINCT_GITHUB_HOSTED_RUNNER_VMS__SAME_ROUTER_SELECTED_GATEWAY_PROFILE_ROUTE__EXACT_RESPONSE_AND_NORMALIZED_RECEIPT_EQUALITY__NOT_ALL_13_SURFACES__NOT_PRODUCTION_READY__NOT_GLOBAL_BIND'
+            'claim_boundary':'TWO_DISTINCT_GITHUB_HOSTED_RUNNER_VMS_DISTINGUISHED_BY_BOOT_ID_PRODUCT_UUID_AND_RUNNER_ID__SAME_ROUTER_SELECTED_GATEWAY_PROFILE_ROUTE__EXACT_RESPONSE_AND_NORMALIZED_RECEIPT_EQUALITY__NOT_ALL_13_SURFACES__NOT_PRODUCTION_READY__NOT_GLOBAL_BIND'
           }
           out=pathlib.Path('evidence/cross-host-final')
           (out/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
