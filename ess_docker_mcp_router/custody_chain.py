@@ -182,6 +182,10 @@ def verify_provider_custody(
         p_rec = primary_files[surface]["receipt"]
         r_rec = replay_files[surface]["receipt"]
         cmp_row = comparison_rows[surface]
+        actual_primary_rel = primary_files[surface]["path"].relative_to(root).as_posix()
+        expected_primary_rel = f"primary-receipts/{surface}.json"
+        if actual_primary_rel != expected_primary_rel:
+            raise CustodyChainError(f"PRIMARY_RECEIPT_PATH_MISMATCH:{surface}")
         actual_replay_rel = replay_files[surface]["path"].relative_to(root).as_posix()
         expected_replay_rel = cmp_row.get("replay_receipt_path")
         if expected_replay_rel != actual_replay_rel:
