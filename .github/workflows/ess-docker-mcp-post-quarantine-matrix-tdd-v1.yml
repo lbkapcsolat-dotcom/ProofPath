@@ -1,0 +1,24 @@
+name: ess-docker-mcp-post-quarantine-matrix-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/post_quarantine_matrix.py'
+      - 'ess_docker_mcp_router/test_post_quarantine_matrix.py'
+      - '.github/workflows/ess-docker-mcp-post-quarantine-matrix-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused post-quarantine 12-surface matrix contract
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_post_quarantine_matrix.py
