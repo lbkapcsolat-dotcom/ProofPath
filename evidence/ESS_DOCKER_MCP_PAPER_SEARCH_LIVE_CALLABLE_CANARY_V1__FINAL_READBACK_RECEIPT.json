@@ -1,0 +1,33 @@
+{
+  "gate": "ESS_DOCKER_MCP_PAPER_SEARCH_LIVE_CALLABLE_CANARY_V1",
+  "status": "PASS_DOCKER_MCP_PAPER_SEARCH_PROFILE_BOUND_LIVE_CALLABLE",
+  "implementation": "PROFILE_BOUND_V2",
+  "workflow_run_id": 34600901557,
+  "workflow_head_sha": "a5d254267ddc63572fd65d06be556af4ea6e2672",
+  "gateway_version": "v0.43.3",
+  "profile_id": "ess-paper-search-v1",
+  "server": "paper-search",
+  "tool": "search_arxiv",
+  "signature_verification": true,
+  "zero_spend": true,
+  "secret_injected": false,
+  "live_query": "higher category theory homotopy theory",
+  "live_results_returned": 3,
+  "provider_artifact": {
+    "artifact_id": 10263789477,
+    "name": "ess-docker-mcp-paper-search-profile-live-canary-v2",
+    "provider_reported_bytes": 19715,
+    "provider_reported_sha256": "287352a83db0eefa82366972df91c7d2db0ab9d3bbffcc6f7fb0de49de7778f5",
+    "external_download_bytes": 19715,
+    "external_download_sha256": "287352a83db0eefa82366972df91c7d2db0ab9d3bbffcc6f7fb0de49de7778f5",
+    "provider_to_external_equality": true
+  },
+  "claim_ceiling": {
+    "docker_mcp_gateway_callable": true,
+    "paper_search_runtime_tool_discovery": true,
+    "paper_search_live_arxiv_call": true,
+    "production_ready": false,
+    "global_bind": false,
+    "external_actuation": false
+  }
+}
