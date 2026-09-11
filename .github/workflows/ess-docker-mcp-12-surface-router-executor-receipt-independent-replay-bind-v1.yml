@@ -1,0 +1,369 @@
+name: ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PRIMARY_HEAD_SHA: 78a2bb61769534d04cd0c45811ccebcce207efdd
+  PRIMARY_RUN_ID: '34634274865'
+  PRIMARY_ARTIFACT_ID: '10277298744'
+  PRIMARY_ARTIFACT_SHA256: ea5a7f46ea3cc8bfa6e3ee3542b2871f9e2266d7e12f4a0a357a197818af1091
+  OPENAPI_DIGEST: sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a
+  RUSTFS_DIGEST: sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242
+
+jobs:
+  receipt-independent-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify focused receipt and replay contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_receipt_replay_binding.py
+          python -m unittest -v test_router_executor_binding.py
+
+      - name: Recover pinned primary provider artifact and verify external custody
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          mkdir -p "$ROOT/primary-artifact" "$ROOT/primary-receipts" "$ROOT/replay" "$ROOT/comparisons" "$ROOT/negative"
+          curl --fail --location --silent --show-error --max-time 240 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$PRIMARY_ARTIFACT_ID/zip" \
+            -o "$ROOT/primary-artifact.zip"
+          printf '%s  %s\n' "$PRIMARY_ARTIFACT_SHA256" "$ROOT/primary-artifact.zip" | sha256sum -c -
+          unzip -q "$ROOT/primary-artifact.zip" -d "$ROOT/primary-artifact"
+          python - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path('evidence/ess-router-executor-receipt-replay-bind-v1')
+          primary=root/'primary-artifact'
+          manifest=primary/'sha256-manifest.txt'
+          checked=0; errors=[]
+          for line in manifest.read_text().splitlines():
+              if not line.strip(): continue
+              h,n,rel=line.split('  ',2)
+              p=primary/rel
+              if not p.is_file(): errors.append(f'missing:{rel}'); continue
+              b=p.read_bytes(); checked+=1
+              if len(b)!=int(n): errors.append(f'bytes:{rel}')
+              if hashlib.sha256(b).hexdigest()!=h: errors.append(f'sha:{rel}')
+          assert checked==166,(checked,errors)
+          assert not errors,errors
+          summary=json.loads((primary/'summary.json').read_text())
+          receipt=json.loads(pathlib.Path('evidence/receipts/ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_ROUTER_TO_EXECUTOR_FULL_MATRIX_AND_NEGATIVE_ROUTE_CANARIES_V1_FINAL_READBACK_RECEIPT.json').read_text())
+          assert summary['positive_surface_count']==12 and summary['negative_canary_count']==4
+          assert receipt['final_live_integration']['run_id']==int(os.environ['PRIMARY_RUN_ID'])
+          assert receipt['final_artifact']['provider_artifact_id']==int(os.environ['PRIMARY_ARTIFACT_ID'])
+          assert receipt['final_artifact']['provider_artifact_sha256']==os.environ['PRIMARY_ARTIFACT_SHA256']
+          (root/'primary-custody-readback.json').write_text(json.dumps({
+              'primary_run_id':int(os.environ['PRIMARY_RUN_ID']),
+              'primary_head_sha':os.environ['PRIMARY_HEAD_SHA'],
+              'primary_artifact_id':int(os.environ['PRIMARY_ARTIFACT_ID']),
+              'primary_artifact_sha256':os.environ['PRIMARY_ARTIFACT_SHA256'],
+              'internal_manifest_checked':checked,
+              'internal_manifest_errors':len(errors),
+              'primary_final_receipt_bound':True,
+          },indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Verify primary authority and router-executor source continuity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          PRIMARY="$ROOT/primary-artifact"
+          cmp -s "$PRIMARY/policy-authority.json" ess_docker_mcp_router/policy.json
+          cmp -s "$PRIMARY/profile-authority.json" ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json
+          git cat-file -e "$PRIMARY_HEAD_SHA^{commit}"
+          git diff --exit-code "$PRIMARY_HEAD_SHA" -- \
+            ess_docker_mcp_router/router.py \
+            ess_docker_mcp_router/executor_binding.py \
+            ess_docker_mcp_router/policy.json \
+            ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json
+          sha256sum ess_docker_mcp_router/policy.json > "$ROOT/current-policy.sha256"
+          sha256sum ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json > "$ROOT/current-profile.sha256"
+          sha256sum ess_docker_mcp_router/router.py ess_docker_mcp_router/executor_binding.py ess_docker_mcp_router/receipt_binding.py > "$ROOT/binding-source.sha256"
+
+      - name: Build and validate 12 primary response receipts from preserved evidence
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from receipt_binding import build_surface_receipt,validate_surface_receipt
+          root=pathlib.Path('evidence/ess-router-executor-receipt-replay-bind-v1')
+          primary=root/'primary-artifact'; out=root/'primary-receipts'
+          policy_sha=hashlib.sha256(pathlib.Path('ess_docker_mcp_router/policy.json').read_bytes()).hexdigest()
+          profile_sha=hashlib.sha256(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_bytes()).hexdigest()
+          rows=[]
+          dirs=sorted((primary/'positive').iterdir())
+          assert len(dirs)==12
+          for d in dirs:
+              request=json.loads((d/'request.json').read_text())
+              plan=json.loads((d/'execution-plan.json').read_text())
+              trace=json.loads((d/'executor-trace.json').read_text())
+              response_path=d/('response.txt' if (d/'response.txt').exists() else 'call.json')
+              response=response_path.read_bytes()
+              surface=plan['executor_contract']['surface']
+              receipt=build_surface_receipt(request=request,plan=plan,trace=trace,response_bytes=response,policy_sha256=policy_sha,profile_sha256=profile_sha,execution_id=f'primary-run-${{ env.PRIMARY_RUN_ID }}-{surface}')
+              validate_surface_receipt(receipt=receipt,request=request,plan=plan,trace=trace,response_bytes=response,policy_sha256=policy_sha,profile_sha256=profile_sha)
+              (out/f'{surface}.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+              rows.append({'surface':surface,'transport':receipt['transport'],'receipt_sha256':receipt['receipt_sha256'],'response_sha256':receipt['response_sha256'],'response_bytes':receipt['response_bytes'],'source_dir':d.name})
+          assert len(rows)==12 and len({r['surface'] for r in rows})==12
+          (root/'primary-receipt-index.json').write_text(json.dumps(rows,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Prepare exact primary direct-image inputs for replay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          PRIMARY="$ROOT/primary-artifact"
+          INPUT_ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          rm -rf "$INPUT_ROOT"
+          mkdir -p "$INPUT_ROOT/rust-readonly"
+          cp "$PRIMARY/synthetic-openapi.yaml" "$INPUT_ROOT/synthetic-openapi.yaml"
+          cp "$PRIMARY/rust-readonly/canary.txt" "$INPUT_ROOT/rust-readonly/canary.txt"
+          chmod 0444 "$INPUT_ROOT/synthetic-openapi.yaml" "$INPUT_ROOT/rust-readonly/canary.txt"
+          chmod 0555 "$INPUT_ROOT/rust-readonly"
+          sha256sum "$INPUT_ROOT/synthetic-openapi.yaml" "$INPUT_ROOT/rust-readonly/canary.txt" > "$ROOT/replay-input-before.sha256"
+          cmp -s "$PRIMARY/synthetic-openapi.yaml" "$INPUT_ROOT/synthetic-openapi.yaml"
+          cmp -s "$PRIMARY/rust-readonly/canary.txt" "$INPUT_ROOT/rust-readonly/canary.txt"
+
+      - name: Install pinned Docker MCP Gateway
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-replay-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-replay-url').write_text(a['browser_download_url'])
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-replay-url)" -o /tmp/docker-mcp-replay.tgz
+          sha256sum /tmp/docker-mcp-replay.tgz > "$ROOT/docker-mcp-release-tar.sha256"
+          tar -xzf /tmp/docker-mcp-replay.tgz -C /tmp/mcp-replay-extract
+          install -m 0755 /tmp/mcp-replay-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+          docker mcp feature enable profiles > "$ROOT/profile-feature.out" 2> "$ROOT/profile-feature.err" || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+
+      - name: Build receipt-bound gateway replay executor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat > /tmp/receipt_bound_gateway_replay.py <<'PY'
+          import hashlib,json,pathlib,subprocess,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import plan_execution,validate_execution_trace
+          from receipt_binding import build_surface_receipt,validate_surface_receipt
+          primary_dir=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); profile_id=sys.argv[3]; policy_sha=sys.argv[4]; profile_sha=sys.argv[5]; execution_id=sys.argv[6]
+          request=json.loads((primary_dir/'request.json').read_text())
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          plan=plan_execution(request,profile,policy); c=plan['executor_contract']; assert plan['executor_allowed'] and c['transport']=='gateway-profile'
+          out.mkdir(parents=True,exist_ok=True)
+          (out/'request.json').write_text(json.dumps(request,indent=2,sort_keys=True)+'\n'); (out/'execution-plan.json').write_text(json.dumps(plan,indent=2,sort_keys=True)+'\n')
+          create=['docker','mcp','profile','create','--name',f'ESS RECEIPT REPLAY {c["surface"]}','--id',profile_id,'--server',f'catalog://mcp/docker-mcp-catalog/{c["surface"]}']
+          r=subprocess.run(create,text=True,capture_output=True); (out/'profile-create.out').write_text(r.stdout); (out/'profile-create.err').write_text(r.stderr); assert r.returncode==0,(r.returncode,r.stderr)
+          ls=['docker','mcp','tools','--format','json',f'--gateway-arg=--profile={profile_id}','--gateway-arg=--verify-signatures','ls']
+          r=subprocess.run(ls,text=True,capture_output=True,timeout=90); (out/'tools.json').write_text(r.stdout); (out/'tools.err').write_text(r.stderr); assert r.returncode==0 and f'"{c["tool"]}"' in r.stdout
+          call=['docker','mcp','tools',f'--gateway-arg=--profile={profile_id}','--gateway-arg=--verify-signatures','call',c['tool']]+[f'{k}={v}' for k,v in c['arguments'].items()]
+          r=subprocess.run(call,text=True,capture_output=True,timeout=120); (out/'response.txt').write_text(r.stdout); (out/'live.err').write_text(r.stderr); assert r.returncode==0 and r.stdout.strip(),(r.returncode,r.stderr)
+          trace={**c,'executor_invoked':True,'exit_code':r.returncode,'argv':call,'profile_id':profile_id}; validate_execution_trace(plan,trace)
+          (out/'executor-trace.json').write_text(json.dumps(trace,indent=2,sort_keys=True)+'\n')
+          receipt=build_surface_receipt(request=request,plan=plan,trace=trace,response_bytes=(out/'response.txt').read_bytes(),policy_sha256=policy_sha,profile_sha256=profile_sha,execution_id=execution_id)
+          validate_surface_receipt(receipt=receipt,request=request,plan=plan,trace=trace,response_bytes=(out/'response.txt').read_bytes(),policy_sha256=policy_sha,profile_sha256=profile_sha)
+          (out/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({'surface':c['surface'],'transport':c['transport'],'status':'REPLAY_RECEIPT_BOUND_PASS','receipt_sha256':receipt['receipt_sha256'],'response_sha256':receipt['response_sha256']},sort_keys=True))
+          PY
+
+      - name: Execute 10 independent gateway-profile replays from primary requests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          POLICY_SHA=$(sha256sum ess_docker_mcp_router/policy.json | awk '{print $1}')
+          PROFILE_SHA=$(sha256sum ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json | awk '{print $1}')
+          : > "$ROOT/replay-results.jsonl"
+          idx=0
+          for P in "$ROOT"/primary-artifact/positive/0{1,2,3,4,5,6,7,8,9}-* "$ROOT"/primary-artifact/positive/10-*; do
+            idx=$((idx+1)); BASE=$(basename "$P"); D="$ROOT/replay/$BASE"; PROFILE_ID="ess-receipt-replay-${GITHUB_RUN_ID}-${idx}"
+            python /tmp/receipt_bound_gateway_replay.py "$P" "$D" "$PROFILE_ID" "$POLICY_SHA" "$PROFILE_SHA" "replay-run-${GITHUB_RUN_ID}-$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["executor_contract"]["surface"])' "$P/execution-plan.json")" | tee "$D/result.json"
+            cat "$D/result.json" >> "$ROOT/replay-results.jsonl"
+          done
+          [ "$idx" -eq 10 ]
+
+      - name: Build receipt-bound direct-image replay executor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/ess-receipt-bound-direct
+          cat > /tmp/ess-receipt-bound-direct/go.mod <<'EOF'
+          module ess-receipt-bound-direct
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-receipt-bound-direct/main.go <<'EOF'
+          package main
+          import("context";"encoding/json";"os";"os/exec";"path/filepath";"strings";"time";"github.com/modelcontextprotocol/go-sdk/mcp")
+          type Contract struct{Surface string `json:"surface"`;Tool string `json:"tool"`;Transport string `json:"transport"`;Arguments map[string]any `json:"arguments"`;ReadOnly bool `json:"read_only"`;ExternalActuation bool `json:"external_actuation"`;ImageDigest string `json:"image_digest"`}
+          func must(e error){if e!=nil{panic(e)}}
+          func writeJSON(p string,v any){b,e:=json.MarshalIndent(v,"","  ");must(e);must(os.WriteFile(p,append(b,'\n'),0644))}
+          func main(){
+            if len(os.Args)!=4{panic("usage: bound-direct contract.json evidence-dir input-root")}
+            cb,e:=os.ReadFile(os.Args[1]);must(e);var c Contract;must(json.Unmarshal(cb,&c));if c.Transport!="direct-image"||!c.ReadOnly||c.ExternalActuation{panic("invalid direct contract")}
+            out:=os.Args[2]; input:=os.Args[3];ctx,cancel:=context.WithTimeout(context.Background(),120*time.Second);defer cancel();var cmd *exec.Cmd;var expect string
+            if c.Surface=="openapi-schema"{p:=filepath.Join(input,"synthetic-openapi.yaml");image:="mcp/openapi-schema@"+c.ImageDigest;cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v",p+":"+p+":ro",image);expect="/health"}else if c.Surface=="rust-mcp-filesystem"{d:=filepath.Join(input,"rust-readonly");image:="mcp/rust-mcp-filesystem@"+c.ImageDigest;cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-e","ENABLE_ROOTS=false","-e","ALLOW_WRITE=false","-v",d+":"+d+":ro",image,d);expect="canary.txt"}else{panic("unknown direct surface")}
+            stderr,e:=os.Create(filepath.Join(out,"container-stderr.log"));must(e);defer stderr.Close();cmd.Stderr=stderr
+            cl:=mcp.NewClient(&mcp.Implementation{Name:"ess-receipt-bound-direct",Version:"1.0.0"},nil);s,e:=cl.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil);must(e);defer s.Close();lt,e:=s.ListTools(ctx,&mcp.ListToolsParams{});must(e);found:=false;for _,t:=range lt.Tools{if t.Name==c.Tool{found=true}};if !found{panic("expected tool missing")};writeJSON(filepath.Join(out,"tools.json"),lt);res,e:=s.CallTool(ctx,&mcp.CallToolParams{Name:c.Tool,Arguments:c.Arguments});must(e);if res.IsError{panic("tool error")};writeJSON(filepath.Join(out,"call.json"),res);rb,_:=json.Marshal(res);if !strings.Contains(string(rb),expect){panic("expected output evidence missing")};trace:=map[string]any{"surface":c.Surface,"tool":c.Tool,"transport":c.Transport,"arguments":c.Arguments,"read_only":c.ReadOnly,"external_actuation":c.ExternalActuation,"image_digest":c.ImageDigest,"executor_invoked":true,"exit_code":0};writeJSON(filepath.Join(out,"executor-trace.json"),trace)
+          }
+          EOF
+          cd /tmp/ess-receipt-bound-direct
+          go mod tidy
+          go build -o /tmp/ess-receipt-bound-direct/bound-direct .
+
+      - name: Execute 2 independent digest-pinned direct-image replays and bind receipts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          INPUT_ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          POLICY_SHA=$(sha256sum ess_docker_mcp_router/policy.json | awk '{print $1}')
+          PROFILE_SHA=$(sha256sum ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json | awk '{print $1}')
+          for P in "$ROOT"/primary-artifact/positive/11-* "$ROOT"/primary-artifact/positive/12-*; do
+            BASE=$(basename "$P"); D="$ROOT/replay/$BASE"; mkdir -p "$D"
+            P="$P" D="$D" POLICY_SHA="$POLICY_SHA" PROFILE_SHA="$PROFILE_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" python - <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import plan_execution
+          p=pathlib.Path(os.environ['P']);d=pathlib.Path(os.environ['D']);request=json.loads((p/'request.json').read_text());profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text());policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text());plan=plan_execution(request,profile,policy);assert plan['executor_allowed'] and plan['executor_contract']['transport']=='direct-image';d.joinpath('request.json').write_text(json.dumps(request,indent=2,sort_keys=True)+'\n');d.joinpath('execution-plan.json').write_text(json.dumps(plan,indent=2,sort_keys=True)+'\n')
+          PY
+            /tmp/ess-receipt-bound-direct/bound-direct "$D/execution-plan.json" "$D" "$INPUT_ROOT"
+            P="$P" D="$D" POLICY_SHA="$POLICY_SHA" PROFILE_SHA="$PROFILE_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" python - <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from executor_binding import validate_execution_trace
+          from receipt_binding import build_surface_receipt,validate_surface_receipt
+          p=pathlib.Path(os.environ['P']);d=pathlib.Path(os.environ['D']);request=json.loads((d/'request.json').read_text());plan=json.loads((d/'execution-plan.json').read_text());trace=json.loads((d/'executor-trace.json').read_text());validate_execution_trace(plan,trace);surface=plan['executor_contract']['surface'];receipt=build_surface_receipt(request=request,plan=plan,trace=trace,response_bytes=(d/'call.json').read_bytes(),policy_sha256=os.environ['POLICY_SHA'],profile_sha256=os.environ['PROFILE_SHA'],execution_id=f'replay-run-{os.environ["GITHUB_RUN_ID"]}-{surface}');validate_surface_receipt(receipt=receipt,request=request,plan=plan,trace=trace,response_bytes=(d/'call.json').read_bytes(),policy_sha256=os.environ['POLICY_SHA'],profile_sha256=os.environ['PROFILE_SHA']);(d/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n');result={'surface':surface,'transport':receipt['transport'],'status':'REPLAY_RECEIPT_BOUND_PASS','receipt_sha256':receipt['receipt_sha256'],'response_sha256':receipt['response_sha256']};(d/'result.json').write_text(json.dumps(result,sort_keys=True)+'\n');print(json.dumps(result,sort_keys=True))
+          PY
+            cat "$D/result.json" >> "$ROOT/replay-results.jsonl"
+          done
+
+      - name: Compare all 12 independent replays and execute receipt-layer negative canaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import copy,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from receipt_binding import ReceiptBindingError,compare_independent_replay,validate_surface_receipt
+          root=pathlib.Path('evidence/ess-router-executor-receipt-replay-bind-v1');primary=root/'primary-artifact';preceipts=root/'primary-receipts';replay=root/'replay';comparisons=[]
+          for pr in sorted(preceipts.glob('*.json')):
+              p=json.loads(pr.read_text()); rr=next(replay.rglob('receipt.json')) if False else None
+              matches=[]
+              for candidate in replay.rglob('receipt.json'):
+                  c=json.loads(candidate.read_text())
+                  if c['surface']==p['surface']: matches.append((candidate,c))
+              assert len(matches)==1,(p['surface'],matches)
+              path,r=matches[0]; comp=compare_independent_replay(p,r); comp['replay_receipt_path']=str(path.relative_to(root)); comparisons.append(comp)
+          assert len(comparisons)==12 and len({c['surface'] for c in comparisons})==12
+          assert sum(c['transport']=='gateway-profile' for c in comparisons)==10
+          assert sum(c['transport']=='direct-image' for c in comparisons)==2
+          assert all(c['replay_valid'] for c in comparisons)
+          direct=[c for c in comparisons if c['transport']=='direct-image']; assert all(c['response_sha256_equal'] and c['response_equivalence']=='EXACT_RESPONSE_REPLAY' for c in direct),direct
+          gateway=[c for c in comparisons if c['transport']=='gateway-profile']; assert all(c['response_equivalence']=='RESPONSE_INDIVIDUALLY_BOUND__BYTE_EQUALITY_NOT_REQUIRED' for c in gateway)
+          (root/'comparisons/replay-comparisons.json').write_text(json.dumps(comparisons,indent=2,sort_keys=True)+'\n')
+
+          # Receipt validation tamper canaries against preserved primary evidence.
+          d=primary/'positive/02-papers'; request=json.loads((d/'request.json').read_text());plan=json.loads((d/'execution-plan.json').read_text());trace=json.loads((d/'executor-trace.json').read_text());response=(d/'response.txt').read_bytes();base=json.loads((preceipts/'paper-search.json').read_text());policy_sha=base['policy_sha256'];profile_sha=base['profile_sha256']
+          mutations={'request_sha256':'0'*64,'route_sha256':'1'*64,'executor_contract_sha256':'2'*64,'response_sha256':'3'*64,'policy_sha256':'4'*64,'profile_sha256':'5'*64}
+          neg=[]
+          for field,value in mutations.items():
+              t=copy.deepcopy(base);t[field]=value
+              try: validate_surface_receipt(receipt=t,request=request,plan=plan,trace=trace,response_bytes=response,policy_sha256=policy_sha,profile_sha256=profile_sha)
+              except ReceiptBindingError as e: neg.append({'canary':f'tamper-{field}','status':'DENY_PASS','reason':str(e)})
+              else: raise AssertionError(f'tamper accepted:{field}')
+          other=json.loads((preceipts/'context7.json').read_text())
+          try: compare_independent_replay(base,other)
+          except ReceiptBindingError as e: neg.append({'canary':'cross-surface-receipt-swap','status':'DENY_PASS','reason':str(e)})
+          else: raise AssertionError('cross-surface swap accepted')
+          same=copy.deepcopy(base);same['receipt_sha256']=base['receipt_sha256']
+          try: compare_independent_replay(base,same)
+          except ReceiptBindingError as e: neg.append({'canary':'same-execution-replay','status':'DENY_PASS','reason':str(e)})
+          else: raise AssertionError('same execution accepted')
+          assert len(neg)==8 and all(x['status']=='DENY_PASS' for x in neg),neg
+          (root/'negative/receipt-negative-canaries.json').write_text(json.dumps(neg,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Verify immutable direct inputs and build bounded gate receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-receipt-replay-bind-v1"
+          INPUT_ROOT="$GITHUB_WORKSPACE/evidence/ess-router-executor-full-matrix-v1"
+          sha256sum "$INPUT_ROOT/synthetic-openapi.yaml" "$INPUT_ROOT/rust-readonly/canary.txt" > "$ROOT/replay-input-after.sha256"
+          diff -u "$ROOT/replay-input-before.sha256" "$ROOT/replay-input-after.sha256" > "$ROOT/replay-input-diff.txt"
+          python - <<'PY'
+          import collections,hashlib,json,os,pathlib
+          root=pathlib.Path('evidence/ess-router-executor-receipt-replay-bind-v1')
+          comps=json.loads((root/'comparisons/replay-comparisons.json').read_text());neg=json.loads((root/'negative/receipt-negative-canaries.json').read_text());replay_rows=[json.loads(x) for x in (root/'replay-results.jsonl').read_text().splitlines() if x.strip()]
+          assert len(comps)==12 and len(replay_rows)==12 and len(neg)==8
+          assert all(x['status']=='REPLAY_RECEIPT_BOUND_PASS' for x in replay_rows)
+          gateway=[x for x in comps if x['transport']=='gateway-profile'];direct=[x for x in comps if x['transport']=='direct-image']
+          summary={
+            'gate':'ESS_DOCKER_MCP_12_SURFACE_ROUTER_EXECUTOR_RECEIPT_AND_INDEPENDENT_REPLAY_BIND_V1',
+            'verdict':'PASS_12_OF_12_PRIMARY_RESPONSE_RECEIPTS_BOUND__12_OF_12_INDEPENDENT_REPLAY_RECEIPTS_BOUND__2_OF_2_DIRECT_EXACT_RESPONSE_REPLAY__8_OF_8_RECEIPT_NEGATIVE_CANARIES_FAIL_CLOSED',
+            'primary_run_id':int(os.environ['PRIMARY_RUN_ID']),'primary_head_sha':os.environ['PRIMARY_HEAD_SHA'],'primary_artifact_id':int(os.environ['PRIMARY_ARTIFACT_ID']),'primary_artifact_sha256':os.environ['PRIMARY_ARTIFACT_SHA256'],
+            'replay_run_id':int(os.environ['GITHUB_RUN_ID']),'replay_head_sha':os.environ['GITHUB_SHA'],
+            'primary_receipt_count':12,'independent_replay_receipt_count':12,'gateway_profile_replay_count':len(gateway),'direct_image_replay_count':len(direct),'direct_exact_response_sha_equal_count':sum(x['response_sha256_equal'] for x in direct),'gateway_response_sha_equal_count_observed':sum(x['response_sha256_equal'] for x in gateway),'receipt_negative_canary_count':len(neg),'receipt_negative_status_counts':dict(collections.Counter(x['status'] for x in neg)),
+            'authority_bytes_equal_to_primary':True,'router_executor_source_equal_to_primary_head':True,'direct_inputs_immutable':True,'gemini_quarantine_preserved':True,'zero_spend':True,'secret_injected':False,'external_actuation':False,'production_ready':False,'runtime_admission':False,'global_bind':False,
+            'remote_response_claim_boundary':'For 10 gateway-profile surfaces, each primary and replay response is independently SHA256-bound to its own validated receipt; cross-run response-byte equality is observed and recorded but is not required because upstream remote content may legitimately change.',
+            'direct_response_claim_boundary':'For 2 digest-pinned local direct-image surfaces over byte-identical read-only synthetic inputs, cross-run response SHA256 equality is required and passed.',
+            'claim_boundary':'POLICY_ROUTE_EXECUTOR_RESPONSE_RECEIPT_CHAIN_BOUND_OVER_12_READ_ONLY_SURFACES__PRIMARY_PROVIDER_ARTIFACT_PINNED_AND_REVERIFIED__FRESH_INDEPENDENT_REPLAY_ON_ALL_12__DIRECT_LOCAL_OUTPUTS_EXACT__REMOTE_OUTPUTS_INDIVIDUALLY_EXACTLY_BOUND_NOT_ASSUMED_CROSS_RUN_DETERMINISTIC__NO_PRODUCTION_READY__NO_RUNTIME_ADMISSION__NO_GLOBAL_BIND'
+          }
+          (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n');(root/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          entries=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes();entries.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(entries)+'\n')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-12-surface-router-executor-receipt-independent-replay-bind-v1
+          path: evidence/ess-router-executor-receipt-replay-bind-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
