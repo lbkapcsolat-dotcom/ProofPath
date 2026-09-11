@@ -1,0 +1,26 @@
+name: ess-docker-mcp-provider-custody-chain-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_provider_custody_chain.py'
+      - 'ess_docker_mcp_router/custody_chain.py'
+      - '.github/workflows/ess-docker-mcp-provider-custody-chain-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-provider-custody-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused provider custody chain canaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_provider_custody_chain.py
