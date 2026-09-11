@@ -12,6 +12,20 @@ permissions:
   contents: read
 
 jobs:
+  proof-escape-scanner-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require current scanner to catch inline proof escape
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'theorem synthetic : True := by sorry' > /tmp/inline-proof-escape.lean
+          if grep -nE '^[[:space:]]*(axiom|sorry|admit|unsafe)([[:space:]]|$)' /tmp/inline-proof-escape.lean; then
+            echo 'PASS_SCANNER_CAUGHT_INLINE_PROOF_ESCAPE'
+          else
+            echo 'FAIL_SCANNER_MISSED_INLINE_PROOF_ESCAPE'
+            exit 42
+          fi
+
   build-a:
     runs-on: ubuntu-24.04
     steps:
@@ -153,7 +167,7 @@ jobs:
         run: node csc-2026/test.cjs
 
   compare:
-    needs: [build-a, build-b, proofpath-regression]
+    needs: [proof-escape-scanner-test, build-a, build-b, proofpath-regression]
     runs-on: ubuntu-24.04
     steps:
       - name: Download build A
