@@ -1,0 +1,202 @@
+name: ess-docker-mcp-cross-host-13-surface-bounded-invariance-matrix-v2
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-cross-host-13-surface-bounded-invariance-matrix-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bounded-invariance-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frozen host A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-cross-host-13-host-a
+          path: evidence/frozen/host-a
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34621290828
+          github-token: ${{ github.token }}
+
+      - name: Download frozen host B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-cross-host-13-host-b
+          path: evidence/frozen/host-b
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: 34621290828
+          github-token: ${{ github.token }}
+
+      - name: Verify frozen host manifests and normalization authority
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib
+          for label in ('host-a','host-b'):
+              root=pathlib.Path('evidence/frozen')/label
+              errs=[]; checked=0
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip(): continue
+                  sha,size,rel=line.split('  ',2)
+                  b=(root/rel).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+              assert not errs,(label,errs)
+              print(label,'manifest_checked',checked,'errors',len(errs))
+          receipt=json.loads(pathlib.Path('evidence/receipts/ESS_DOCKER_MCP_CROSS_HOST_6_CONTENT_DRIFT_ROOT_CAUSE_AND_BOUNDED_NORMALIZATION_V1_FINAL_READBACK_RECEIPT.json').read_text())
+          assert receipt['verdict']=='PASS_ROOT_CAUSE_CLASSIFIED__5_BOUNDED_NORMALIZATIONS_PROVEN__HOLD_GEMINI_TRUE_CONTENT_DRIFT'
+          assert receipt['classification_summary']['bounded_normalizable_count']==5
+          assert receipt['classification_summary']['true_content_drift']==['gemini-api-docs']
+          print('normalization_authority_receipt_ok')
+          PY
+
+      - name: Build fail-closed bounded invariance matrix V2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/cross-host-13-bounded-v2
+          python - <<'PY'
+          import collections,csv,hashlib,json,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from drift_normalization import canonicalize_surface_response, diagnose_pair
+
+          base=pathlib.Path('evidence/frozen')
+          out=pathlib.Path('evidence/cross-host-13-bounded-v2')
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          authority_receipt_path=pathlib.Path('evidence/receipts/ESS_DOCKER_MCP_CROSS_HOST_6_CONTENT_DRIFT_ROOT_CAUSE_AND_BOUNDED_NORMALIZATION_V1_FINAL_READBACK_RECEIPT.json')
+          authority_receipt=json.loads(authority_receipt_path.read_text())
+          a=json.loads((base/'host-a'/'host-bundle.json').read_text())
+          b=json.loads((base/'host-b'/'host-bundle.json').read_text())
+
+          expected=[s['name'] for s in profile['surfaces']]
+          assert len(expected)==13 and len(set(expected))==13
+          assert set(a['results'])==set(expected)==set(b['results'])
+          assert a['identity']!=b['identity']
+
+          rows=[]
+          for surface in expected:
+              ra=a['results'][surface]; rb=b['results'][surface]
+              assert ra['status']=='LIVE_PASS',(surface,'host-a',ra['status'],ra.get('reason'))
+              assert rb['status']=='LIVE_PASS',(surface,'host-b',rb['status'],rb.get('reason'))
+              assert ra['tool']==rb['tool'],(surface,ra['tool'],rb['tool'])
+              assert ra['transport']==rb['transport'],(surface,ra['transport'],rb['transport'])
+              assert ra['request_sha256']==rb['request_sha256'],(surface,'request_sha')
+              assert ra['route_sha256']==rb['route_sha256'],(surface,'route_sha')
+              if ra['transport']=='direct-image':
+                  assert ra.get('input_sha256')==rb.get('input_sha256'),(surface,'input_sha')
+
+              raw_a=ra.get('response',''); raw_b=rb.get('response','')
+              raw_equal=raw_a==raw_b
+              diagnosis=diagnose_pair(surface,raw_a,raw_b)
+              can_a=canonicalize_surface_response(surface,raw_a)
+              can_b=canonicalize_surface_response(surface,raw_b)
+              canonical_equal=can_a==can_b
+
+              if raw_equal:
+                  matrix_status='RAW_EQUAL_PASS'
+              elif diagnosis['equal_after_bounded_normalization']:
+                  matrix_status='BOUNDED_INVARIANT_PASS'
+              else:
+                  matrix_status='TRUE_CONTENT_DRIFT_HOLD'
+
+              row={
+                  'surface':surface,
+                  'tool':ra['tool'],
+                  'transport':ra['transport'],
+                  'matrix_status':matrix_status,
+                  'diagnosis_classification':diagnosis['classification'],
+                  'raw_equal':raw_equal,
+                  'canonical_equal':canonical_equal,
+                  'raw_sha256_a':hashlib.sha256(raw_a.encode()).hexdigest(),
+                  'raw_sha256_b':hashlib.sha256(raw_b.encode()).hexdigest(),
+                  'canonical_sha256_a':hashlib.sha256(can_a.encode()).hexdigest(),
+                  'canonical_sha256_b':hashlib.sha256(can_b.encode()).hexdigest(),
+                  'request_sha256':ra['request_sha256'],
+                  'route_sha256':ra['route_sha256'],
+              }
+              rows.append(row)
+
+          by={r['surface']:r for r in rows}
+          counts=dict(collections.Counter(r['matrix_status'] for r in rows))
+          assert counts=={'RAW_EQUAL_PASS':7,'BOUNDED_INVARIANT_PASS':5,'TRUE_CONTENT_DRIFT_HOLD':1},counts
+          assert by['gemini-api-docs']['matrix_status']=='TRUE_CONTENT_DRIFT_HOLD'
+          assert by['gemini-api-docs']['diagnosis_classification']=='TRUE_CONTENT_DRIFT'
+          assert not by['gemini-api-docs']['canonical_equal']
+          bounded_expected=set(authority_receipt['classification_summary']['bounded_timing_noise']+authority_receipt['classification_summary']['bounded_record_order_noise']+authority_receipt['classification_summary']['bounded_list_order_noise'])
+          assert bounded_expected=={'hugging-face','astro-docs','javadocs','context7','ros2'}
+          assert {r['surface'] for r in rows if r['matrix_status']=='BOUNDED_INVARIANT_PASS'}==bounded_expected
+
+          normalizer_bytes=pathlib.Path('ess_docker_mcp_router/drift_normalization.py').read_bytes()
+          receipt_bytes=authority_receipt_path.read_bytes()
+          summary={
+              'gate':'ESS_DOCKER_MCP_CROSS_HOST_13_SURFACE_BOUNDED_INVARIANCE_MATRIX_V2',
+              'source_two_host_live_run_id':34621290828,
+              'source_two_host_live_head_sha':'7ee4ac07c301e90b6e41673f0afbff22acc2bed7',
+              'source_host_a_artifact_id':10272825833,
+              'source_host_b_artifact_id':10272935625,
+              'normalization_authority_gate':authority_receipt['gate'],
+              'normalizer_file_sha256':hashlib.sha256(normalizer_bytes).hexdigest(),
+              'normalization_authority_receipt_sha256':hashlib.sha256(receipt_bytes).hexdigest(),
+              'surface_count':13,
+              'raw_equal_count':counts['RAW_EQUAL_PASS'],
+              'bounded_invariant_count':counts['BOUNDED_INVARIANT_PASS'],
+              'true_content_drift_hold_count':counts['TRUE_CONTENT_DRIFT_HOLD'],
+              'effective_invariant_count':counts['RAW_EQUAL_PASS']+counts['BOUNDED_INVARIANT_PASS'],
+              'status_counts':counts,
+              'rows':rows,
+              'verdict':'PASS_BOUNDED_CROSS_HOST_INVARIANCE_12_OF_13__HOLD_GEMINI_TRUE_CONTENT_DRIFT',
+              'zero_spend':True,
+              'secret_injected':False,
+              'external_actuation':False,
+              'production_ready':False,
+              'runtime_admission':False,
+              'global_bind':False,
+              'claim_boundary':'FROZEN_EVIDENCE_SUCCESSOR_MATRIX_ONLY__7_RAW_EQUAL_PLUS_5_PROVEN_BOUNDED_INVARIANTS__GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_HOLD__NO_13_OF_13_CLAIM__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND'
+          }
+          (out/'bounded-invariance-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          (out/'bounded-receipt.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          with (out/'bounded-invariance-matrix.csv').open('w',newline='') as f:
+              fields=['surface','tool','transport','matrix_status','diagnosis_classification','raw_equal','canonical_equal','raw_sha256_a','raw_sha256_b','canonical_sha256_a','canonical_sha256_b','request_sha256','route_sha256']
+              w=csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(rows)
+          print(json.dumps({k:summary[k] for k in ['gate','surface_count','raw_equal_count','bounded_invariant_count','true_content_drift_hold_count','effective_invariant_count','status_counts','verdict','claim_boundary']},indent=2,sort_keys=True))
+          PY
+
+      - name: Build and verify final SHA manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('evidence/cross-host-13-bounded-v2')
+          rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          errs=[]; checked=0
+          for line in (root/'sha256-manifest.txt').read_text().splitlines():
+              if not line.strip(): continue
+              sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes(); checked+=1
+              if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+          assert checked==3,checked
+          assert not errs,errs
+          print('final_manifest_checked',checked,'errors',len(errs))
+          PY
+
+      - name: Upload bounded 13-surface invariance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-cross-host-13-surface-bounded-invariance-matrix-v2
+          path: evidence/cross-host-13-bounded-v2/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
