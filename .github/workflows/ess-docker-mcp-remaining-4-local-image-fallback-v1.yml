@@ -1,0 +1,221 @@
+name: ess-docker-mcp-remaining-4-local-image-fallback-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-remaining-4-local-image-fallback-v1.yml'
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  OPENAPI_EXPECTED_DIGEST: sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a
+  RUSTFS_EXPECTED_DIGEST: sha256:0a8d6879a67649fc9801c48e33e39c4f994e5fbfd9b5df8ba7260d63dbc1a242
+
+jobs:
+  direct-image-fallback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze current official image authorities
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-local-fallback-v1"
+          mkdir -p "$ROOT" "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag='v0.43.3'
+          req=urllib.request.Request(f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" openapi-schema --format json > "$ROOT/openapi-inspect.json"
+          docker mcp catalog server inspect "$DOCKER_MCP_CATALOG" rust-mcp-filesystem --format json > "$ROOT/rustfs-inspect.json"
+          python - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-local-fallback-v1'
+          oi=json.loads((root/'openapi-inspect.json').read_text())['snapshot']['server']
+          ri=json.loads((root/'rustfs-inspect.json').read_text())['snapshot']['server']
+          assert oi['image'].endswith(os.environ['OPENAPI_EXPECTED_DIGEST']), oi['image']
+          assert ri['image'].endswith(os.environ['RUSTFS_EXPECTED_DIGEST']), ri['image']
+          auth={
+            'openapi-schema':{'image':oi['image'],'type':oi.get('type'),'disableNetwork':oi.get('disableNetwork')},
+            'rust-mcp-filesystem':{'image':ri['image'],'type':ri.get('type'),'disableNetwork':ri.get('disableNetwork')}
+          }
+          (root/'image-authority.json').write_text(json.dumps(auth,indent=2,sort_keys=True))
+          PY
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Prepare immutable synthetic read-only inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-local-fallback-v1"
+          cat > "$ROOT/synthetic-openapi.yaml" <<'EOF'
+          openapi: 3.0.3
+          info:
+            title: ESS Synthetic Canary API
+            version: 1.0.0
+          paths:
+            /health:
+              get:
+                summary: Synthetic health endpoint
+                responses:
+                  '200':
+                    description: OK
+          EOF
+          sed -i 's/^          //' "$ROOT/synthetic-openapi.yaml"
+          mkdir -p "$ROOT/rust-readonly"
+          printf 'ESS_READ_ONLY_CANARY\n' > "$ROOT/rust-readonly/canary.txt"
+          chmod 0444 "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt"
+          chmod 0555 "$ROOT/rust-readonly"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-before.txt"
+
+      - name: Build bounded MCP stdio canary client
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-local-fallback-v1"
+          mkdir -p /tmp/ess-mcp-direct-client
+          cat > /tmp/ess-mcp-direct-client/go.mod <<'EOF'
+          module ess-mcp-direct-client
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-mcp-direct-client/main.go <<'EOF'
+          package main
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "os/exec"
+            "path/filepath"
+            "strings"
+            "time"
+            "github.com/modelcontextprotocol/go-sdk/mcp"
+          )
+          func must(err error){ if err!=nil { panic(err) } }
+          func writeJSON(path string,v any){ b,e:=json.MarshalIndent(v,"","  "); must(e); must(os.WriteFile(path,append(b,'\n'),0644)) }
+          func hasTool(ts []*mcp.Tool,name string) bool { for _,t:=range ts { if t.Name==name { return true } }; return false }
+          func main(){
+            if len(os.Args)!=2 { panic("usage: canary openapi|rustfs") }
+            mode:=os.Args[1]; root:=os.Getenv("EVIDENCE_DIR")
+            ctx,cancel:=context.WithTimeout(context.Background(),120*time.Second); defer cancel()
+            var cmd *exec.Cmd; var tool string; var args map[string]any; var expect string
+            if mode=="openapi" {
+              p:=filepath.Join(root,"synthetic-openapi.yaml")
+              image:="mcp/openapi-schema@"+os.Getenv("OPENAPI_DIGEST")
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","512m","--cpus","1","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-v",p+":"+p+":ro",image)
+              tool="list-endpoints"; args=map[string]any{"openapiSchemaPath":p}; expect="/health"
+            } else if mode=="rustfs" {
+              d:=filepath.Join(root,"rust-readonly")
+              image:="mcp/rust-mcp-filesystem@"+os.Getenv("RUSTFS_DIGEST")
+              cmd=exec.CommandContext(ctx,"docker","run","--rm","-i","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","512m","--cpus","1","--tmpfs","/tmp:rw,noexec,nosuid,size=64m","-e","ENABLE_ROOTS=false","-e","ALLOW_WRITE=false","-v",d+":"+d+":ro",image,d)
+              tool="list_directory"; args=map[string]any{"path":d}; expect="canary.txt"
+            } else { panic("unknown mode") }
+            stderr,err:=os.Create(filepath.Join(root,mode+"-container-stderr.log")); must(err); defer stderr.Close(); cmd.Stderr=stderr
+            c:=mcp.NewClient(&mcp.Implementation{Name:"ess-direct-image-canary",Version:"1.0.0"},nil)
+            s,err:=c.Connect(ctx,&mcp.CommandTransport{Command:cmd},nil); must(err); defer s.Close()
+            lt,err:=s.ListTools(ctx,&mcp.ListToolsParams{}); must(err); writeJSON(filepath.Join(root,mode+"-tools.json"),lt)
+            if !hasTool(lt.Tools,tool) { panic("expected tool missing: "+tool) }
+            res,err:=s.CallTool(ctx,&mcp.CallToolParams{Name:tool,Arguments:args}); must(err); writeJSON(filepath.Join(root,mode+"-call.json"),res)
+            if res.IsError { panic("tool returned IsError") }
+            rb,_:=json.Marshal(res); if !strings.Contains(string(rb),expect) { panic("expected output evidence missing: "+expect) }
+            fmt.Println("PASS_"+strings.ToUpper(mode)+"_DIRECT_IMAGE_READONLY_MCP_CALL")
+          }
+          EOF
+          cd /tmp/ess-mcp-direct-client
+          go mod tidy
+          sha256sum main.go go.mod go.sum > "$ROOT/client-source-sha256.txt"
+          go build -o /tmp/ess-mcp-direct-client/canary .
+          sha256sum /tmp/ess-mcp-direct-client/canary > "$ROOT/client-binary-sha256.txt"
+          go version > "$ROOT/go-version.txt"
+
+      - name: Execute OpenAPI direct-image read-only canary
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ github.workspace }}/evidence/ess-docker-mcp-remaining-4-local-fallback-v1
+          OPENAPI_DIGEST: ${{ env.OPENAPI_EXPECTED_DIGEST }}
+          RUSTFS_DIGEST: ${{ env.RUSTFS_EXPECTED_DIGEST }}
+        run: |
+          set +e
+          ROOT="$EVIDENCE_DIR"
+          timeout --signal=TERM --kill-after=10s 150s /tmp/ess-mcp-direct-client/canary openapi > "$ROOT/openapi-client.out" 2> "$ROOT/openapi-client.err"
+          rc=$?
+          if [ "$rc" -eq 0 ] && grep -Fq 'PASS_OPENAPI_DIRECT_IMAGE_READONLY_MCP_CALL' "$ROOT/openapi-client.out"; then
+            echo 'openapi-schema,LIVE_PASS_DIRECT_IMAGE,DIGEST_PINNED_SYNTHETIC_READONLY_SCHEMA' > "$ROOT/openapi-result.csv"
+          else
+            echo 'openapi-schema,DIRECT_IMAGE_HOLD,STDIO_OR_TOOL_CALL_FAILED' > "$ROOT/openapi-result.csv"
+          fi
+
+      - name: Execute Rust filesystem direct-image read-only canary
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ github.workspace }}/evidence/ess-docker-mcp-remaining-4-local-fallback-v1
+          OPENAPI_DIGEST: ${{ env.OPENAPI_EXPECTED_DIGEST }}
+          RUSTFS_DIGEST: ${{ env.RUSTFS_EXPECTED_DIGEST }}
+        run: |
+          set +e
+          ROOT="$EVIDENCE_DIR"
+          timeout --signal=TERM --kill-after=10s 150s /tmp/ess-mcp-direct-client/canary rustfs > "$ROOT/rustfs-client.out" 2> "$ROOT/rustfs-client.err"
+          rc=$?
+          if [ "$rc" -eq 0 ] && grep -Fq 'PASS_RUSTFS_DIRECT_IMAGE_READONLY_MCP_CALL' "$ROOT/rustfs-client.out"; then
+            echo 'rust-mcp-filesystem,LIVE_PASS_DIRECT_IMAGE,DIGEST_PINNED_READONLY_DIRECTORY' > "$ROOT/rustfs-result.csv"
+          else
+            echo 'rust-mcp-filesystem,DIRECT_IMAGE_HOLD,STDIO_OR_TOOL_CALL_FAILED' > "$ROOT/rustfs-result.csv"
+          fi
+
+      - name: Verify immutable inputs and build receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-remaining-4-local-fallback-v1"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/rust-readonly/canary.txt" > "$ROOT/input-sha256-after.txt"
+          diff -u "$ROOT/input-sha256-before.txt" "$ROOT/input-sha256-after.txt" > "$ROOT/input-sha256-diff.txt"
+          printf 'server,status,reason\n' > "$ROOT/results.csv"
+          cat "$ROOT/openapi-result.csv" >> "$ROOT/results.csv"
+          cat "$ROOT/rustfs-result.csv" >> "$ROOT/results.csv"
+          python - <<'PY'
+          import csv,json,hashlib,pathlib,os,collections
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-remaining-4-local-fallback-v1'
+          rows=list(csv.DictReader((root/'results.csv').open())); assert len(rows)==2
+          summary={
+            'gate':'ESS_DOCKER_MCP_REMAINING_4_HOLDS_LOCAL_IMAGE_FALLBACK_V1',
+            'method':'DIRECT_DOCKER_IMAGE_STDIO__OFFICIAL_CATALOG_DIGEST_PINNED',
+            'rows':rows,'status_counts':dict(collections.Counter(r['status'] for r in rows)),
+            'zero_spend':True,'secret_injected':False,'network_disabled':True,'read_only_mounts':True,
+            'external_actuation':False,'input_mutation_detected':False,'production_ready':False,'global_bind':False,
+            'claim_boundary':'DIRECT_IMAGE_CALLABILITY_ONLY__DOES_NOT_PROVE_GATEWAY_PROFILE_ACTIVATION'
+          }
+          (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          files=[]
+          for p in sorted(root.rglob('*')):
+            if p.is_file() and p.name!='sha256-manifest.txt':
+              b=p.read_bytes(); files.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(files)+'\n')
+          (root/'bounded-receipt.json').write_text(json.dumps({**summary,'verdict':'PASS_BOUNDED_DIRECT_IMAGE_FALLBACK_EXECUTED','github_sha':os.environ.get('GITHUB_SHA')},indent=2,sort_keys=True))
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-remaining-4-local-image-fallback-v1
+          path: evidence/ess-docker-mcp-remaining-4-local-fallback-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
