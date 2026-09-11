@@ -166,6 +166,27 @@ class ProviderCustodyChainTests(unittest.TestCase):
                     verify_zip_bytes=False,
                 )
 
+    def test_primary_receipt_swap_fails_even_after_manifest_rehash(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, zip_path, artifact_sha, final_receipt = make_fixture(Path(td))
+            a = root / "primary-receipts" / "alpha.json"
+            b = root / "primary-receipts" / "beta.json"
+            ab, bb = a.read_bytes(), b.read_bytes()
+            a.write_bytes(bb)
+            b.write_bytes(ab)
+            rebuild_manifest(root)
+            final_receipt["final_provider_artifact"]["manifest_sha256"] = sha_bytes((root / "sha256-manifest.txt").read_bytes())
+            with self.assertRaisesRegex(CustodyChainError, "PRIMARY_RECEIPT_PATH_MISMATCH"):
+                verify_provider_custody(
+                    artifact_zip=zip_path,
+                    extracted_root=root,
+                    expected_artifact_sha256=artifact_sha,
+                    expected_artifact_id=123,
+                    final_receipt=final_receipt,
+                    expected_surface_count=2,
+                    verify_zip_bytes=False,
+                )
+
     def test_comparison_chain_break_fails_even_after_manifest_rehash(self):
         with tempfile.TemporaryDirectory() as td:
             root, zip_path, artifact_sha, final_receipt = make_fixture(Path(td))
