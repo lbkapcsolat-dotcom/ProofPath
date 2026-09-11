@@ -1,0 +1,45 @@
+{
+  "gate": "ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1",
+  "verdict": "PASS_BOUNDED_SAFE_ARGUMENT_CANARY_AND_EXTERNAL_ARTIFACT_READBACK",
+  "github_workflow_run_id": 34611469334,
+  "github_head_sha": "807ee25a0b9fcfb30c0374ef2522dcab79675b15",
+  "provider_artifact_id": 10268682264,
+  "provider_artifact_bytes": 127596,
+  "provider_artifact_sha256": "d67e055e646362598b9762731c12751b47dc1be44c84d254305b2d5526a957e2",
+  "external_download_sha256": "d67e055e646362598b9762731c12751b47dc1be44c84d254305b2d5526a957e2",
+  "internal_manifest_checked": 112,
+  "internal_manifest_errors": 0,
+  "server_count": 14,
+  "status_counts": {
+    "LIVE_PASS": 10,
+    "LIVE_CALL_HOLD": 1,
+    "TOOL_CONTRACT_HOLD": 3
+  },
+  "live_pass_servers": [
+    "paper-search",
+    "context7",
+    "astro-docs",
+    "docker-docs",
+    "gemini-api-docs",
+    "javadocs",
+    "maven-tools-mcp",
+    "ros2",
+    "aws-cdk-mcp-server",
+    "aws-terraform"
+  ],
+  "live_call_hold_servers": [
+    "atlas-docs"
+  ],
+  "tool_contract_hold_servers": [
+    "cloudflare-docs",
+    "openapi-schema",
+    "rust-mcp-filesystem"
+  ],
+  "safety_rule": "EXPLICIT_READONLY_OR_DOCUMENTATION_SEARCH_LIST_METADATA_ALLOWLIST__NO_WRITE_DELETE_SEND_DEPLOY_APPLY_DESTROY_PUBLISH_SERVICE_CALL",
+  "claim_ceiling": "BOUNDED_SAFE_ARGUMENT_LIVE_CANARY_ONLY__NO_AUTH_BYPASS__ZERO_SPEND",
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false
+}
