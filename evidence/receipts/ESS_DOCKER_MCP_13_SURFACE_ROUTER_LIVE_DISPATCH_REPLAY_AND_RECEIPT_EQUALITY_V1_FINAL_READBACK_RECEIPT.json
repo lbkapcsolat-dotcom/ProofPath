@@ -1,0 +1,48 @@
+{
+  "gate": "ESS_DOCKER_MCP_13_SURFACE_ROUTER_LIVE_DISPATCH_REPLAY_AND_RECEIPT_EQUALITY_V1",
+  "verdict": "PASS_BOUNDED_ROUTER_SELECTED_LIVE_DISPATCH_REPLAY_AND_RECEIPT_EQUALITY",
+  "controlled_profile_surface_count": 13,
+  "tdd": {
+    "red_run_id": 34615364157,
+    "red_head_sha": "3e3f1ccec29e68680b050357dc923578decaa5c0",
+    "red_expected_failure": "ModuleNotFoundError: No module named 'dispatcher'",
+    "green_contract_run_id": 34615462221,
+    "green_head_sha": "d21628e49c6d5f36ccf3b6ef169515ec9a3026c2",
+    "focused_tests_passed": 2,
+    "focused_tests_failed": 0
+  },
+  "live_integration": {
+    "github_workflow_run_id": 34615619842,
+    "github_head_sha": "7289b5fa07d553c776b7104cdc65bb0eb0e37e84",
+    "provider_artifact_id": 10270074623,
+    "provider_artifact_bytes": 9882,
+    "provider_artifact_sha256": "173efadd3a9e88109ee75b79ea0b802765c4ba238da62494202711ec54669aca",
+    "external_download_sha256": "173efadd3a9e88109ee75b79ea0b802765c4ba238da62494202711ec54669aca",
+    "internal_manifest_checked": 22,
+    "internal_manifest_errors": 0,
+    "surface": "openapi-schema",
+    "tool": "list-endpoints",
+    "transport": "direct-image",
+    "image_digest": "sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a",
+    "independent_runtime_count": 2,
+    "distinct_container_ids": true,
+    "container_ids": [
+      "3b1dcd8e30d49d4fa22b400201dd26667293ed87709d42312e8a558e74db6e07",
+      "61c768a69ae10308029877d779772a9d8dcd3b40dc4cc9030d357f9c7b3eda10"
+    ],
+    "request_sha256_equal": true,
+    "route_sha256_equal": true,
+    "response_sha256_equal": true,
+    "response_bytes_equal": true,
+    "receipt_bytes_equal": true,
+    "receipt_sha256": "afd42d1d07338ca63fe5800fcabb30ead018e8e9a9d95c645d313b0d3ebbfb0d",
+    "response_sha256": "bc2fe86de7087332fcd498a6367ef1200b89385aa8bcf0407e12f9b3432c92f0",
+    "input_mutation_detected": false
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "ONE_DETERMINISTIC_ROUTER_SELECTED_DIRECT_IMAGE_SURFACE_LIVE_REPLAY_OVER_THE_13_SURFACE_CONTROLLED_ROUTER__DOES_NOT_PROVE_ALL_13_SURFACES_REPLAY_EQUAL__NO_PRODUCTION_READY__NO_GLOBAL_BIND"
+}
