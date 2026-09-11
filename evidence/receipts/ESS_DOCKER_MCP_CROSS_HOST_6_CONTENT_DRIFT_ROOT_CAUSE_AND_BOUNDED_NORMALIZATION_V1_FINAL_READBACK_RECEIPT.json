@@ -1,0 +1,77 @@
+{
+  "gate": "ESS_DOCKER_MCP_CROSS_HOST_6_CONTENT_DRIFT_ROOT_CAUSE_AND_BOUNDED_NORMALIZATION_V1",
+  "verdict": "PASS_ROOT_CAUSE_CLASSIFIED__5_BOUNDED_NORMALIZATIONS_PROVEN__HOLD_GEMINI_TRUE_CONTENT_DRIFT",
+  "method_lineage": {
+    "bounded_normalization_tdd": {
+      "red_run_id": 34623210848,
+      "red_head_sha": "d73d91c8d9431d0058e78202b396242616892b14",
+      "red_expected_failure": "ModuleNotFoundError: No module named 'drift_normalization'",
+      "green_run_id": 34623303563,
+      "green_head_sha": "420a0060e98883d42a7140d20017259311797619",
+      "focused_tests_passed": 4,
+      "focused_tests_failed": 0
+    }
+  },
+  "source_evidence": {
+    "two_host_live_run_id": 34621290828,
+    "two_host_live_head_sha": "7ee4ac07c301e90b6e41673f0afbff22acc2bed7",
+    "host_a_artifact_id": 10272825833,
+    "host_b_artifact_id": 10272935625,
+    "frozen_host_manifests_reverified": true
+  },
+  "diagnosis_run": {
+    "github_workflow_run_id": 34623457773,
+    "github_head_sha": "09f821c4bd2a11483b8a9431b5b9e8c7231363b4",
+    "provider_conclusion": "success",
+    "provider_artifact_id": 10272929172,
+    "provider_artifact_bytes": 3676,
+    "provider_artifact_sha256": "bce0de3098ade7e6a5d52cff8e41e28ba555e821314b0eedcd581f1b2fba45df",
+    "external_download_sha256": "bce0de3098ade7e6a5d52cff8e41e28ba555e821314b0eedcd581f1b2fba45df",
+    "internal_manifest_checked": 2,
+    "internal_manifest_errors": 0
+  },
+  "classification_summary": {
+    "drift_surface_count": 6,
+    "bounded_normalizable_count": 5,
+    "true_content_drift_count": 1,
+    "bounded_timing_noise": ["hugging-face", "astro-docs", "javadocs"],
+    "bounded_record_order_noise": ["context7"],
+    "bounded_list_order_noise": ["ros2"],
+    "true_content_drift": ["gemini-api-docs"]
+  },
+  "canonical_witnesses": {
+    "hugging-face": "58503575b044654e979bfda5488b6bf51c2a5f668f6bcfd18eb83f02733abb77",
+    "astro-docs": "4ed57ff9255322964abcb5382655abebcc398d4722ee1ca66c5c6eb59bdc8509",
+    "javadocs": "81252eaf3eb39488694ebc4994c0f4241d3ca678bcc2f0fe59d4a9bda8acea5d",
+    "context7": "c2806061e462ec87728dafbc4e26bb1b7fe7162a108b3560c9033904dfc94cbd",
+    "ros2": "c8483e40a03b7116faed2f961de635b211b71bcb44cfc00e978042eaf725ee8b"
+  },
+  "bounded_normalization_contract": {
+    "hugging-face": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE",
+    "astro-docs": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE",
+    "javadocs": "REMOVE_ONLY_LEADING_DOCKER_CLI_TOOL_CALL_TOOK_DURATION_LINE",
+    "context7": "SORT_EXACT_COMPLETE_RECORD_BLOCKS_DELIMITED_BY_SEPARATOR__RECORD_CONTENT_UNCHANGED",
+    "ros2": "PARSE_JSON_LIST_OF_STRINGS_AND_SORT_EXACT_MEMBERS__MEMBERSHIP_UNCHANGED",
+    "gemini-api-docs": "IDENTITY_ONLY_FAIL_CLOSED__NO_NORMALIZATION"
+  },
+  "root_cause_witnesses": {
+    "context7_record_count_a": 5,
+    "context7_record_count_b": 5,
+    "context7_record_multiset_equal": true,
+    "ros2_item_count_a": 650,
+    "ros2_item_count_b": 650,
+    "ros2_unique_count_a": 650,
+    "ros2_unique_count_b": 650,
+    "ros2_item_set_equal": true,
+    "gemini_raw_chars_a": 2245,
+    "gemini_raw_chars_b": 17565,
+    "gemini_canonical_sha256_a": "7e37748ac1aee5a30811fae381be351115c1d51ffa689f5359a678ec047e28fc",
+    "gemini_canonical_sha256_b": "0dcf68d39cf61384594663df4e4952411708650194c26671e9efd755befb10f2"
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "global_bind": false,
+  "claim_boundary": "FROZEN_EXACT_EVIDENCE_FROM_PRIOR_TWO_HOST_13_SURFACE_LIVE_RUN__FIVE_DRIFTS_PROVEN_BOUNDED_RUNTIME_OR_ORDER_NOISE__GEMINI_API_DOCS_REMAINS_TRUE_CONTENT_DRIFT__NO_RETROACTIVE_13_OF_13_PASS__SUCCESSOR_BOUNDED_INVARIANCE_MATRIX_REQUIRED"
+}
