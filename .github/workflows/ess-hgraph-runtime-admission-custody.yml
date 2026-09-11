@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  runner-a-build-and-replay:
+  runner_a_build_and_replay:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -131,8 +131,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  runner-b-exact-binary-replay-and-admission:
-    needs: runner-a-build-and-replay
+  runner_b_exact_binary_replay_and_admission:
+    needs: runner_a_build_and_replay
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -182,10 +182,10 @@ jobs:
           BINARY_SHA_B="$(sha256sum "$BIN" | awk '{print $1}')"
           ORACLE_SHA_B="$(sha256sum "$ORACLE" | awk '{print $1}')"
 
-          test "$SOURCE_COMMIT_B" = "${{ needs.runner-a-build-and-replay.outputs.source_commit }}"
-          test "$HGRAPH_COMMIT_B" = "${{ needs.runner-a-build-and-replay.outputs.hgraph_commit }}"
-          test "$BINARY_SHA_B" = "${{ needs.runner-a-build-and-replay.outputs.binary_sha256 }}"
-          test "$ORACLE_SHA_B" = "${{ needs.runner-a-build-and-replay.outputs.oracle_sha256 }}"
+          test "$SOURCE_COMMIT_B" = "${{ needs.runner_a_build_and_replay.outputs.source_commit }}"
+          test "$HGRAPH_COMMIT_B" = "${{ needs.runner_a_build_and_replay.outputs.hgraph_commit }}"
+          test "$BINARY_SHA_B" = "${{ needs.runner_a_build_and_replay.outputs.binary_sha256 }}"
+          test "$ORACLE_SHA_B" = "${{ needs.runner_a_build_and_replay.outputs.oracle_sha256 }}"
 
           "$BIN" | tee custody_bundle/run_b.log
           sed -n 's/^OBSERVED_VECTOR=//p' custody_bundle/run_b.log > custody_bundle/observed_vector_b.txt
@@ -198,20 +198,20 @@ jobs:
           from hgraph_canary.runtime_admission import evaluate_runtime_admission
 
           evidence={
-            'source_commit_a':'${{ needs.runner-a-build-and-replay.outputs.source_commit }}',
+            'source_commit_a':'${{ needs.runner_a_build_and_replay.outputs.source_commit }}',
             'source_commit_b':'$SOURCE_COMMIT_B',
-            'hgraph_commit_a':'${{ needs.runner-a-build-and-replay.outputs.hgraph_commit }}',
+            'hgraph_commit_a':'${{ needs.runner_a_build_and_replay.outputs.hgraph_commit }}',
             'hgraph_commit_b':'$HGRAPH_COMMIT_B',
-            'binary_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.binary_sha256 }}',
+            'binary_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.binary_sha256 }}',
             'binary_sha256_b':'$BINARY_SHA_B',
-            'oracle_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.oracle_sha256 }}',
+            'oracle_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.oracle_sha256 }}',
             'oracle_sha256_b':'$ORACLE_SHA_B',
-            'output_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.output_sha256 }}',
+            'output_sha256_a':'${{ needs.runner_a_build_and_replay.outputs.output_sha256 }}',
             'output_sha256_b':'$OUTPUT_SHA_B',
-            'expected_output_sha256':'${{ needs.runner-a-build-and-replay.outputs.expected_output_sha256 }}',
-            'state_count_a':int('${{ needs.runner-a-build-and-replay.outputs.state_count }}'),
+            'expected_output_sha256':'${{ needs.runner_a_build_and_replay.outputs.expected_output_sha256 }}',
+            'state_count_a':int('${{ needs.runner_a_build_and_replay.outputs.state_count }}'),
             'state_count_b':int('$STATE_COUNT_B'),
-            'parity_pass_a':'${{ needs.runner-a-build-and-replay.outputs.parity_pass }}' == 'true',
+            'parity_pass_a':'${{ needs.runner_a_build_and_replay.outputs.parity_pass }}' == 'true',
             'parity_pass_b':$PARITY_B,
           }
           decision=evaluate_runtime_admission(evidence)
