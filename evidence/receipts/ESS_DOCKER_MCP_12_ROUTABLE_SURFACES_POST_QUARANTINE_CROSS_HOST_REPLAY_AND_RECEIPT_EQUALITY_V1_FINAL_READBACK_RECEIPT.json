@@ -1,0 +1,101 @@
+{
+  "gate": "ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_POST_QUARANTINE_CROSS_HOST_REPLAY_AND_RECEIPT_EQUALITY_V1",
+  "verdict": "PASS_12_OF_12_POST_QUARANTINE_CROSS_HOST_BOUNDED_INVARIANCE",
+  "authority_state": {
+    "authority_surface_count": 13,
+    "routable_surface_count": 12,
+    "quarantined_surface_count": 1,
+    "quarantined_surfaces": [
+      "gemini-api-docs"
+    ],
+    "gateway_profile_count": 10,
+    "direct_image_count": 2,
+    "effective_invariant_count": 12,
+    "all_routable_surfaces_invariant": true,
+    "status_counts": {
+      "RAW_EQUAL_PASS": 6,
+      "BOUNDED_INVARIANT_PASS": 6
+    }
+  },
+  "maven_timing_normalization_tdd": {
+    "red_run_id": 34627889070,
+    "red_job_id": 103357306254,
+    "red_observed_failure": "Maven millisecond timing-prefix case was classified TRUE_CONTENT_DRIFT instead of BOUNDED_TIMING_NOISE; professional-content-change guard already passed",
+    "green_run_id": 34627967951,
+    "green_job_id": 103357572481,
+    "green_head_sha": "d7892cace339e9f1ee697b7861f5f3aac63f42c3",
+    "focused_test_count": 2,
+    "implementation_change": "Added only maven-tools-mcp to the existing timing-noise surface allowlist; timing regex and all other surface rules unchanged"
+  },
+  "source_live_replay": {
+    "run_id": 34627289710,
+    "head_sha": "4fb897624f814ba98ba4a6144938ae3e66c018c1",
+    "host_a_job_id": 103355360776,
+    "host_b_job_id": 103355361117,
+    "host_a_job_conclusion": "success",
+    "host_b_job_conclusion": "success",
+    "host_a_artifact_id": 10275296150,
+    "host_a_artifact_sha256": "51d3bf7c372a7580260f4d790e0bccb950a88a8f04a238996f383d7a7aa39de2",
+    "host_b_artifact_id": 10274976408,
+    "host_b_artifact_sha256": "fcfdbdb890e26ebd3afe7d48e520803ff1e8cad7f9c3418581fc414b5fa0d8b5",
+    "host_a_manifest_checked": 143,
+    "host_a_manifest_errors": 0,
+    "host_b_manifest_checked": 143,
+    "host_b_manifest_errors": 0,
+    "initial_compare_job_id": 103356472599,
+    "initial_compare_conclusion": "failure",
+    "initial_compare_effective_invariant_count": 11,
+    "initial_compare_single_hold": "maven-tools-mcp",
+    "maven_drift_root_cause": "Leading Docker CLI timing line only: Tool call took: 819.718721ms; substantive Maven JSON response was identical across hosts"
+  },
+  "frozen_successor_compare": {
+    "run_id": 34628063306,
+    "job_id": 103357876528,
+    "head_sha": "5983db66310899a502d3c7e9bf4376d7ee9f50a0",
+    "provider_conclusion": "success",
+    "implementation_revision": "FROZEN_COMPARE_AFTER_MAVEN_TIMING_TDD",
+    "raw_equal_surface_count": 6,
+    "bounded_invariant_surface_count": 6,
+    "true_content_drift_hold_count": 0,
+    "maven_final_status": "BOUNDED_INVARIANT_PASS",
+    "maven_final_reason": "BOUNDED_TIMING_NOISE"
+  },
+  "final_artifact": {
+    "provider_artifact_id": 10275830469,
+    "provider_artifact_bytes": 3506,
+    "provider_artifact_sha256": "bcb24f5345700cca45e67f2845317585cbb63e23bd2a0edf1db6ec935ebaf6a1",
+    "external_download_sha256": "bcb24f5345700cca45e67f2845317585cbb63e23bd2a0edf1db6ec935ebaf6a1",
+    "internal_manifest_checked": 3,
+    "internal_manifest_errors": 0,
+    "bounded_receipt_sha256": "d5c18199f9cf0e4e077b74e1324895e1f436b1020f1d39288018aeb512a83b6b",
+    "coverage_summary_sha256": "150902a57c604b963b9531d7e821df4dfb9c8bd4d215ea3b81f90521907a1ba8",
+    "coverage_matrix_sha256": "60ce49de2b0000defd23dbcfd3227ac76fe53d7384cb23433fc3641f085f0977"
+  },
+  "surface_results": {
+    "raw_equal_pass": [
+      "aws-cdk-mcp-server",
+      "aws-terraform",
+      "docker-docs",
+      "openapi-schema",
+      "paper-search",
+      "rust-mcp-filesystem"
+    ],
+    "bounded_invariant_pass": {
+      "astro-docs": "BOUNDED_TIMING_NOISE",
+      "context7": "BOUNDED_RECORD_ORDER_NOISE",
+      "hugging-face": "BOUNDED_TIMING_NOISE",
+      "javadocs": "BOUNDED_TIMING_NOISE",
+      "maven-tools-mcp": "BOUNDED_TIMING_NOISE",
+      "ros2": "BOUNDED_LIST_ORDER_NOISE"
+    }
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "gemini_quarantine_preserved": true,
+  "gemini_replayed_in_this_gate": false,
+  "claim_boundary": "13_AUTHORITY_SURFACES_PRESERVED__GEMINI_API_DOCS_REMAINS_FAIL_CLOSED_QUARANTINED__12_ROUTABLE_SURFACES_EXECUTED_ACROSS_TWO_DISTINCT_GITHUB_HOSTED_VMS__10_GATEWAY_PROFILE_PLUS_2_DIRECT_IMAGE__6_RAW_EQUAL_PLUS_6_SEPARATELY_PROVEN_BOUNDED_INVARIANTS__NO_GEMINI_CONTENT_NORMALIZATION__NO_13_OF_13_PROMOTION__ZERO_SPEND__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND"
+}
