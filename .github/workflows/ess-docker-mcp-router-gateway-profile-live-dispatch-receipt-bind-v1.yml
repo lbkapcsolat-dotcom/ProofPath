@@ -1,0 +1,251 @@
+name: ess-docker-mcp-router-gateway-profile-live-dispatch-receipt-bind-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-router-gateway-profile-live-dispatch-receipt-bind-v1.yml'
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+  PAPER_PROFILE: ess-router-paper-search-bind-v1
+
+jobs:
+  gateway-profile-live-dispatch-bind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record router authority inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          mkdir -p "$ROOT"
+          sha256sum \
+            ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json \
+            ess_docker_mcp_router/policy.json \
+            ess_docker_mcp_router/router.py \
+            ess_docker_mcp_router/dispatcher.py \
+            | tee "$ROOT/authority-input-sha256.txt"
+
+      - name: Install pinned Docker MCP Gateway CLI
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+              headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          pathlib.Path(os.environ['GITHUB_WORKSPACE'],'evidence/ess-docker-mcp-router-gateway-profile-bind-v1/gateway-release.json').write_text(
+              json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee "$ROOT/docker-mcp-version.txt"
+          grep -F "${MCP_GATEWAY_VERSION#v}" "$ROOT/docker-mcp-version.txt"
+
+      - name: Create router-selected Paper Search gateway profile
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          docker mcp feature enable profiles > "$ROOT/profile-feature-enable.log" 2>&1 || true
+          docker mcp feature list > "$ROOT/features.txt"
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > "$ROOT/catalog-pull.log" 2>&1
+          docker mcp profile create --name ESS_ROUTER_PAPER_SEARCH_BIND_V1 --id "$PAPER_PROFILE" \
+            --server catalog://mcp/docker-mcp-catalog/paper-search \
+            > "$ROOT/profile-create.log" 2>&1
+          docker mcp profile show "$PAPER_PROFILE" --format yaml > "$ROOT/profile-show.yaml"
+          docker mcp profile export "$PAPER_PROFILE" "$ROOT/profile-export.json"
+          grep -F 'paper-search' "$ROOT/profile-show.yaml"
+          grep -F 'search_arxiv' "$ROOT/profile-show.yaml"
+
+      - name: Verify profile-bound gateway surface
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          docker mcp gateway run --dry-run --profile "$PAPER_PROFILE" --verify-signatures \
+            > "$ROOT/profile-dry-run.out" 2> "$ROOT/profile-dry-run.err"
+          timeout --signal=TERM --kill-after=10s 120s \
+            docker mcp tools --format json \
+              --gateway-arg=--profile="$PAPER_PROFILE" \
+              --gateway-arg=--verify-signatures \
+              ls > "$ROOT/runtime-tools.json" 2> "$ROOT/runtime-tools.err"
+          python - <<'PY'
+          import json,pathlib,os
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-router-gateway-profile-bind-v1'
+          obj=json.loads((root/'runtime-tools.json').read_text())
+          assert 'search_arxiv' in json.dumps(obj), 'search_arxiv missing from runtime tool surface'
+          print('PASS_GATEWAY_PROFILE_RUNTIME_TOOL_SURFACE')
+          PY
+
+      - name: Execute router-selected live gateway dispatch and bind receipt
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/ess_docker_mcp_router
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          python - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,sys
+          from router import route_request
+          from dispatcher import dispatch_request
+
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-router-gateway-profile-bind-v1'
+          base=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'ess_docker_mcp_router'
+          profile=json.loads((base/'ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads((base/'policy.json').read_text())
+          request={
+              'domain':'papers',
+              'intent':'search',
+              'requested_surface':'paper-search',
+              'requested_tool':'search_arxiv',
+              'requested_transport':'gateway-profile',
+              'arguments':{
+                  'query':'higher category theory homotopy theory',
+                  'max_results':3,
+              },
+          }
+          route=route_request(request,profile,policy)
+          assert route == {
+              'decision':'ALLOW','reason':'ALLOWLIST_MATCH','surface':'paper-search','tool':'search_arxiv',
+              'transport':'gateway-profile','read_only':True,'external_actuation':False,
+          }, route
+          (root/'request.json').write_text(json.dumps(request,indent=2,sort_keys=True)+'\n')
+          (root/'route.json').write_text(json.dumps(route,indent=2,sort_keys=True)+'\n')
+
+          def executor(selected_route,args):
+              assert selected_route == route
+              assert args == request['arguments']
+              cmd=[
+                  'docker','mcp','tools',
+                  f'--gateway-arg=--profile={os.environ["PAPER_PROFILE"]}',
+                  '--gateway-arg=--verify-signatures',
+                  'call',selected_route['tool'],
+                  f'query={args["query"]}',
+                  f'max_results={args["max_results"]}',
+              ]
+              cp=subprocess.run(cmd,capture_output=True,text=True,timeout=120,check=False)
+              (root/'live-call.stdout').write_text(cp.stdout)
+              (root/'live-call.stderr').write_text(cp.stderr)
+              if cp.returncode != 0:
+                  raise RuntimeError(f'live MCP call failed rc={cp.returncode}: {cp.stderr[-2000:]}')
+              if not cp.stdout.strip():
+                  raise RuntimeError('live MCP call returned empty stdout')
+              low=cp.stdout.lower()
+              if not any(k in low for k in ('arxiv','title','paper','homotopy','category')):
+                  raise RuntimeError('live MCP output missing expected research evidence')
+              return {
+                  'exit_code':cp.returncode,
+                  'stdout':cp.stdout.strip(),
+                  'stderr':cp.stderr.strip(),
+              }
+
+          receipt=dispatch_request(request,profile,policy,executor)
+          assert receipt['decision']=='ALLOW'
+          assert receipt['surface']=='paper-search'
+          assert receipt['tool']=='search_arxiv'
+          assert receipt['transport']=='gateway-profile'
+          assert receipt['response']['exit_code']==0
+          (root/'dispatcher-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True,ensure_ascii=False)+'\n')
+
+          def bsha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          def csha(v):
+              b=json.dumps(v,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+              return hashlib.sha256(b).hexdigest()
+          binding={
+              'gate':'ESS_DOCKER_MCP_ROUTER_GATEWAY_PROFILE_LIVE_DISPATCH_AND_RECEIPT_BIND_V1',
+              'verdict':'PASS_ROUTER_SELECTED_GATEWAY_PROFILE_LIVE_DISPATCH_AND_RECEIPT_BIND',
+              'selected_surface':'paper-search',
+              'selected_tool':'search_arxiv',
+              'selected_transport':'gateway-profile',
+              'request_sha256':receipt['request_sha256'],
+              'route_sha256':receipt['route_sha256'],
+              'response_sha256':receipt['response_sha256'],
+              'raw_stdout_sha256':bsha(root/'live-call.stdout'),
+              'dispatcher_receipt_sha256':bsha(root/'dispatcher-receipt.json'),
+              'profile_sha256':bsha(base/'ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json'),
+              'policy_sha256':bsha(base/'policy.json'),
+              'router_sha256':bsha(base/'router.py'),
+              'dispatcher_sha256':bsha(base/'dispatcher.py'),
+              'signature_verification':True,
+              'gateway_version':os.environ['MCP_GATEWAY_VERSION'],
+              'zero_spend':True,
+              'secret_injected':False,
+              'external_actuation':False,
+              'production_ready':False,
+              'global_bind':False,
+              'claim_boundary':'ONE_ROUTER_SELECTED_GATEWAY_PROFILE_SURFACE_LIVE_DISPATCH_AND_RECEIPT_BIND__NO_ALL_13_GATEWAY_REPLAY_CLAIM__NO_PRODUCTION_READY__NO_GLOBAL_BIND',
+          }
+          (root/'binding-receipt.json').write_text(json.dumps(binding,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(binding,indent=2,sort_keys=True))
+          PY
+
+      - name: Verify evidence and build manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-router-gateway-profile-bind-v1"
+          python - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-router-gateway-profile-bind-v1'
+          bind=json.loads((root/'binding-receipt.json').read_text())
+          receipt=json.loads((root/'dispatcher-receipt.json').read_text())
+          assert bind['verdict']=='PASS_ROUTER_SELECTED_GATEWAY_PROFILE_LIVE_DISPATCH_AND_RECEIPT_BIND'
+          assert receipt['decision']=='ALLOW'
+          assert receipt['surface']=='paper-search'
+          assert receipt['tool']=='search_arxiv'
+          assert receipt['transport']=='gateway-profile'
+          assert receipt['read_only'] is True
+          assert receipt['external_actuation'] is False
+          rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          bounded={
+              'gate':bind['gate'],
+              'verdict':bind['verdict'],
+              'github_sha':os.environ['GITHUB_SHA'],
+              'selected_surface':bind['selected_surface'],
+              'selected_tool':bind['selected_tool'],
+              'selected_transport':bind['selected_transport'],
+              'request_sha256':bind['request_sha256'],
+              'route_sha256':bind['route_sha256'],
+              'response_sha256':bind['response_sha256'],
+              'dispatcher_receipt_sha256':bind['dispatcher_receipt_sha256'],
+              'zero_spend':True,'secret_injected':False,'external_actuation':False,
+              'production_ready':False,'global_bind':False,
+              'claim_boundary':bind['claim_boundary'],
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(bounded,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(bounded,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-router-gateway-profile-live-dispatch-receipt-bind-v1
+          path: evidence/ess-docker-mcp-router-gateway-profile-bind-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
