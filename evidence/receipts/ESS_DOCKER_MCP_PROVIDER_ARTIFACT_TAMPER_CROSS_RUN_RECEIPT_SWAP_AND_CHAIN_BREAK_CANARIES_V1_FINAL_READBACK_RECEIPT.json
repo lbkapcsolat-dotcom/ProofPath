@@ -1,0 +1,157 @@
+{
+  "gate": "ESS_DOCKER_MCP_PROVIDER_ARTIFACT_TAMPER_CROSS_RUN_RECEIPT_SWAP_AND_CHAIN_BREAK_CANARIES_V1",
+  "verdict": "PASS_CLEAN_PROVIDER_CUSTODY_CHAIN__8_OF_8_TAMPER_SWAP_AND_CHAIN_BREAK_CANARIES_FAIL_CLOSED",
+  "source_custody_authority": {
+    "source_run_id": 34635898456,
+    "source_head_sha": "d13b3adf44334306ab2e2bb2bf57b955d923e97d",
+    "source_artifact_id": 10278580751,
+    "source_artifact_sha256": "e088c06bc353261c0c8892915557d2cc1ffcb5ef7f5a27388df69b7a4c4e31a4",
+    "source_artifact_bytes": 444539,
+    "source_final_receipt_path": "evidence/receipts/ESS_DOCKER_MCP_12_SURFACE_ROUTER_EXECUTOR_RECEIPT_AND_INDEPENDENT_REPLAY_BIND_V1_FINAL_READBACK_RECEIPT.json",
+    "source_final_receipt_commit": "eaa03113f2a5d42f502b344c6df9bf3971a89852",
+    "source_final_receipt_blob_sha": "bb17a84b44c0feb33dd50c2c796423d38a93294d",
+    "source_internal_manifest_checked": 313,
+    "source_internal_manifest_errors": 0,
+    "source_primary_receipt_count": 12,
+    "source_replay_receipt_count": 12,
+    "source_comparison_count": 12,
+    "clean_custody_chain_sha256": "2f2b8b07137c1c0c6dd1179e8552404e31c678702d8ecca267bc3cda3fcfd251"
+  },
+  "custody_verifier_tdd": {
+    "initial_red": {
+      "head_sha": "21fc0cb9d9cb02ef7e7fe5bcf56537ea9785f1c0",
+      "run_id": 34637086640,
+      "job_id": 103387498542,
+      "observed_failure": "ModuleNotFoundError: No module named 'custody_chain'"
+    },
+    "first_implementation_gap": {
+      "head_sha": "244c09355e0ff355d72c71b136874085a195ccab",
+      "run_id": 34637223684,
+      "job_id": 103387954826,
+      "status": "4_OF_5_PASS__REPLAY_RECEIPT_PATH_SWAP_GAP_FOUND"
+    },
+    "replay_path_binding_red": {
+      "head_sha": "911b6b6f80696b08c8d8092078e0a4cb709b0a72",
+      "run_id": 34637368017,
+      "job_id": 103388437237,
+      "status": "4_OF_5_PASS__ONLY_REPLAY_RECEIPT_PATH_MISMATCH_CANARY_RED"
+    },
+    "replay_path_binding_green": {
+      "head_sha": "57238de494b1a7f55ef36079dac486f835a5f744",
+      "run_id": 34637586273,
+      "job_id": 103389152410,
+      "status": "5_OF_5_PASS"
+    },
+    "primary_path_binding_red": {
+      "head_sha": "670e56b856abb54d9d09c36d8e7de4bd2cfdf8bd",
+      "run_id": 34637701674,
+      "job_id": 103389523895,
+      "status": "5_OF_6_PASS__ONLY_PRIMARY_RECEIPT_PATH_MISMATCH_CANARY_RED"
+    },
+    "full_green": {
+      "head_sha": "184709369adb37378bb6e31683809397a38842de",
+      "run_id": 34637928832,
+      "job_id": 103390264543,
+      "test_count": 6,
+      "status": "6_OF_6_PASS"
+    }
+  },
+  "provider_backed_integration": {
+    "workflow": "ess-docker-mcp-provider-artifact-tamper-cross-run-receipt-swap-chain-break-canaries-v1",
+    "head_sha": "76fb7f2176d56e8add76298def9154c97bc14d2d",
+    "run_id": 34638245297,
+    "job_id": 103391329188,
+    "provider_conclusion": "success",
+    "focused_contract_tests": 6,
+    "source_zip_sha256_reverified": true,
+    "source_internal_manifest_checked": 313,
+    "source_primary_receipt_count": 12,
+    "source_replay_receipt_count": 12,
+    "source_comparison_count": 12,
+    "tamper_canary_count": 8,
+    "tamper_canary_status_counts": {
+      "DENY_PASS": 8
+    },
+    "new_mcp_live_calls": 0
+  },
+  "tamper_and_chain_break_canaries": [
+    {
+      "canary": "provider_zip_byte_tamper",
+      "expected_and_observed_marker": "PROVIDER_ARTIFACT_SHA256_MISMATCH",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "manifest_leaf_byte_tamper",
+      "expected_marker": "MANIFEST_CONTENT_MISMATCH",
+      "observed_error": "MANIFEST_CONTENT_MISMATCH:bytes:summary.json,sha:summary.json",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "cross_run_replay_receipt_swap_rehashed_manifest",
+      "expected_marker": "REPLAY_RECEIPT_PATH_MISMATCH",
+      "observed_error": "REPLAY_RECEIPT_PATH_MISMATCH:astro-docs",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "primary_receipt_swap_rehashed_manifest",
+      "expected_marker": "PRIMARY_RECEIPT_PATH_MISMATCH",
+      "observed_error": "PRIMARY_RECEIPT_PATH_MISMATCH:astro-docs",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "comparison_edge_break_rehashed",
+      "expected_marker": "COMPARISON_CHAIN_MISMATCH",
+      "observed_error": "COMPARISON_CHAIN_MISMATCH:astro-docs:replay",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "final_receipt_leaf_lineage_break",
+      "expected_and_observed_marker": "FINAL_RECEIPT_LEAF_MISMATCH:summary_sha256",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "final_provider_sha_lineage_break",
+      "expected_and_observed_marker": "FINAL_RECEIPT_PROVIDER_SHA256_MISMATCH",
+      "status": "DENY_PASS"
+    },
+    {
+      "canary": "surface_set_chain_break_rehashed_manifest",
+      "expected_and_observed_marker": "CHAIN_SURFACE_SET_MISMATCH",
+      "status": "DENY_PASS"
+    }
+  ],
+  "final_provider_artifact": {
+    "artifact_id": 10279435014,
+    "artifact_name": "ess-docker-mcp-provider-artifact-tamper-cross-run-receipt-swap-chain-break-canaries-v1",
+    "provider_artifact_bytes": 2579,
+    "provider_artifact_sha256": "ea2fa28a9620fbc0fb00f7f92a61a9723870224238baeec52bbbe95445ef7c36",
+    "external_download_sha256": "ea2fa28a9620fbc0fb00f7f92a61a9723870224238baeec52bbbe95445ef7c36",
+    "external_sha256_equal": true,
+    "internal_manifest_checked": 4,
+    "internal_manifest_errors": 0,
+    "summary_sha256": "2b9fa1e9cbebdd825a2dc75748874c178803df8b9e046830f65381920e4f2d43",
+    "tamper_canaries_sha256": "624c59bbe219799458399d90ea0ba8323b41a2c230d579d6b332b19562e4fa7d",
+    "source_custody_readback_sha256": "453cbe6dc5d9ad0b32af608b2ca6420f5b2f55e55de003855725941d4ade6a75",
+    "implementation_sha256_sha256": "befe179f3a2e816d428dbf52840bb8565df70fe229bb129473dc48df8f8a1d5e",
+    "manifest_sha256": "0989153a7b5be966eb9c621a311581b206ca2e77dbd6daba8ddf24830c02ba09"
+  },
+  "custody_semantics": {
+    "provider_artifact_digest_bound": true,
+    "internal_manifest_bound": true,
+    "primary_receipt_set_bound": true,
+    "primary_receipt_path_to_surface_bound": true,
+    "replay_receipt_set_bound": true,
+    "replay_receipt_path_to_surface_bound": true,
+    "comparison_edges_bound": true,
+    "final_receipt_leaf_hashes_bound": true,
+    "surface_set_continuity_bound": true,
+    "clean_chain_commitment_emitted": true
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "claim_boundary": "FROZEN_PROVIDER_ARTIFACT_CUSTODY_TAMPER_AND_SWAP_CANARIES_ONLY__NO_NEW_MCP_LIVE_CALLS__NO_PRODUCTION_READY__NO_RUNTIME_ADMISSION__NO_GLOBAL_BIND"
+}
