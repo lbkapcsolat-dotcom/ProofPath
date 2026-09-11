@@ -1,0 +1,80 @@
+name: HV V6.1 Runtime Enforcement Mutation Conformance V1
+
+on:
+  push:
+    branches:
+      - ess-v6-1-real-repository-control-plane-canary-v1
+    paths:
+      - 'control-plane-canary/v6_1/hv_v6_1_runtime_enforcement_v1.py'
+      - 'control-plane-canary/v6_1/test_hv_v6_1_runtime_enforcement_v1.py'
+      - 'control-plane-canary/v6_1/run_hv_v6_1_18_mutation_conformance_v1.py'
+      - '.github/workflows/hv-v6-1-runtime-enforcement-mutation-conformance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-enforcement-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact provider commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pinned cryptography dependency
+        run: python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+
+      - name: Record provider identity
+        run: |
+          python --version
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+
+      - name: Run 18 obligation baseline
+        working-directory: control-plane-canary/v6_1
+        run: |
+          python -m py_compile test_hv_v6_1_runtime_enforcement_v1.py run_hv_v6_1_18_mutation_conformance_v1.py
+          python test_hv_v6_1_runtime_enforcement_v1.py
+
+      - name: Run 18 source mutation conformance cases
+        working-directory: control-plane-canary/v6_1
+        run: |
+          mkdir -p out
+          python run_hv_v6_1_18_mutation_conformance_v1.py > out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json')
+          r = json.loads(p.read_text(encoding='utf-8'))
+          assert r['baseline_tests'] == 'PASS_18_OF_18'
+          assert r['mutations_total'] == 18
+          assert r['mutations_killed'] == 18
+          assert r['verdict'] == 'PASS_HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_CONFORMANCE_18_OF_18'
+          assert r['claims']['original_core_alone_enforces_all_18'] is False
+          assert r['claims']['runtime_admission'] is False
+          assert r['claims']['production_readiness'] is False
+          assert r['claims']['global_bind'] is False
+          assert r['claims']['pointer_promotion'] is False
+          PY
+          sha256sum out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json > out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json.sha256
+
+      - name: Upload provider-native conformance receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: hv-v6-1-runtime-enforcement-mutation-conformance-${{ github.run_id }}
+          path: |
+            control-plane-canary/v6_1/out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json
+            control-plane-canary/v6_1/out/HV_V6_1_RUNTIME_ENFORCEMENT_MUTATION_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
