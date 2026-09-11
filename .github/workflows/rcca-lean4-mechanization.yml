@@ -134,8 +134,26 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  proofpath-regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Record Node and commit identity
+        run: |
+          node --version
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Run ProofPath core model regression
+        run: node tests.mjs
+      - name: Run ProofPath UI static regression
+        run: node test-ui.mjs
+      - name: Run CSC committed regression
+        run: node csc-2026/test.cjs
+
   compare:
-    needs: [build-a, build-b]
+    needs: [build-a, build-b, proofpath-regression]
     runs-on: ubuntu-24.04
     steps:
       - name: Download build A
@@ -191,6 +209,7 @@ jobs:
               "predecessor_nonweakening_mechanized": True,
               "historical_rollback_boundary_mechanized": True,
               "proof_escape_tokens_rejected": True,
+              "proofpath_regression": True,
               "core_admission": False,
               "runtime_admission": False,
               "production_promotion": False,
