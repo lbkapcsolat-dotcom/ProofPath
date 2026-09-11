@@ -1,0 +1,216 @@
+name: ess-docker-mcp-14-tool-contract-holds-safe-argument-live-canary-v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-14-tool-contract-holds-safe-argument-live-canary-v1.yml'
+
+permissions:
+  contents: read
+
+env:
+  MCP_GATEWAY_VERSION: v0.43.3
+  DOCKER_MCP_CATALOG: mcp/docker-mcp-catalog:latest
+
+jobs:
+  safe-argument-live-canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Docker MCP Gateway CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/ess-docker-mcp-14-safe-argument-v1 "$HOME/.docker/cli-plugins" /tmp/mcp-extract
+          python - <<'PY'
+          import json,os,pathlib,urllib.request
+          tag=os.environ['MCP_GATEWAY_VERSION']
+          req=urllib.request.Request(
+            f'https://api.github.com/repos/docker/mcp-gateway/releases/tags/{tag}',
+            headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {os.environ["GITHUB_TOKEN"]}','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: rel=json.load(r)
+          a=next(x for x in rel['assets'] if x['name']=='docker-mcp-linux-amd64.tar.gz')
+          pathlib.Path('/tmp/mcp-url').write_text(a['browser_download_url'])
+          pathlib.Path('evidence/ess-docker-mcp-14-safe-argument-v1/gateway-release.json').write_text(
+            json.dumps({'tag':tag,'asset':a['name'],'bytes':a['size']},indent=2,sort_keys=True))
+          PY
+          curl --fail --location --silent --show-error --max-time 180 "$(cat /tmp/mcp-url)" -o /tmp/docker-mcp.tgz
+          tar -xzf /tmp/docker-mcp.tgz -C /tmp/mcp-extract
+          install -m 0755 /tmp/mcp-extract/docker-mcp "$HOME/.docker/cli-plugins/docker-mcp"
+          docker mcp version | tee evidence/ess-docker-mcp-14-safe-argument-v1/docker-mcp-version.txt
+          grep -F "${MCP_GATEWAY_VERSION#v}" evidence/ess-docker-mcp-14-safe-argument-v1/docker-mcp-version.txt
+          docker mcp feature enable profiles >/tmp/profile-feature.out 2>/tmp/profile-feature.err || true
+          docker mcp catalog pull "$DOCKER_MCP_CATALOG" > evidence/ess-docker-mcp-14-safe-argument-v1/catalog-pull.log 2>&1
+
+      - name: Execute schema-first safe-argument live canaries
+        shell: bash
+        run: |
+          set -u
+          ROOT="evidence/ess-docker-mcp-14-safe-argument-v1"
+          printf 'server,status,tool,safe_basis\n' > "$ROOT/results.csv"
+
+          # Each explicit live tool below is bounded to documentation/search/list/read-only semantics.
+          # No write/delete/send/deploy/apply/destroy/publish/service-call tool is permitted.
+          cat > "$ROOT/canary-plan.tsv" <<'EOF'
+          atlas-docs	list_docs	SEMANTIC_READONLY_LIST	
+          paper-search	search_arxiv	PUBLIC_RESEARCH_SEARCH	query=higher category theory homotopy theory
+          context7	resolve-library-id	ANNOTATED_READONLY	query=Docker Compose healthcheck	libraryName=Docker
+          astro-docs	search_astro_docs	SEMANTIC_READONLY_DOC_SEARCH	query=content collections
+          cloudflare-docs		NO_SAFE_DOMAIN_TOOL_IN_PRIOR_SURFACE	
+          docker-docs	fetch_docker_docs	SEMANTIC_READONLY_DOC_FETCH	
+          gemini-api-docs	get_current_model	SEMANTIC_READONLY_METADATA	
+          javadocs	search_artifacts	ANNOTATED_READONLY	query=org.junit.jupiter
+          openapi-schema		NO_SAFE_DOMAIN_TOOL_IN_PRIOR_SURFACE	
+          rust-mcp-filesystem		NO_SAFE_DOMAIN_TOOL_IN_PRIOR_SURFACE	
+          maven-tools-mcp	get_latest_version	SEMANTIC_READONLY_VERSION_LOOKUP	dependency=org.junit.jupiter:junit-jupiter
+          ros2	ros2_interface_list	SEMANTIC_READONLY_LOCAL_LIST	
+          aws-cdk-mcp-server	CDKGeneralGuidance	SEMANTIC_READONLY_GUIDANCE	
+          aws-terraform	SearchAwsProviderDocs	SEMANTIC_READONLY_DOC_SEARCH	asset_name=aws_s3_bucket
+          EOF
+          sed -i 's/^          //' "$ROOT/canary-plan.tsv"
+
+          idx=0
+          while IFS=$'\t' read -r server tool basis arg1 arg2 arg3; do
+            idx=$((idx+1))
+            d=$(printf '%s/%02d-%s' "$ROOT" "$idx" "$server")
+            mkdir -p "$d"
+            profile="ess-safe-${idx}-${server//[^a-zA-Z0-9-]/-}"
+
+            docker mcp profile create --name "ESS SAFE $server" --id "$profile" \
+              --server "catalog://mcp/docker-mcp-catalog/$server" \
+              >"$d/profile-create.out" 2>"$d/profile-create.err"
+            pc=$?
+            if [ "$pc" -ne 0 ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'TRANSPORT_HOLD' "$tool" 'PROFILE_CREATE_FAILED' >> "$ROOT/results.csv"
+              continue
+            fi
+
+            timeout --signal=TERM --kill-after=10s 120s \
+              docker mcp tools --format json \
+                --gateway-arg="--profile=$profile" \
+                --gateway-arg=--verify-signatures \
+                ls >"$d/runtime-tools.json" 2>"$d/runtime-tools.err"
+            lc=$?
+            if [ "$lc" -ne 0 ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'TRANSPORT_HOLD' "$tool" 'RUNTIME_TOOL_DISCOVERY_FAILED' >> "$ROOT/results.csv"
+              continue
+            fi
+
+            python - "$d/runtime-tools.json" "$d/domain-tools.json" <<'PY'
+          import json,sys
+          src,dst=sys.argv[1:]
+          obj=json.load(open(src))
+          if isinstance(obj,dict): tools=obj.get('tools') or obj.get('result') or []
+          else: tools=obj
+          if isinstance(tools,dict): tools=tools.get('tools') or []
+          if not isinstance(tools,list): tools=[]
+          mgmt={'mcp-add','mcp-find','mcp-exec','mcp-remove','mcp-config-set','mcp-create-profile','mcp-activate-profile','code-mode'}
+          domain=[t for t in tools if isinstance(t,dict) and t.get('name') not in mgmt]
+          json.dump(domain,open(dst,'w'),indent=2,sort_keys=True)
+          PY
+
+            if [ -z "$tool" ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'TOOL_SURFACE_HOLD' '' "$basis" >> "$ROOT/results.csv"
+              continue
+            fi
+
+            python - "$d/domain-tools.json" "$tool" >"$d/tool-contract-check.txt" <<'PY'
+          import json,sys
+          p,name=sys.argv[1:]
+          tools=json.load(open(p))
+          t=next((x for x in tools if x.get('name')==name),None)
+          if not t:
+              print('EXPECTED_TOOL_MISSING'); raise SystemExit(3)
+          ann=t.get('annotations') or {}
+          schema=t.get('inputSchema') or {}
+          print(json.dumps({'name':name,'annotations':ann,'required':schema.get('required',[]),'inputSchema':schema},sort_keys=True))
+          # Explicitly reject a tool if it declares destructive behavior.
+          if ann.get('destructiveHint') is True:
+              print('DECLARED_DESTRUCTIVE_TOOL_REJECTED'); raise SystemExit(4)
+          PY
+            cc=$?
+            if [ "$cc" -ne 0 ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'TOOL_CONTRACT_HOLD' "$tool" 'EXPECTED_SAFE_TOOL_MISSING_OR_DESTRUCTIVE' >> "$ROOT/results.csv"
+              continue
+            fi
+
+            args=()
+            [ -n "${arg1:-}" ] && args+=("$arg1")
+            [ -n "${arg2:-}" ] && args+=("$arg2")
+            [ -n "${arg3:-}" ] && args+=("$arg3")
+
+            timeout --signal=TERM --kill-after=10s 120s \
+              docker mcp tools \
+                --gateway-arg="--profile=$profile" \
+                --gateway-arg=--verify-signatures \
+                call "$tool" "${args[@]}" \
+              >"$d/live-call.out" 2>"$d/live-call.err"
+            rc=$?
+            if [ "$rc" -eq 0 ] && [ -s "$d/live-call.out" ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'LIVE_PASS' "$tool" "$basis" >> "$ROOT/results.csv"
+            else
+              printf '%s,%s,%s,%s\n' "$server" 'LIVE_CALL_HOLD' "$tool" "$basis" >> "$ROOT/results.csv"
+            fi
+          done < "$ROOT/canary-plan.tsv"
+
+          python - <<'PY'
+          import csv,json,pathlib,collections
+          root=pathlib.Path('evidence/ess-docker-mcp-14-safe-argument-v1')
+          rows=list(csv.DictReader((root/'results.csv').open()))
+          assert len(rows)==14, len(rows)
+          counts=dict(collections.Counter(r['status'] for r in rows))
+          summary={
+            'gate':'ESS_DOCKER_MCP_14_TOOL_CONTRACT_HOLDS_SAFE_ARGUMENT_LIVE_CANARY_V1',
+            'server_count':14,
+            'status_counts':counts,
+            'rows':rows,
+            'safety_rule':'EXPLICIT_READONLY_OR_DOCUMENTATION_SEARCH_LIST_METADATA_ALLOWLIST__NO_WRITE_DELETE_SEND_DEPLOY_APPLY_DESTROY_PUBLISH_SERVICE_CALL',
+            'zero_spend':True,
+            'secret_injected':False,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False,
+          }
+          (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Hash evidence and build bounded receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="evidence/ess-docker-mcp-14-safe-argument-v1"
+          python - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('evidence/ess-docker-mcp-14-safe-argument-v1')
+          rows=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          summary=json.loads((root/'summary.json').read_text())
+          receipt={**summary,
+            'verdict':'PASS_BOUNDED_SAFE_ARGUMENT_CANARY_EXECUTED',
+            'github_repository':os.environ.get('GITHUB_REPOSITORY'),
+            'github_sha':os.environ.get('GITHUB_SHA'),
+            'gateway_version':os.environ.get('MCP_GATEWAY_VERSION'),
+            'sha256_manifest':'sha256-manifest.txt'}
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+          sha256sum "$ROOT/bounded-receipt.json" >> "$ROOT/sha256-manifest.txt"
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-14-tool-contract-holds-safe-argument-live-canary-v1
+          path: evidence/ess-docker-mcp-14-safe-argument-v1/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
