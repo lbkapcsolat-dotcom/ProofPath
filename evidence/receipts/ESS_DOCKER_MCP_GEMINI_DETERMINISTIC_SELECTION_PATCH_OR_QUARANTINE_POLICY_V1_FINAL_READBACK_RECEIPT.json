@@ -1,0 +1,57 @@
+{
+  "gate": "ESS_DOCKER_MCP_GEMINI_DETERMINISTIC_SELECTION_PATCH_OR_QUARANTINE_POLICY_V1",
+  "selected_branch": "QUARANTINE_POLICY",
+  "verdict": "PASS_GEMINI_NONDETERMINISTIC_ROUTE_QUARANTINED_FAIL_CLOSED",
+  "source_drift_evidence_gate": "ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1",
+  "tdd": {
+    "red_run_id": 34626228181,
+    "red_job_id": 103351887391,
+    "red_observed_failure": "expected DENY but current router returned ALLOW",
+    "green_run_id": 34626545363,
+    "green_job_id": 103352924039,
+    "green_head_sha": "2c0cd887f5bc5a4af334483cd182caf2bf6217b1",
+    "focused_test_count": 1,
+    "regression_test_count": 20
+  },
+  "routing_state": {
+    "authority_surface_count": 13,
+    "routable_domain_count": 12,
+    "quarantined_domain_count": 1,
+    "quarantined_domains": ["gemini_api_docs"],
+    "route_result": {
+      "decision": "DENY",
+      "reason": "QUARANTINED_NONDETERMINISTIC_SURFACE",
+      "surface": "gemini-api-docs",
+      "tool": "get_current_model",
+      "quarantine_policy_reason": "NONDETERMINISTIC_CONTENT_SELECTION",
+      "quarantine_evidence_gate": "ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1",
+      "read_only": true,
+      "external_actuation": false
+    }
+  },
+  "implementation_file_sha256": {
+    "policy.json": "e4123f2e1859da0ee7fafb6ab198b762a19b24703abf0148093614f5b50a6c5b",
+    "router.py": "44b514182ed0adf97ad5623ac0490723dd12c38a60011403cf2969c975e2fde8",
+    "test_gemini_quarantine.py": "ce17a352bd39d2125e5513248b16b58bbf4f1d144b48b82fc1a07a5ed07ed206",
+    "profile.json": "bdd0556c474a05c4e091a97d87179ae1f94c294911cb7b58de7dea1b2f2e91b9"
+  },
+  "provider_artifact": {
+    "run_id": 34626545363,
+    "artifact_id": 10273588876,
+    "bytes": 1426,
+    "provider_sha256": "ec285793be12b560e4bffdaabb3cbf4344fe6a2cd864c7ea2fd1c983f5e80473",
+    "external_download_sha256": "ec285793be12b560e4bffdaabb3cbf4344fe6a2cd864c7ea2fd1c983f5e80473",
+    "internal_manifest_checked": 1,
+    "internal_manifest_errors": 0,
+    "bounded_receipt_sha256": "7b69230b19b3840379f6c5022e6fad4523da1e81bc3d9febbda1dc28fb7d87d9"
+  },
+  "deterministic_selection_patch_claimed": false,
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "gemini_content_normalization": false,
+  "claim_boundary": "ROUTER_LEVEL_FAIL_CLOSED_QUARANTINE_FOR_GEMINI_GET_CURRENT_MODEL_AFTER_PROVEN_SAME_SOURCE_CONTENT_DRIFT__13_AUTHORITY_SURFACES_PRESERVED__12_ROUTABLE_DOMAINS__NO_GEMINI_CONTENT_NORMALIZATION__NO_13_OF_13_PROMOTION__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND"
+}
