@@ -12,32 +12,286 @@ on:
 permissions:
   contents: read
 
+env:
+  OPENAPI_EXPECTED_DIGEST: sha256:5da1c1870748cc3c7d9baa25549fa716a7d9dd24dbb78b73396cb2daebfbca6a
+
 jobs:
-  dispatcher-contract-red-green:
+  dispatcher-live-replay:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - name: Record dispatcher authority inputs
+        shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p evidence/ess-docker-mcp-13-live-dispatch-replay-v1
+          ROOT="evidence/ess-docker-mcp-13-live-dispatch-replay-v1"
+          mkdir -p "$ROOT"
           sha256sum \
             ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json \
             ess_docker_mcp_router/policy.json \
             ess_docker_mcp_router/router.py \
+            ess_docker_mcp_router/dispatcher.py \
             ess_docker_mcp_router/test_dispatcher.py \
-            | tee evidence/ess-docker-mcp-13-live-dispatch-replay-v1/input-sha256.txt
+            | tee "$ROOT/input-sha256.txt"
+
       - name: Run focused dispatcher contract tests
         working-directory: ess_docker_mcp_router
+        shell: bash
         run: |
           set -euxo pipefail
           python -m unittest -v test_dispatcher.py 2>&1 | tee ../evidence/ess-docker-mcp-13-live-dispatch-replay-v1/dispatcher-test-output.txt
+
+      - name: Prepare immutable deterministic live request
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-13-live-dispatch-replay-v1"
+          cat > "$ROOT/synthetic-openapi.yaml" <<'EOF'
+          openapi: 3.0.3
+          info:
+            title: ESS Router Replay Canary API
+            version: 1.0.0
+          paths:
+            /health:
+              get:
+                summary: Deterministic replay endpoint
+                responses:
+                  '200':
+                    description: OK
+          EOF
+          sed -i 's/^          //' "$ROOT/synthetic-openapi.yaml"
+          chmod 0444 "$ROOT/synthetic-openapi.yaml"
+          cat > "$ROOT/request.json" <<'EOF'
+          {
+            "domain": "openapi_schema",
+            "intent": "list",
+            "requested_surface": "openapi-schema",
+            "requested_tool": "list-endpoints",
+            "requested_transport": "direct-image",
+            "arguments": {
+              "openapiSchemaPath": "/evidence/synthetic-openapi.yaml"
+            }
+          }
+          EOF
+          sed -i 's/^          //' "$ROOT/request.json"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/request.json" > "$ROOT/live-input-sha256-before.txt"
+
+      - name: Build bounded MCP live executor
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-13-live-dispatch-replay-v1"
+          mkdir -p /tmp/ess-mcp-live-executor
+          cat > /tmp/ess-mcp-live-executor/go.mod <<'EOF'
+          module ess-mcp-live-executor
+          go 1.25.0
+          require github.com/modelcontextprotocol/go-sdk v1.4.1
+          EOF
+          cat > /tmp/ess-mcp-live-executor/main.go <<'EOF'
+          package main
+
+          import (
+            "context"
+            "encoding/json"
+            "fmt"
+            "os"
+            "os/exec"
+            "strings"
+            "time"
+
+            "github.com/modelcontextprotocol/go-sdk/mcp"
+          )
+
+          func must(err error) { if err != nil { panic(err) } }
+          func hasTool(ts []*mcp.Tool, name string) bool {
+            for _, t := range ts { if t.Name == name { return true } }
+            return false
+          }
+
+          func main() {
+            if len(os.Args) != 5 { panic("usage: live-executor HOST_SCHEMA CONTAINER_SCHEMA DIGEST CONTAINER_NAME") }
+            hostSchema := os.Args[1]
+            containerSchema := os.Args[2]
+            digest := os.Args[3]
+            containerName := os.Args[4]
+            image := "mcp/openapi-schema@" + digest
+
+            create := exec.Command(
+              "docker", "create", "-i", "--name", containerName,
+              "--network", "none", "--read-only", "--cap-drop", "ALL",
+              "--security-opt", "no-new-privileges", "--pids-limit", "256",
+              "--memory", "512m", "--cpus", "1",
+              "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+              "-v", hostSchema+":"+containerSchema+":ro", image,
+            )
+            rawID, err := create.Output(); must(err)
+            id := strings.TrimSpace(string(rawID))
+            fmt.Fprintf(os.Stderr, "ESS_CONTAINER_ID=%s\n", id)
+            defer exec.Command("docker", "rm", "-f", id).Run()
+
+            ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+            defer cancel()
+            cmd := exec.CommandContext(ctx, "docker", "start", "-ai", id)
+            cmd.Stderr = os.Stderr
+            client := mcp.NewClient(&mcp.Implementation{Name:"ess-router-live-replay", Version:"1.0.0"}, nil)
+            session, err := client.Connect(ctx, &mcp.CommandTransport{Command:cmd}, nil); must(err)
+            defer session.Close()
+
+            tools, err := session.ListTools(ctx, &mcp.ListToolsParams{}); must(err)
+            if !hasTool(tools.Tools, "list-endpoints") { panic("expected list-endpoints tool missing") }
+            result, err := session.CallTool(ctx, &mcp.CallToolParams{
+              Name:"list-endpoints",
+              Arguments:map[string]any{"openapiSchemaPath":containerSchema},
+            }); must(err)
+            if result.IsError { panic("tool returned IsError") }
+            b, err := json.Marshal(result); must(err)
+            if !strings.Contains(string(b), "/health") { panic("expected /health evidence missing") }
+            _, err = os.Stdout.Write(append(b, '\n')); must(err)
+          }
+          EOF
+          cd /tmp/ess-mcp-live-executor
+          go mod tidy
+          sha256sum main.go go.mod go.sum > "$ROOT/live-executor-source-sha256.txt"
+          go build -o /tmp/ess-mcp-live-executor/live-executor .
+          sha256sum /tmp/ess-mcp-live-executor/live-executor > "$ROOT/live-executor-binary-sha256.txt"
+          go version > "$ROOT/go-version.txt"
+
+      - name: Execute router-selected live dispatch twice and prove receipt equality
+        shell: bash
+        env:
+          OPENAPI_DIGEST: ${{ env.OPENAPI_EXPECTED_DIGEST }}
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-13-live-dispatch-replay-v1"
+          docker pull "mcp/openapi-schema@$OPENAPI_DIGEST" > "$ROOT/image-pull.log" 2>&1
+          docker image inspect "mcp/openapi-schema@$OPENAPI_DIGEST" > "$ROOT/image-inspect.json"
+          python - <<'PY'
+          import hashlib,json,os,pathlib,re,subprocess,sys
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-13-live-dispatch-replay-v1'
+          sys.path.insert(0,str(pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'ess_docker_mcp_router'))
+          from dispatcher import dispatch_request, receipts_equal
+          from router import load_profile, load_policy
+
+          repo=pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          profile=load_profile(repo/'ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json')
+          policy=load_policy(repo/'ess_docker_mcp_router/policy.json')
+          request=json.loads((root/'request.json').read_text())
+          host_schema=str(root/'synthetic-openapi.yaml')
+          expected_digest=os.environ['OPENAPI_DIGEST']
+          call_index=0
+          container_ids=[]
+
+          def canonical(value):
+              return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')
+          def sha(value): return hashlib.sha256(canonical(value)).hexdigest()
+
+          def executor(route,arguments):
+              nonlocal_call = None
+              global call_index
+              call_index += 1
+              assert route['surface']=='openapi-schema'
+              assert route['tool']=='list-endpoints'
+              assert route['transport']=='direct-image'
+              assert route['image_digest']==expected_digest
+              assert arguments['openapiSchemaPath']=='/evidence/synthetic-openapi.yaml'
+              name=f"ess-openapi-replay-{os.environ['GITHUB_RUN_ID']}-{call_index}"
+              cp=subprocess.run([
+                  '/tmp/ess-mcp-live-executor/live-executor',host_schema,
+                  arguments['openapiSchemaPath'],route['image_digest'],name
+              ],capture_output=True,text=True,check=True,timeout=150)
+              (root/f'replay-{call_index}-executor.stdout').write_text(cp.stdout)
+              (root/f'replay-{call_index}-executor.stderr').write_text(cp.stderr)
+              match=re.search(r'ESS_CONTAINER_ID=([0-9a-f]+)',cp.stderr)
+              assert match, cp.stderr
+              container_ids.append(match.group(1))
+              return json.loads(cp.stdout)
+
+          first=dispatch_request(request,profile,policy,executor)
+          second=dispatch_request(request,profile,policy,executor)
+          assert call_index==2
+          assert len(container_ids)==2 and container_ids[0]!=container_ids[1]
+          assert first['decision']=='ALLOW' and second['decision']=='ALLOW'
+          assert first['surface']=='openapi-schema'
+          assert first['request_sha256']==second['request_sha256']
+          assert first['route_sha256']==second['route_sha256']
+          assert first['response_sha256']==second['response_sha256']
+          assert receipts_equal(first,second)
+          assert '/health' in json.dumps(first['response'],sort_keys=True)
+
+          (root/'replay-1-receipt.json').write_bytes(canonical(first)+b'\n')
+          (root/'replay-2-receipt.json').write_bytes(canonical(second)+b'\n')
+          (root/'replay-1-response.json').write_bytes(canonical(first['response'])+b'\n')
+          (root/'replay-2-response.json').write_bytes(canonical(second['response'])+b'\n')
+          equality={
+              'request_sha256_equal':first['request_sha256']==second['request_sha256'],
+              'route_sha256_equal':first['route_sha256']==second['route_sha256'],
+              'response_sha256_equal':first['response_sha256']==second['response_sha256'],
+              'receipt_bytes_equal':(root/'replay-1-receipt.json').read_bytes()==(root/'replay-2-receipt.json').read_bytes(),
+              'receipt_sha256':hashlib.sha256((root/'replay-1-receipt.json').read_bytes()).hexdigest(),
+              'container_ids':container_ids,
+              'distinct_container_ids':container_ids[0]!=container_ids[1],
+              'surface':'openapi-schema','tool':'list-endpoints','transport':'direct-image',
+              'image_digest':expected_digest,
+          }
+          assert all(equality[k] for k in ['request_sha256_equal','route_sha256_equal','response_sha256_equal','receipt_bytes_equal','distinct_container_ids'])
+          (root/'replay-equality.json').write_text(json.dumps(equality,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(equality,indent=2,sort_keys=True))
+          PY
+
+      - name: Verify immutable inputs and build bounded receipt
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/evidence/ess-docker-mcp-13-live-dispatch-replay-v1"
+          sha256sum "$ROOT/synthetic-openapi.yaml" "$ROOT/request.json" > "$ROOT/live-input-sha256-after.txt"
+          diff -u "$ROOT/live-input-sha256-before.txt" "$ROOT/live-input-sha256-after.txt" > "$ROOT/live-input-sha256-diff.txt"
+          python - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path(os.environ['GITHUB_WORKSPACE'])/'evidence/ess-docker-mcp-13-live-dispatch-replay-v1'
+          eq=json.loads((root/'replay-equality.json').read_text())
+          receipt={
+            'gate':'ESS_DOCKER_MCP_13_SURFACE_ROUTER_LIVE_DISPATCH_REPLAY_AND_RECEIPT_EQUALITY_V1',
+            'verdict':'PASS_BOUNDED_ROUTER_SELECTED_LIVE_DISPATCH_REPLAY_AND_RECEIPT_EQUALITY',
+            'github_repository':os.environ['GITHUB_REPOSITORY'],
+            'github_sha':os.environ['GITHUB_SHA'],
+            'controlled_profile_surface_count':13,
+            'live_replay_surface':'openapi-schema',
+            'live_replay_tool':'list-endpoints',
+            'live_replay_transport':'direct-image',
+            'independent_runtime_count':2,
+            'request_sha256_equal':eq['request_sha256_equal'],
+            'route_sha256_equal':eq['route_sha256_equal'],
+            'response_sha256_equal':eq['response_sha256_equal'],
+            'receipt_bytes_equal':eq['receipt_bytes_equal'],
+            'distinct_container_ids':eq['distinct_container_ids'],
+            'container_ids':eq['container_ids'],
+            'receipt_sha256':eq['receipt_sha256'],
+            'image_digest':eq['image_digest'],
+            'input_mutation_detected':False,
+            'zero_spend':True,
+            'secret_injected':False,
+            'external_actuation':False,
+            'production_ready':False,
+            'global_bind':False,
+            'claim_boundary':'ONE_DETERMINISTIC_ROUTER_SELECTED_DIRECT_IMAGE_SURFACE_LIVE_REPLAY_OVER_THE_13_SURFACE_CONTROLLED_ROUTER__DOES_NOT_PROVE_ALL_13_SURFACES_REPLAY_EQUAL__NO_PRODUCTION_READY__NO_GLOBAL_BIND'
+          }
+          (root/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          rows=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.relative_to(root)}')
+          (root/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
       - name: Upload provider evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ess-docker-mcp-13-surface-router-live-dispatch-replay-v1-red-green
+          name: ess-docker-mcp-13-surface-router-live-dispatch-replay-v1
           path: evidence/ess-docker-mcp-13-live-dispatch-replay-v1/
           if-no-files-found: error
           retention-days: 30
+          compression-level: 6
