@@ -47,6 +47,14 @@ class RouterExecutorBindingTests(unittest.TestCase):
         self.assertEqual(12, len(seen))
         self.assertNotIn("gemini-api-docs", seen)
 
+    def test_direct_executor_projection_exactly_matches_canonical_contract(self):
+        for domain, intent in [("openapi_schema", "list"), ("filesystem_readonly", "list")]:
+            plan = plan_execution({"domain": domain, "intent": intent, "arguments": {}}, PROFILE, POLICY)
+            contract = plan["executor_contract"]
+            for field in ("surface", "tool", "transport", "arguments", "read_only", "external_actuation", "image_digest"):
+                self.assertIn(field, plan)
+                self.assertEqual(contract[field], plan[field])
+
     def test_negative_route_canaries_never_authorize_executor(self):
         cases = [
             ({"domain": "papers", "intent": "search", "requested_tool": "delete_paper"}, "WRONG_TOOL"),
