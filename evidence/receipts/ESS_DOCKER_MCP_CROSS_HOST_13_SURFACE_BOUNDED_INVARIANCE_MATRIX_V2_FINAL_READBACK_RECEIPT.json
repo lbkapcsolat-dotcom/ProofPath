@@ -1,0 +1,69 @@
+{
+  "gate": "ESS_DOCKER_MCP_CROSS_HOST_13_SURFACE_BOUNDED_INVARIANCE_MATRIX_V2",
+  "verdict": "PASS_BOUNDED_CROSS_HOST_INVARIANCE_12_OF_13__HOLD_GEMINI_TRUE_CONTENT_DRIFT",
+  "workflow": {
+    "run_id": 34624294262,
+    "job_id": 103345522871,
+    "head_sha": "b8950acd2f456307bbfcc9de313a8a3d9596852f",
+    "provider_conclusion": "success"
+  },
+  "source_evidence": {
+    "two_host_live_run_id": 34621290828,
+    "two_host_live_head_sha": "7ee4ac07c301e90b6e41673f0afbff22acc2bed7",
+    "host_a_artifact_id": 10272825833,
+    "host_b_artifact_id": 10272935625,
+    "host_a_manifest_checked": 153,
+    "host_a_manifest_errors": 0,
+    "host_b_manifest_checked": 153,
+    "host_b_manifest_errors": 0
+  },
+  "normalization_authority": {
+    "gate": "ESS_DOCKER_MCP_CROSS_HOST_6_CONTENT_DRIFT_ROOT_CAUSE_AND_BOUNDED_NORMALIZATION_V1",
+    "normalizer_file_sha256": "12a0721a239a4545514efbd0c3093745eb1c6f385f3dd1df4e8e4f58567f8cbc",
+    "authority_receipt_sha256": "168f68e25b4d1856c51e355373f592ce4d0a707e5099d868b5f761ec6b61ad63"
+  },
+  "matrix": {
+    "surface_count": 13,
+    "raw_equal_count": 7,
+    "bounded_invariant_count": 5,
+    "true_content_drift_hold_count": 1,
+    "effective_invariant_count": 12,
+    "status_counts": {
+      "RAW_EQUAL_PASS": 7,
+      "BOUNDED_INVARIANT_PASS": 5,
+      "TRUE_CONTENT_DRIFT_HOLD": 1
+    },
+    "bounded_invariant_surfaces": [
+      "hugging-face",
+      "context7",
+      "astro-docs",
+      "javadocs",
+      "ros2"
+    ],
+    "true_content_drift_hold_surfaces": [
+      "gemini-api-docs"
+    ]
+  },
+  "artifact": {
+    "provider_artifact_id": 10274475341,
+    "provider_artifact_bytes": 10051,
+    "provider_artifact_sha256": "0ea3816cdbe2bb3a994976ab47103bfb76e9fb7ad149dd987879cace72a277f6",
+    "external_download_sha256": "0ea3816cdbe2bb3a994976ab47103bfb76e9fb7ad149dd987879cace72a277f6",
+    "internal_manifest_checked": 3,
+    "internal_manifest_errors": 0
+  },
+  "gemini_fail_closed": {
+    "surface": "gemini-api-docs",
+    "matrix_status": "TRUE_CONTENT_DRIFT_HOLD",
+    "diagnosis_classification": "TRUE_CONTENT_DRIFT",
+    "canonical_equal": false,
+    "normalization_policy": "IDENTITY_ONLY_FAIL_CLOSED__NO_NORMALIZATION"
+  },
+  "zero_spend": true,
+  "secret_injected": false,
+  "external_actuation": false,
+  "production_ready": false,
+  "runtime_admission": false,
+  "global_bind": false,
+  "claim_boundary": "FROZEN_EVIDENCE_SUCCESSOR_MATRIX_ONLY__7_RAW_EQUAL_PLUS_5_PROVEN_BOUNDED_INVARIANTS__GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_HOLD__NO_13_OF_13_CLAIM__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND"
+}
