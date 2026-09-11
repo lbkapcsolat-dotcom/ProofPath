@@ -1,0 +1,246 @@
+name: ESS HGraph Runtime Admission Custody
+
+on:
+  push:
+    branches:
+      - ess-hgraph-native-cpp-parity-canary-v1
+    paths:
+      - 'hgraph_canary/cpp/**'
+      - 'hgraph_canary/native_cpp_super/**'
+      - 'hgraph_canary/runtime_admission.py'
+      - 'hgraph_canary/wolfram_oracle_v1.json'
+      - '.github/workflows/ess-hgraph-runtime-admission-custody.yml'
+  workflow_dispatch:
+
+jobs:
+  runner-a-build-and-replay:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      source_commit: ${{ steps.custody.outputs.source_commit }}
+      hgraph_commit: ${{ steps.custody.outputs.hgraph_commit }}
+      binary_sha256: ${{ steps.custody.outputs.binary_sha256 }}
+      oracle_sha256: ${{ steps.custody.outputs.oracle_sha256 }}
+      expected_output_sha256: ${{ steps.custody.outputs.expected_output_sha256 }}
+      output_sha256: ${{ steps.custody.outputs.output_sha256 }}
+      state_count: ${{ steps.custody.outputs.state_count }}
+      parity_pass: ${{ steps.custody.outputs.parity_pass }}
+    steps:
+      - name: Checkout ProofPath exact commit
+        uses: actions/checkout@v4
+
+      - name: Checkout exact hgraph 0.8.23 source
+        uses: actions/checkout@v4
+        with:
+          repository: hhenson/hgraph
+          ref: f3713aeecc97597ec2bd623f7d41687e62c03b77
+          path: _vendor/hgraph
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned native dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            'cmake==4.4.2' 'ninja==1.13.0' 'pyarrow==25.0.0'
+
+      - name: Expose Arrow runtime libraries
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import pyarrow
+          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as f:
+              f.write(str(Path(pyarrow.__file__).resolve().parent) + '\n')
+
+      - name: Configure exact-source hgraph plus ESS C++ canary
+        run: |
+          cmake -S hgraph_canary/native_cpp_super -B _build/ess-hgraph-cpp -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHGRAPH_SOURCE_DIR="$PWD/_vendor/hgraph" \
+            -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')"
+
+      - name: Build exact native executable
+        run: cmake --build _build/ess-hgraph-cpp --target ess_hgraph_cpp_canary --parallel 2
+
+      - name: Replay A and materialize custody bundle
+        id: custody
+        run: |
+          set -euo pipefail
+          mkdir -p custody_bundle
+          BIN="_build/ess-hgraph-cpp/ess_canary/ess_hgraph_cpp_canary"
+          ORACLE="hgraph_canary/wolfram_oracle_v1.json"
+
+          "$BIN" | tee custody_bundle/run_a.log
+          sed -n 's/^OBSERVED_VECTOR=//p' custody_bundle/run_a.log > custody_bundle/observed_vector_a.txt
+
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          HGRAPH_COMMIT="$(git -C _vendor/hgraph rev-parse HEAD)"
+          BINARY_SHA="$(sha256sum "$BIN" | awk '{print $1}')"
+          ORACLE_SHA="$(sha256sum "$ORACLE" | awk '{print $1}')"
+          OUTPUT_SHA="$(sha256sum custody_bundle/observed_vector_a.txt | awk '{print $1}')"
+          EXPECTED_SHA="$(python - <<'PY'
+          import hashlib, json
+          data=json.load(open('hgraph_canary/wolfram_oracle_v1.json', encoding='utf-8'))
+          print(hashlib.sha256((data['vector']+'\n').encode()).hexdigest())
+          PY
+          )"
+          STATE_COUNT="$(sed -n 's/^STATE_COUNT=//p' custody_bundle/run_a.log)"
+          if grep -qx 'WOLFRAM_PARITY_256_256=PASS' custody_bundle/run_a.log; then PARITY=true; else PARITY=false; fi
+
+          test "$STATE_COUNT" = "256"
+          test "$PARITY" = "true"
+          test "$OUTPUT_SHA" = "$EXPECTED_SHA"
+
+          cp "$BIN" custody_bundle/ess_hgraph_cpp_canary
+          cp "$ORACLE" custody_bundle/wolfram_oracle_v1.json
+
+          python - <<PY
+          import json
+          data={
+            'source_commit':'$SOURCE_COMMIT',
+            'hgraph_commit':'$HGRAPH_COMMIT',
+            'binary_sha256':'$BINARY_SHA',
+            'oracle_sha256':'$ORACLE_SHA',
+            'expected_output_sha256':'$EXPECTED_SHA',
+            'output_sha256':'$OUTPUT_SHA',
+            'state_count':int('$STATE_COUNT'),
+            'parity_pass':$PARITY,
+            'runner':'A'
+          }
+          open('custody_bundle/custody_a.json','w',encoding='utf-8').write(json.dumps(data,sort_keys=True,indent=2))
+          PY
+
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "hgraph_commit=$HGRAPH_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "binary_sha256=$BINARY_SHA" >> "$GITHUB_OUTPUT"
+          echo "oracle_sha256=$ORACLE_SHA" >> "$GITHUB_OUTPUT"
+          echo "expected_output_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "output_sha256=$OUTPUT_SHA" >> "$GITHUB_OUTPUT"
+          echo "state_count=$STATE_COUNT" >> "$GITHUB_OUTPUT"
+          echo "parity_pass=$PARITY" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact executable custody bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-hgraph-runtime-custody-bundle
+          path: custody_bundle/
+          if-no-files-found: error
+          retention-days: 7
+
+  runner-b-exact-binary-replay-and-admission:
+    needs: runner-a-build-and-replay
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout same ProofPath commit
+        uses: actions/checkout@v4
+
+      - name: Checkout same exact hgraph source identity
+        uses: actions/checkout@v4
+        with:
+          repository: hhenson/hgraph
+          ref: f3713aeecc97597ec2bd623f7d41687e62c03b77
+          path: _vendor/hgraph
+
+      - name: Set up Python 3.12 runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned runtime dependency only
+        run: python -m pip install --disable-pip-version-check --only-binary=:all: 'pyarrow==25.0.0'
+
+      - name: Expose Arrow runtime libraries
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import pyarrow
+          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as f:
+              f.write(str(Path(pyarrow.__file__).resolve().parent) + '\n')
+
+      - name: Download Runner A exact-byte bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-hgraph-runtime-custody-bundle
+          path: custody_bundle
+
+      - name: Verify exact-byte custody and replay B
+        run: |
+          set -euo pipefail
+          BIN="custody_bundle/ess_hgraph_cpp_canary"
+          ORACLE="custody_bundle/wolfram_oracle_v1.json"
+          chmod +x "$BIN"
+
+          SOURCE_COMMIT_B="$(git rev-parse HEAD)"
+          HGRAPH_COMMIT_B="$(git -C _vendor/hgraph rev-parse HEAD)"
+          BINARY_SHA_B="$(sha256sum "$BIN" | awk '{print $1}')"
+          ORACLE_SHA_B="$(sha256sum "$ORACLE" | awk '{print $1}')"
+
+          test "$SOURCE_COMMIT_B" = "${{ needs.runner-a-build-and-replay.outputs.source_commit }}"
+          test "$HGRAPH_COMMIT_B" = "${{ needs.runner-a-build-and-replay.outputs.hgraph_commit }}"
+          test "$BINARY_SHA_B" = "${{ needs.runner-a-build-and-replay.outputs.binary_sha256 }}"
+          test "$ORACLE_SHA_B" = "${{ needs.runner-a-build-and-replay.outputs.oracle_sha256 }}"
+
+          "$BIN" | tee custody_bundle/run_b.log
+          sed -n 's/^OBSERVED_VECTOR=//p' custody_bundle/run_b.log > custody_bundle/observed_vector_b.txt
+          OUTPUT_SHA_B="$(sha256sum custody_bundle/observed_vector_b.txt | awk '{print $1}')"
+          STATE_COUNT_B="$(sed -n 's/^STATE_COUNT=//p' custody_bundle/run_b.log)"
+          if grep -qx 'WOLFRAM_PARITY_256_256=PASS' custody_bundle/run_b.log; then PARITY_B=true; else PARITY_B=false; fi
+
+          python - <<PY
+          import hashlib, json
+          from hgraph_canary.runtime_admission import evaluate_runtime_admission
+
+          evidence={
+            'source_commit_a':'${{ needs.runner-a-build-and-replay.outputs.source_commit }}',
+            'source_commit_b':'$SOURCE_COMMIT_B',
+            'hgraph_commit_a':'${{ needs.runner-a-build-and-replay.outputs.hgraph_commit }}',
+            'hgraph_commit_b':'$HGRAPH_COMMIT_B',
+            'binary_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.binary_sha256 }}',
+            'binary_sha256_b':'$BINARY_SHA_B',
+            'oracle_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.oracle_sha256 }}',
+            'oracle_sha256_b':'$ORACLE_SHA_B',
+            'output_sha256_a':'${{ needs.runner-a-build-and-replay.outputs.output_sha256 }}',
+            'output_sha256_b':'$OUTPUT_SHA_B',
+            'expected_output_sha256':'${{ needs.runner-a-build-and-replay.outputs.expected_output_sha256 }}',
+            'state_count_a':int('${{ needs.runner-a-build-and-replay.outputs.state_count }}'),
+            'state_count_b':int('$STATE_COUNT_B'),
+            'parity_pass_a':'${{ needs.runner-a-build-and-replay.outputs.parity_pass }}' == 'true',
+            'parity_pass_b':$PARITY_B,
+          }
+          decision=evaluate_runtime_admission(evidence)
+          receipt={
+            'gate':'HGRAPH_NATIVE_CPP_EXECUTABLE_BYTE_CUSTODY_AND_RUNTIME_ADMISSION_V1',
+            'mode':'EXACT_BINARY_CUSTODY__TWO_ISOLATED_REPLAYS__FAIL_CLOSED',
+            'evidence':evidence,
+            'decision':decision,
+            'claim_boundary':{
+              'production_readiness':False,
+              'pointer_promotion':False,
+              'global_bind':False,
+              'main_merge':False,
+            }
+          }
+          canonical=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
+          receipt['receipt_sha256']=hashlib.sha256(canonical).hexdigest()
+          open('custody_bundle/runtime_admission_receipt.json','w',encoding='utf-8').write(json.dumps(receipt,sort_keys=True,indent=2))
+          print('RUNTIME_ADMISSION_VERDICT='+decision['verdict'])
+          print('RUNTIME_ADMISSION='+str(decision['runtime_admission']).upper())
+          print('RECEIPT_SHA256='+receipt['receipt_sha256'])
+          if not decision['runtime_admission']:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload runtime admission receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-hgraph-runtime-admission-receipt
+          path: custody_bundle/runtime_admission_receipt.json
+          if-no-files-found: error
+          retention-days: 7
