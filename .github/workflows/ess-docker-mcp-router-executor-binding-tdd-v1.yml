@@ -1,0 +1,26 @@
+name: ess-docker-mcp-router-executor-binding-tdd-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - 'ess_docker_mcp_router/test_router_executor_binding.py'
+      - 'ess_docker_mcp_router/executor_binding.py'
+      - '.github/workflows/ess-docker-mcp-router-executor-binding-tdd-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused router-to-executor binding contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ess_docker_mcp_router
+          python -m unittest -v test_router_executor_binding.py
