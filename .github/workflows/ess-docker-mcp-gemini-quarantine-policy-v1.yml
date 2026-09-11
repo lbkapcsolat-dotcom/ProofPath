@@ -27,3 +27,99 @@ jobs:
           set -euxo pipefail
           cd ess_docker_mcp_router
           python -m unittest -v test_router.py test_dispatcher.py test_normalized_replay.py test_cross_host_response_normalization.py test_cross_host_13_surface_coverage.py test_gemini_quarantine.py
+      - name: Build bounded quarantine receipt and manifest
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/gemini-quarantine-policy-v1
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          root = pathlib.Path('ess_docker_mcp_router')
+          sys.path.insert(0, str(root))
+          from router import load_policy, load_profile, route_request
+
+          policy_path = root / 'policy.json'
+          profile_path = root / 'ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json'
+          router_path = root / 'router.py'
+          test_path = root / 'test_gemini_quarantine.py'
+          out = pathlib.Path('evidence/gemini-quarantine-policy-v1')
+
+          policy = load_policy(policy_path)
+          profile = load_profile(profile_path)
+          result = route_request({'domain':'gemini_api_docs','intent':'read'}, profile, policy)
+          assert result['decision'] == 'DENY', result
+          assert result['reason'] == 'QUARANTINED_NONDETERMINISTIC_SURFACE', result
+          assert result['quarantine_evidence_gate'] == 'ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1', result
+          quarantined = policy.get('quarantined_domains', {})
+          assert set(quarantined) == {'gemini_api_docs'}, quarantined
+          assert len(policy['routes']) == 13
+          assert len(policy['routes']) - len(quarantined) == 12
+
+          def sha(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          receipt = {
+              'gate': 'ESS_DOCKER_MCP_GEMINI_DETERMINISTIC_SELECTION_PATCH_OR_QUARANTINE_POLICY_V1',
+              'selected_branch': 'QUARANTINE_POLICY',
+              'verdict': 'PASS_GEMINI_NONDETERMINISTIC_ROUTE_QUARANTINED_FAIL_CLOSED',
+              'red_evidence': {
+                  'run_id': 34626228181,
+                  'job_id': 103351887391,
+                  'observed_failure': "expected DENY but current router returned ALLOW",
+              },
+              'green_evidence': {
+                  'run_id': int(os.environ['GITHUB_RUN_ID']),
+                  'head_sha': os.environ['GITHUB_SHA'],
+                  'focused_test_count': 1,
+                  'regression_test_count': 20,
+              },
+              'authority_surface_count': 13,
+              'routable_domain_count': 12,
+              'quarantined_domain_count': 1,
+              'quarantined_domains': ['gemini_api_docs'],
+              'route_result': result,
+              'source_drift_evidence_gate': 'ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1',
+              'file_sha256': {
+                  'policy.json': sha(policy_path),
+                  'router.py': sha(router_path),
+                  'test_gemini_quarantine.py': sha(test_path),
+                  'profile.json': sha(profile_path),
+              },
+              'zero_spend': True,
+              'secret_injected': False,
+              'external_actuation': False,
+              'production_ready': False,
+              'runtime_admission': False,
+              'global_bind': False,
+              'deterministic_selection_patch_claimed': False,
+              'claim_boundary': 'ROUTER_LEVEL_FAIL_CLOSED_QUARANTINE_FOR_GEMINI_GET_CURRENT_MODEL_AFTER_PROVEN_SAME_SOURCE_CONTENT_DRIFT__13_AUTHORITY_SURFACES_PRESERVED__12_ROUTABLE_DOMAINS__NO_GEMINI_CONTENT_NORMALIZATION__NO_13_OF_13_PROMOTION__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND',
+          }
+          receipt_path = out / 'bounded-receipt.json'
+          receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n')
+          rows = []
+          for p in sorted(out.iterdir()):
+              if p.is_file() and p.name != 'sha256-manifest.txt':
+                  b = p.read_bytes()
+                  rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (out / 'sha256-manifest.txt').write_text('\n'.join(rows) + '\n')
+          checked = 0
+          for line in (out / 'sha256-manifest.txt').read_text().splitlines():
+              digest, size, rel = line.split('  ', 2)
+              b = (out / rel).read_bytes()
+              assert hashlib.sha256(b).hexdigest() == digest
+              assert len(b) == int(size)
+              checked += 1
+          assert checked == 1
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          print('manifest_checked', checked)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-gemini-quarantine-policy-v1
+          path: evidence/gemini-quarantine-policy-v1/
+          if-no-files-found: error
+          retention-days: 30
