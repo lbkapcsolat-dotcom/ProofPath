@@ -1,0 +1,139 @@
+name: ess-docker-mcp-12-routable-post-quarantine-frozen-compare-v1
+
+on:
+  push:
+    branches: [equilibrium-human-operator-runtime-evidence-v1]
+    paths:
+      - '.github/workflows/ess-docker-mcp-12-routable-post-quarantine-frozen-compare-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_LIVE_RUN_ID: '34627289710'
+  SOURCE_LIVE_HEAD_SHA: '4fb897624f814ba98ba4a6144938ae3e66c018c1'
+  SOURCE_HOST_A_ARTIFACT_ID: '10275296150'
+  SOURCE_HOST_A_ARTIFACT_SHA256: '51d3bf7c372a7580260f4d790e0bccb950a88a8f04a238996f383d7a7aa39de2'
+  SOURCE_HOST_B_ARTIFACT_ID: '10274976408'
+  SOURCE_HOST_B_ARTIFACT_SHA256: 'fcfdbdb890e26ebd3afe7d48e520803ff1e8cad7f9c3418581fc414b5fa0d8b5'
+
+jobs:
+  frozen-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frozen host A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-post-quarantine-12-host-a
+          path: evidence/frozen/host-a
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: ${{ env.SOURCE_LIVE_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Download frozen host B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ess-post-quarantine-12-host-b
+          path: evidence/frozen/host-b
+          repository: lbkapcsolat-dotcom/ProofPath
+          run-id: ${{ env.SOURCE_LIVE_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Verify frozen host manifests and build exact 12-surface matrix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p evidence/post-quarantine-12-final
+          python - <<'PY'
+          import collections,csv,hashlib,json,os,pathlib,sys
+          sys.path.insert(0,'ess_docker_mcp_router')
+          from post_quarantine_matrix import build_post_quarantine_cross_host_matrix
+
+          base=pathlib.Path('evidence/frozen')
+          checked_counts={}
+          def load(label):
+              root=base/label; errs=[]; checked=0
+              for line in (root/'sha256-manifest.txt').read_text().splitlines():
+                  if not line.strip(): continue
+                  sha,size,rel=line.split('  ',2); b=(root/rel).read_bytes(); checked+=1
+                  if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size): errs.append(rel)
+              assert checked>0 and not errs,(label,checked,errs)
+              checked_counts[label]=checked
+              return json.loads((root/'host-bundle.json').read_text())
+
+          a,b=load('host-a'),load('host-b')
+          profile=json.loads(pathlib.Path('ess_docker_mcp_router/ESS_DOCKER_MCP_13_PROVEN_LIVE_EXPERT_SURFACES_CONTROLLED_PROFILE_V1.json').read_text())
+          policy=json.loads(pathlib.Path('ess_docker_mcp_router/policy.json').read_text())
+          summary=build_post_quarantine_cross_host_matrix(profile,policy,a,b)
+          counts=dict(collections.Counter(r['status'] for r in summary['rows']))
+          summary.update({
+              'gate':'ESS_DOCKER_MCP_12_ROUTABLE_SURFACES_POST_QUARANTINE_CROSS_HOST_REPLAY_AND_RECEIPT_EQUALITY_V1',
+              'implementation_revision':'FROZEN_COMPARE_AFTER_MAVEN_TIMING_TDD',
+              'verdict':'PASS_12_OF_12_POST_QUARANTINE_CROSS_HOST_BOUNDED_INVARIANCE' if summary['all_routable_surfaces_invariant'] else 'HOLD_POST_QUARANTINE_ROUTABLE_SURFACE_INVARIANCE',
+              'source_live_run_id':int(os.environ['SOURCE_LIVE_RUN_ID']),
+              'source_live_head_sha':os.environ['SOURCE_LIVE_HEAD_SHA'],
+              'source_host_a_artifact_id':int(os.environ['SOURCE_HOST_A_ARTIFACT_ID']),
+              'source_host_a_artifact_sha256':os.environ['SOURCE_HOST_A_ARTIFACT_SHA256'],
+              'source_host_b_artifact_id':int(os.environ['SOURCE_HOST_B_ARTIFACT_ID']),
+              'source_host_b_artifact_sha256':os.environ['SOURCE_HOST_B_ARTIFACT_SHA256'],
+              'host_a_manifest_checked':checked_counts['host-a'],'host_a_manifest_errors':0,
+              'host_b_manifest_checked':checked_counts['host-b'],'host_b_manifest_errors':0,
+              'status_counts':counts,
+              'host_a_identity':a['identity'],'host_b_identity':b['identity'],
+              'zero_spend':True,'secret_injected':False,'external_actuation':False,
+              'production_ready':False,'runtime_admission':False,'global_bind':False,
+              'claim_boundary':'13_AUTHORITY_SURFACES_PRESERVED__GEMINI_QUARANTINED__12_ROUTABLE_SURFACES_REPLAYED_ACROSS_TWO_DISTINCT_GITHUB_HOSTED_VMS__6_RAW_EQUAL_PLUS_6_BOUNDED_INVARIANT_EXPECTED__MAVEN_TIMING_PREFIX_NORMALIZATION_SEPARATELY_TDD_PROVEN__NO_GEMINI_REPLAY__NO_13_OF_13_PROMOTION__NOT_PRODUCTION_READY__NOT_RUNTIME_ADMISSION__NOT_GLOBAL_BIND'
+          })
+          assert summary['authority_surface_count']==13,summary
+          assert summary['routable_surface_count']==12,summary
+          assert summary['quarantined_surfaces']==['gemini-api-docs'],summary
+          assert summary['gateway_profile_count']==10 and summary['direct_image_count']==2,summary
+          assert summary['distinct_host_identity'],summary
+          assert summary['effective_invariant_count']==12,summary
+          assert summary['all_routable_surfaces_invariant'],summary
+          assert counts=={'BOUNDED_INVARIANT_PASS':6,'RAW_EQUAL_PASS':6},counts
+          maven=next(r for r in summary['rows'] if r['surface']=='maven-tools-mcp')
+          assert maven['status']=='BOUNDED_INVARIANT_PASS' and maven['reasons']==['BOUNDED_TIMING_NOISE'],maven
+
+          out=pathlib.Path('evidence/post-quarantine-12-final')
+          (out/'coverage-summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+          with (out/'coverage-matrix.csv').open('w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=['surface','transport','status','reasons']); w.writeheader()
+              for r in summary['rows']:w.writerow({**r,'reasons':'|'.join(r['reasons'])})
+          receipt={k:summary[k] for k in ['gate','implementation_revision','verdict','source_live_run_id','source_live_head_sha','source_host_a_artifact_id','source_host_a_artifact_sha256','source_host_b_artifact_id','source_host_b_artifact_sha256','host_a_manifest_checked','host_a_manifest_errors','host_b_manifest_checked','host_b_manifest_errors','authority_surface_count','routable_surface_count','quarantined_surfaces','gateway_profile_count','direct_image_count','effective_invariant_count','all_routable_surfaces_invariant','distinct_host_identity','identity_authority_fields','status_counts','zero_spend','secret_injected','external_actuation','production_ready','runtime_admission','global_bind','claim_boundary']}
+          receipt['rows']=summary['rows']
+          (out/'bounded-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Build and verify final manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import hashlib,pathlib
+          out=pathlib.Path('evidence/post-quarantine-12-final'); rows=[]
+          for p in sorted(out.iterdir()):
+              if p.is_file() and p.name!='sha256-manifest.txt':
+                  b=p.read_bytes(); rows.append(f'{hashlib.sha256(b).hexdigest()}  {len(b)}  {p.name}')
+          (out/'sha256-manifest.txt').write_text('\n'.join(rows)+'\n')
+          errs=[]; checked=0
+          for line in (out/'sha256-manifest.txt').read_text().splitlines():
+              sha,size,fn=line.split('  ',2); b=(out/fn).read_bytes(); checked+=1
+              if hashlib.sha256(b).hexdigest()!=sha or len(b)!=int(size):errs.append(fn)
+          assert checked==3 and not errs,(checked,errs)
+          print('final_manifest_checked',checked,'errors',len(errs))
+          PY
+
+      - name: Upload final frozen-compare evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-docker-mcp-12-routable-post-quarantine-frozen-compare-v1
+          path: evidence/post-quarantine-12-final/
+          if-no-files-found: error
+          retention-days: 30
