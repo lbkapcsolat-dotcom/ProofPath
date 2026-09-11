@@ -51,6 +51,7 @@ jobs:
       - name: Execute schema-first safe-argument live canaries
         shell: bash
         run: |
+          set +e
           set -u
           ROOT="evidence/ess-docker-mcp-14-safe-argument-v1"
           printf 'server,status,tool,safe_basis\n' > "$ROOT/results.csv"
@@ -114,6 +115,11 @@ jobs:
           domain=[t for t in tools if isinstance(t,dict) and t.get('name') not in mgmt]
           json.dump(domain,open(dst,'w'),indent=2,sort_keys=True)
           PY
+            norm=$?
+            if [ "$norm" -ne 0 ]; then
+              printf '%s,%s,%s,%s\n' "$server" 'TOOL_CONTRACT_HOLD' "$tool" 'RUNTIME_TOOL_SCHEMA_PARSE_FAILED' >> "$ROOT/results.csv"
+              continue
+            fi
 
             if [ -z "$tool" ]; then
               printf '%s,%s,%s,%s\n' "$server" 'TOOL_SURFACE_HOLD' '' "$basis" >> "$ROOT/results.csv"
@@ -130,7 +136,6 @@ jobs:
           ann=t.get('annotations') or {}
           schema=t.get('inputSchema') or {}
           print(json.dumps({'name':name,'annotations':ann,'required':schema.get('required',[]),'inputSchema':schema},sort_keys=True))
-          # Explicitly reject a tool if it declares destructive behavior.
           if ann.get('destructiveHint') is True:
               print('DECLARED_DESTRUCTIVE_TOOL_REJECTED'); raise SystemExit(4)
           PY
@@ -180,6 +185,7 @@ jobs:
           (root/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True))
           print(json.dumps(summary,indent=2,sort_keys=True))
           PY
+          test $? -eq 0
 
       - name: Hash evidence and build bounded receipt
         shell: bash
