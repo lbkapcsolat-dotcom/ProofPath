@@ -1,0 +1,44 @@
+{
+  "schema": "ESS_HGRAPH_WOLFRAM_ORACLE_V1",
+  "source_engine": "Wolfram Language",
+  "state_order": [
+    "current_pointer_present",
+    "pointer_matches_root",
+    "requested_claim_rank",
+    "evidence_level_rank",
+    "independent_validation",
+    "irreversible_action",
+    "human_gate",
+    "rollback_plan"
+  ],
+  "domains": [
+    [false, true],
+    [false, true],
+    [3, 6],
+    [3, 6],
+    [false, true],
+    [false, true],
+    [false, true],
+    [false, true]
+  ],
+  "code_map": {
+    "PASS": "P",
+    "HOLD:MISSING_CURRENT_POINTER": "M",
+    "HOLD:AUTHORITY_DRIFT": "A",
+    "HOLD:CLAIM_EXCEEDS_EVIDENCE": "C",
+    "HOLD:PRODUCTION_OVERCLAIM": "O",
+    "HOLD:IRREVERSIBLE_WITHOUT_HUMAN_GATE": "I"
+  },
+  "total_states": 256,
+  "counts": {
+    "M": 128,
+    "A": 64,
+    "P": 25,
+    "I": 15,
+    "C": 16,
+    "O": 8
+  },
+  "vector": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPPPPIIIPPPPPIIIPPPPPIIIPPPPPIIIPCCCCCCCCCCCCCCCCOOOOOOOOPPPPIIIP",
+  "vector_sha256": "921bfe5a2d535e5fd96af788f541699aa76a1e459b09cc1d87af36baeb689ee5",
+  "claim_boundary": "Finite bounded oracle only. No runtime admission, production readiness, pointer promotion, or global bind."
+}
