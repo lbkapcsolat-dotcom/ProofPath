@@ -1,0 +1,56 @@
+name: ESS HGraph Native C++ Parity Canary
+
+on:
+  push:
+    branches:
+      - ess-hgraph-native-cpp-parity-canary-v1
+    paths:
+      - 'hgraph_canary/cpp/**'
+      - '.github/workflows/ess-hgraph-native-cpp-parity-canary.yml'
+  workflow_dispatch:
+
+jobs:
+  native-cpp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout ProofPath exact commit
+        uses: actions/checkout@v4
+
+      - name: Checkout exact hgraph 0.8.23 source
+        uses: actions/checkout@v4
+        with:
+          repository: hhenson/hgraph
+          ref: f3713aeecc97597ec2bd623f7d41687e62c03b77
+          path: _vendor/hgraph
+
+      - name: Record source identities
+        run: |
+          git rev-parse HEAD
+          git -C _vendor/hgraph rev-parse HEAD
+          cmake --version
+          c++ --version
+
+      - name: Configure hgraph SDK
+        run: |
+          cmake -S _vendor/hgraph -B _build/hgraph \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DHGRAPH_FETCH_DATE=ON \
+            -DHGRAPH_FETCH_SIMDJSON=ON \
+            -DHGRAPH_ENABLE_PCH=OFF
+
+      - name: Build and install hgraph SDK
+        run: |
+          cmake --build _build/hgraph --target hgraph_core -j2
+          cmake --install _build/hgraph --prefix "$PWD/_install/hgraph"
+
+      - name: Configure downstream C++ canary
+        run: |
+          cmake -S hgraph_canary/cpp -B _build/ess-hgraph-cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/_install/hgraph"
+
+      - name: Build RED C++ canary
+        run: cmake --build _build/ess-hgraph-cpp -j2
