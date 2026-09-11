@@ -18,6 +18,14 @@
     "openapi_schema": {"surface":"openapi-schema","tool":"list-endpoints","transport":"direct-image"},
     "filesystem_readonly": {"surface":"rust-mcp-filesystem","tool":"list_directory","transport":"direct-image"}
   },
+  "quarantined_domains": {
+    "gemini_api_docs": {
+      "surface": "gemini-api-docs",
+      "tool": "get_current_model",
+      "reason": "NONDETERMINISTIC_CONTENT_SELECTION",
+      "evidence_gate": "ESS_DOCKER_MCP_GEMINI_API_DOCS_TRUE_CONTENT_DRIFT_SOURCE_PIN_AND_TEMPORAL_REPLAY_V1"
+    }
+  },
   "excluded_surfaces": ["atlas-docs","cloudflare-docs"],
   "constraints": {
     "read_only_only": true,
@@ -27,6 +35,7 @@
     "wrong_tool": "DENY",
     "transport_mismatch": "DENY",
     "unknown_domain": "DENY",
-    "hold_surface": "DENY"
+    "hold_surface": "DENY",
+    "quarantined_domain": "DENY"
   }
 }
