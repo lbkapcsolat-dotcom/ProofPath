@@ -67,6 +67,24 @@ jobs:
           sha256sum -c /tmp/xb18-shadow-receipt/package.sha256
           echo 'PASS_XB18_EXPLICIT_SEPARATE_PROCESS_READBACK'
 
+      - name: Deterministic dual-process replay equality
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/xb18-replay-a /tmp/xb18-replay-b
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-replay-a
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-a
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-replay-b
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-b
+          for name in request.json verdict.json receipt.json; do
+            cmp --silent "/tmp/xb18-replay-a/$name" "/tmp/xb18-replay-b/$name"
+            sha_a=$(sha256sum "/tmp/xb18-replay-a/$name" | awk '{print $1}')
+            sha_b=$(sha256sum "/tmp/xb18-replay-b/$name" | awk '{print $1}')
+            test "$sha_a" = "$sha_b"
+            echo "PASS_XB18_REPLAY_EQUALITY_${name}=${sha_a}"
+          done
+          echo 'PASS_XB18_DUAL_PROCESS_REPLAY_EXACT_EQUALITY'
+
       - name: Reject request semantic-content tamper
         working-directory: formal/namespace-safe-eq64
         run: |
