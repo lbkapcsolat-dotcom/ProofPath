@@ -1,0 +1,7 @@
+{
+  "namespace_id": "X_AIPRBG_6GATE_DIAGNOSTIC_V1",
+  "structural_class": "B6_Q6",
+  "axes": ["Authority", "Identity", "Provenance", "Runtime", "Readback", "Governance"],
+  "polarity": ["protect", "protect", "protect", "protect", "protect", "protect"],
+  "claim_ceiling": "AUDIT_DIAGNOSTIC_ONLY"
+}
