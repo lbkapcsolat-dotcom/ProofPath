@@ -1,0 +1,7 @@
+{
+  "namespace_id": "SYNTHETIC_NAMESPACE_B",
+  "structural_class": "B6_Q6",
+  "axes": ["B0", "B1", "B2", "B3", "B4", "B5"],
+  "polarity": ["neutral", "neutral", "neutral", "neutral", "neutral", "neutral"],
+  "claim_ceiling": "SYNTHETIC_TEST_ONLY"
+}
