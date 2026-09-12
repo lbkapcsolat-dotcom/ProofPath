@@ -125,4 +125,34 @@ theorem coordinate_permutation_preserves_Q6_hamming
       i = p.toFun (p.invFun i) := (p.rightInv i).symm
       _ = p.toFun j := congrArg p.toFun hEq
 
+
+theorem missing_axis_evidence_blocks_exact_crosswalk
+    (c : CrosswalkCandidate)
+    (hMissing : c.evidence.c7AxisEvidence = .hold) :
+    ¬ ExactSemanticAuthorized c := by
+  simp [ExactSemanticAuthorized, hMissing]
+
+
+theorem polarity_conflict_blocks_exact_crosswalk
+    (c : CrosswalkCandidate)
+    (hConflict : c.evidence.c4Polarity = .deny) :
+    ¬ ExactSemanticAuthorized c := by
+  simp [ExactSemanticAuthorized, hConflict]
+
+
+theorem namespace_identity_required
+    (c : CrosswalkCandidate)
+    (h : ExactSemanticAuthorized c) :
+    c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64 :=
+  h.1
+
+
+theorem no_semantic_authorization_from_structure_alone
+    (c : CrosswalkCandidate)
+    (structuralIso : Prop)
+    (_hStructural : structuralIso)
+    (hNoAxisEvidence : c.evidence.c7AxisEvidence = .hold) :
+    ¬ ExactSemanticAuthorized c :=
+  missing_axis_evidence_blocks_exact_crosswalk c hNoAxisEvidence
+
 end NamespaceSafeEQ64
