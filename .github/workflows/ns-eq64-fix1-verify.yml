@@ -1,4 +1,4 @@
-name: NS EQ64 Fix1 Verify
+name: NS EQ64 Fix Review Verify
 
 on:
   push:
@@ -36,3 +36,8 @@ jobs:
             echo 'FAIL_PROOF_ESCAPE_TOKEN'
             exit 41
           fi
+      - name: Run namespace-safe Python reference tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v
