@@ -39,6 +39,10 @@ structure Permutation6 where
   leftInv : ∀ i, invFun (toFun i) = i
   rightInv : ∀ i, toFun (invFun i) = i
 
+
+def SamePermutation (p q : Permutation6) : Prop :=
+  ∀ i, p.toFun i = q.toFun i
+
 structure NamespaceSpec where
   id : NamespaceId
   axes : AxisSchema
@@ -58,7 +62,7 @@ structure SemanticEvidence where
   c9NoPostHocSelection : Tri
   c10GovernanceScope : Tri
   c11ClaimCeiling : Tri
-  deriving Repr
+  exactMapping : Permutation6
 
 structure CrosswalkCandidate where
   source : NamespaceId
@@ -71,19 +75,24 @@ def SemanticRequestAllowed (c : CrosswalkCandidate) : Prop :=
   c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64
 
 
+def SemanticEvidencePass (e : SemanticEvidence) : Prop :=
+  e.c1SourceIdentity = .pass ∧
+  e.c2StructuralClass = .pass ∧
+  e.c3AxisCompleteness = .pass ∧
+  e.c4Polarity = .pass ∧
+  e.c5ConflictFree = .pass ∧
+  e.c6BijectionCandidate = .pass ∧
+  e.c7AxisEvidence = .pass ∧
+  e.c8OrderSemantics = .pass ∧
+  e.c9NoPostHocSelection = .pass ∧
+  e.c10GovernanceScope = .pass ∧
+  e.c11ClaimCeiling = .pass
+
+
 def ExactSemanticAuthorized (c : CrosswalkCandidate) : Prop :=
   SemanticRequestAllowed c ∧
-  c.evidence.c1SourceIdentity = .pass ∧
-  c.evidence.c2StructuralClass = .pass ∧
-  c.evidence.c3AxisCompleteness = .pass ∧
-  c.evidence.c4Polarity = .pass ∧
-  c.evidence.c5ConflictFree = .pass ∧
-  c.evidence.c6BijectionCandidate = .pass ∧
-  c.evidence.c7AxisEvidence = .pass ∧
-  c.evidence.c8OrderSemantics = .pass ∧
-  c.evidence.c9NoPostHocSelection = .pass ∧
-  c.evidence.c10GovernanceScope = .pass ∧
-  c.evidence.c11ClaimCeiling = .pass
+  SemanticEvidencePass c.evidence ∧
+  SamePermutation c.permutation c.evidence.exactMapping
 
 
 def bMeet (a b : State6) : State6 := fun i => a i && b i
@@ -130,14 +139,14 @@ theorem missing_axis_evidence_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
     (hMissing : c.evidence.c7AxisEvidence = .hold) :
     ¬ ExactSemanticAuthorized c := by
-  simp [ExactSemanticAuthorized, hMissing]
+  simp [ExactSemanticAuthorized, SemanticEvidencePass, hMissing]
 
 
 theorem polarity_conflict_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
     (hConflict : c.evidence.c4Polarity = .deny) :
     ¬ ExactSemanticAuthorized c := by
-  simp [ExactSemanticAuthorized, hConflict]
+  simp [ExactSemanticAuthorized, SemanticEvidencePass, hConflict]
 
 
 theorem namespace_identity_required
@@ -145,6 +154,22 @@ theorem namespace_identity_required
     (h : ExactSemanticAuthorized c) :
     c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64 :=
   h.1
+
+
+theorem exact_authorization_requires_mapping_match
+    (c : CrosswalkCandidate)
+    (h : ExactSemanticAuthorized c) :
+    SamePermutation c.permutation c.evidence.exactMapping :=
+  h.2.2
+
+
+theorem mapping_mismatch_blocks_exact_crosswalk
+    (c : CrosswalkCandidate)
+    (i : Fin 6)
+    (hMismatch : c.permutation.toFun i ≠ c.evidence.exactMapping.toFun i) :
+    ¬ ExactSemanticAuthorized c := by
+  intro h
+  exact hMismatch ((exact_authorization_requires_mapping_match c h) i)
 
 
 theorem no_semantic_authorization_from_structure_alone
