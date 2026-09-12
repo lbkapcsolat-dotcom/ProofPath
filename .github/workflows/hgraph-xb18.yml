@@ -57,6 +57,7 @@ jobs:
             /tmp/xb18-shadow-receipt/request.json \
             /tmp/xb18-shadow-receipt/verdict.json \
             /tmp/xb18-shadow-receipt/receipt.json \
+            /tmp/xb18-shadow-receipt/shadow_canary_summary.json \
             | tee /tmp/xb18-shadow-receipt/package.sha256
 
       - name: Independent verifier process readback
@@ -76,7 +77,7 @@ jobs:
           python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-a
           python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-replay-b
           python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-b
-          for name in request.json verdict.json receipt.json; do
+          for name in request.json verdict.json receipt.json shadow_canary_summary.json; do
             cmp --silent "/tmp/xb18-replay-a/$name" "/tmp/xb18-replay-b/$name"
             sha_a=$(sha256sum "/tmp/xb18-replay-a/$name" | awk '{print $1}')
             sha_b=$(sha256sum "/tmp/xb18-replay-b/$name" | awk '{print $1}')
