@@ -85,4 +85,44 @@ def ExactSemanticAuthorized (c : CrosswalkCandidate) : Prop :=
   c.evidence.c10GovernanceScope = .pass ∧
   c.evidence.c11ClaimCeiling = .pass
 
+
+def bMeet (a b : State6) : State6 := fun i => a i && b i
+
+
+def bJoin (a b : State6) : State6 := fun i => a i || b i
+
+
+def applyPerm (p : Permutation6) (s : State6) : State6 :=
+  fun i => s (p.invFun i)
+
+/-- Q6 adjacency expressed as differing at exactly one coordinate. -/
+def HammingOne (a b : State6) : Prop :=
+  ∃ j : Fin 6, a j ≠ b j ∧ ∀ i : Fin 6, i ≠ j → a i = b i
+
+
+theorem coordinate_permutation_preserves_B6_structure
+    (p : Permutation6) (a b : State6) :
+    applyPerm p (bMeet a b) = bMeet (applyPerm p a) (applyPerm p b) ∧
+    applyPerm p (bJoin a b) = bJoin (applyPerm p a) (applyPerm p b) := by
+  constructor <;> funext i <;> rfl
+
+
+theorem coordinate_permutation_preserves_Q6_hamming
+    (p : Permutation6) (a b : State6)
+    (h : HammingOne a b) :
+    HammingOne (applyPerm p a) (applyPerm p b) := by
+  rcases h with ⟨j, hjdiff, hjrest⟩
+  refine ⟨p.toFun j, ?_, ?_⟩
+  · change a (p.invFun (p.toFun j)) ≠ b (p.invFun (p.toFun j))
+    rw [p.leftInv j]
+    exact hjdiff
+  · intro i hi
+    change a (p.invFun i) = b (p.invFun i)
+    apply hjrest
+    intro hEq
+    apply hi
+    calc
+      i = p.toFun (p.invFun i) := (p.rightInv i).symm
+      _ = p.toFun j := congrArg p.toFun hEq
+
 end NamespaceSafeEQ64
