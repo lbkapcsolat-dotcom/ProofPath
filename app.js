@@ -1,6 +1,6 @@
 import { trainSoftmax, predict } from "./model.js";
 import { EARTH_TRAINING_SET, EARTH_HOLDOUT_SET } from "./earth-data.js";
-import { detectEarthCategory, nextEvidenceNeeded } from "./earth-logic.js";
+import { detectEarthCategory, nextEvidenceNeeded, evidenceContextCoverage } from "./earth-logic.js";
 
 const CLAIM_CEILING = "EDUCATIONAL_ENVIRONMENTAL_EVIDENCE_ASSESSMENT_ONLY";
 const model = trainSoftmax(EARTH_TRAINING_SET);
@@ -15,6 +15,7 @@ const exampleSelect = document.querySelector("#exampleSelect");
 const modelStatus = document.querySelector("#modelStatus");
 const categoryEl = document.querySelector("#category");
 const nextEvidenceEl = document.querySelector("#nextEvidence");
+const contextCoverageEl = document.querySelector("#contextCoverage");
 
 function pct(x){ return `${(x*100).toFixed(1)}%`; }
 
@@ -29,7 +30,14 @@ export function analyze(claim,evidence){
   if(!evidence.trim()) return {status:"BLOCK",message:"Add evidence first."};
   const category = detectEarthCategory(claim,evidence);
   const out = predict(model,claim,evidence);
-  return {...out,status:"READY",category,claim_ceiling:CLAIM_CEILING,next_evidence:nextEvidenceNeeded(out.label,category)};
+  return {
+    ...out,
+    status:"READY",
+    category,
+    claim_ceiling:CLAIM_CEILING,
+    next_evidence:nextEvidenceNeeded(out.label,category),
+    context_coverage:evidenceContextCoverage(claim,evidence)
+  };
 }
 
 function render(out){
@@ -39,6 +47,7 @@ function render(out){
     categoryEl.textContent = "Category: —";
     explanationEl.textContent = out.message;
     nextEvidenceEl.textContent = "";
+    contextCoverageEl.textContent = "";
     return;
   }
   resultEl.textContent = out.label;
@@ -47,6 +56,17 @@ function render(out){
   probsEl.textContent = `MODEL SCORE DISTRIBUTION · SUPPORTED ${pct(p.SUPPORTED)} · CONTRADICTED ${pct(p.CONTRADICTED)} · INSUFFICIENT ${pct(p.INSUFFICIENT)}`;
   explanationEl.innerHTML = `<p>${explain(out.label)}</p>`;
   nextEvidenceEl.innerHTML = `<strong>Next evidence needed:</strong> ${out.next_evidence}`;
+  const labels = {
+    baseline:"Baseline",
+    comparison:"Comparison",
+    time_window:"Time window",
+    spatial_scale:"Spatial scale",
+    measured_outcome:"Measured outcome",
+    source_provenance:"Source / provenance"
+  };
+  contextCoverageEl.innerHTML = Object.entries(out.context_coverage)
+    .map(([key,value])=>`<div class="coverage-row"><span>${labels[key]}</span><strong>${value}</strong></div>`)
+    .join("");
 }
 
 form.addEventListener("submit",e=>{
