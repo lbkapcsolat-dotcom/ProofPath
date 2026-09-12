@@ -172,6 +172,19 @@ theorem mapping_mismatch_blocks_exact_crosswalk
   exact hMismatch ((exact_authorization_requires_mapping_match c h) i)
 
 
+theorem exact_authorization_unique_for_predeclared_mapping
+    (c₁ c₂ : CrosswalkCandidate)
+    (hEvidence : c₁.evidence = c₂.evidence)
+    (h₁ : ExactSemanticAuthorized c₁)
+    (h₂ : ExactSemanticAuthorized c₂) :
+    SamePermutation c₁.permutation c₂.permutation := by
+  intro i
+  have hm₁ := (exact_authorization_requires_mapping_match c₁ h₁) i
+  have hm₂ := (exact_authorization_requires_mapping_match c₂ h₂) i
+  rw [hEvidence] at hm₁
+  exact hm₁.trans hm₂.symm
+
+
 theorem no_semantic_authorization_from_structure_alone
     (c : CrosswalkCandidate)
     (structuralIso : Prop)
