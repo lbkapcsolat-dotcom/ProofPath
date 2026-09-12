@@ -1,0 +1,19 @@
+{
+  "name": "evidence-coach-pocket",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "test": "node --test tests/*.test.mjs",
+    "verify:secrets": "node scripts/verify-no-secret.mjs",
+    "verify": "npm run test && npm run verify:secrets"
+  },
+  "dependencies": {
+    "expo": "~57.0.9",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-purchases": "10.9.0"
+  }
+}
