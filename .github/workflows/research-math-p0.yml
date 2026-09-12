@@ -1,0 +1,302 @@
+name: Research Math Verification
+
+on:
+  push:
+    branches:
+      - research-math-p0-verifier
+    paths:
+      - "research_math/**"
+      - ".github/workflows/research-math-p0.yml"
+      - ".github/workflows/research-math-p3.yml"
+      - ".github/workflows/research-math-p12-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lean-formal-proof:
+    name: P0-A Lean + Mathlib formal proof
+    runs-on: ubuntu-latest
+    env:
+      LEAN_NUM_THREADS: "1"
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install hash-verified Elan 4.2.4
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error \
+            -o /tmp/elan.tar.gz \
+            https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz
+          echo "42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63  /tmp/elan.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/elan.tar.gz -C /tmp
+          /tmp/elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Materialize pinned Lake manifest
+        working-directory: research_math/lean
+        run: |
+          set -euo pipefail
+          "$HOME/.elan/bin/elan" --version
+          "$HOME/.elan/bin/lake" --version
+          "$HOME/.elan/bin/lake" update
+          test -s lake-manifest.json
+
+      - name: Kernel build + independent leanchecker
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
+        with:
+          lake-package-directory: research_math/lean
+          auto-config: false
+          build: true
+          use-mathlib-cache: true
+          use-github-cache: false
+          leanchecker: true
+          nanoda: false
+
+      - name: Negative placeholder gate
+        working-directory: research_math/lean
+        run: |
+          set -euo pipefail
+          if git grep --line-number -E '\b(sorry|admit)\b' -- '*.lean'; then
+            echo 'Forbidden proof placeholder found in tracked project source.' >&2
+            exit 1
+          fi
+          echo 'P0-A LEAN/MATHLIB = PASS'
+
+      - name: Emit Lean live theorem receipt
+        run: |
+          set -euo pipefail
+          mkdir -p out/live/lean
+          (
+            cd research_math/lean
+            lake env lean --version
+            echo 'PROOFPATH_EVIDENCE THM-LIVE formal_kernel_proof formal_target=ResearchMathP0.square_nonnegative'
+            echo 'lean_kernel_build=PASS'
+            echo 'leanchecker=PASS'
+            echo 'placeholder_gate=PASS'
+          ) | tee out/live/lean/raw.log
+          python3 research_math/orchestrator/live_evidence.py emit \
+            --profile lean \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --job "$GITHUB_JOB" \
+            --raw-log out/live/lean/raw.log \
+            --repo-root . \
+            --output out/live/lean/receipt.json
+
+      - name: Preserve Lean live receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-live-lean-${{ github.sha }}
+          path: out/live/lean
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  flint-rigorous-numerics:
+    name: P0-B FLINT/Arb rigorous intervals
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Create isolated Python environment
+        run: |
+          python3 --version
+          python3 -m venv .venv
+          .venv/bin/python -m pip --version
+
+      - name: Install hash-pinned python-flint
+        run: |
+          .venv/bin/python -m pip install --require-hashes -r research_math/flint/requirements.txt
+
+      - name: Execute rigorous interval canary and capture witness
+        run: |
+          set -euo pipefail
+          mkdir -p out/live/arb
+          .venv/bin/python research_math/flint/canary.py | tee out/live/arb/raw.log
+          python3 research_math/orchestrator/live_evidence.py emit \
+            --profile arb \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --job "$GITHUB_JOB" \
+            --raw-log out/live/arb/raw.log \
+            --repo-root . \
+            --output out/live/arb/receipt.json
+
+      - name: Preserve Arb live receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-live-arb-${{ github.sha }}
+          path: out/live/arb
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  julia-hpc:
+    name: P1-C Julia scientific computing + HPC
+    runs-on: ubuntu-latest
+    env:
+      JULIA_NUM_THREADS: "4"
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install exact Julia 1.12.7
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: '1.12.7'
+          arch: 'x64'
+
+      - name: Verify Julia scientific/HPC canary and capture witness
+        run: |
+          set -euo pipefail
+          mkdir -p out/live/julia
+          julia research_math/julia/canary.jl | tee out/live/julia/raw.log
+          python3 research_math/orchestrator/live_evidence.py emit \
+            --profile julia \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --job "$GITHUB_JOB" \
+            --raw-log out/live/julia/raw.log \
+            --repo-root . \
+            --output out/live/julia/receipt.json
+
+      - name: Preserve Julia live receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-live-julia-${{ github.sha }}
+          path: out/live/julia
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  sagemath-independent-cas:
+    name: P2-D SageMath independent CAS
+    runs-on: ubuntu-latest
+    env:
+      SAGE_IMAGE: sagemath/sagemath@sha256:e068670ae5863b54b2550e72437ec637b0283acb0dc712c8584c124dbf44e667
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Pull exact SageMath 10.9 image digest
+        run: |
+          set -euo pipefail
+          docker pull "$SAGE_IMAGE"
+          resolved="$(docker image inspect --format='{{index .RepoDigests 0}}' "$SAGE_IMAGE")"
+          echo "Resolved SageMath image: $resolved"
+          test "$resolved" = "$SAGE_IMAGE"
+
+      - name: Execute exact CAS canary and capture witness
+        run: |
+          set -euo pipefail
+          mkdir -p out/live/sage
+          docker run --rm "$SAGE_IMAGE" sage --version
+          docker run --rm \
+            -v "$PWD:/work:ro" \
+            -w /work \
+            "$SAGE_IMAGE" \
+            sage -python research_math/sage/canary.py \
+            | tee out/live/sage/raw.log
+          python3 research_math/orchestrator/live_evidence.py emit \
+            --profile sage \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --job "$GITHUB_JOB" \
+            --raw-log out/live/sage/raw.log \
+            --repo-root . \
+            --output out/live/sage/receipt.json
+
+      - name: Preserve Sage live receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-live-sage-${{ github.sha }}
+          path: out/live/sage
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  live-evidence-bind:
+    name: P11 Live engine evidence bind → P5-P10
+    needs:
+      - lean-formal-proof
+      - flint-rigorous-numerics
+      - julia-hpc
+      - sagemath-independent-cas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Read back all four engine artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: math-live-*-${{ github.sha }}
+          path: out/live-input
+          merge-multiple: false
+
+      - name: Bind receipts and execute live P5-P10 gate
+        run: |
+          set -euo pipefail
+          mkdir -p out/live-bound
+          python3 research_math/orchestrator/live_evidence.py bind \
+            --receipts-root out/live-input \
+            --repo-root . \
+            --claims research_math/orchestrator/live_claims.json \
+            --source-sha "$GITHUB_SHA" \
+            --output out/live-bound/live-math-assurance.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('out/live-bound/live-math-assurance.json').read_text())
+          got={x['id']:x['status'] for x in report['assurance_bundle']['gate']['claims']}
+          expected={'ALG-LIVE':'PASS','THM-LIVE':'PASS','RIG-LIVE':'PASS','HPC-LIVE':'PASS'}
+          if got != expected:
+              raise SystemExit(f'LIVE P10 mismatch: {got!r} != {expected!r}')
+          print('P11 LIVE ENGINE BIND = PASS')
+          print('LIVE P5-P10 CLAIM MATRIX =', got)
+          print('binding_sha256 =', report['binding_sha256'])
+          PY
+
+      - name: Seal live bound evidence
+        run: |
+          set -euo pipefail
+          find out/live-input -type f -print0 | sort -z | xargs -0 sha256sum > out/live-bound/live-engine-files-sha256.txt
+          sha256sum \
+            research_math/orchestrator/live_claims.json \
+            research_math/orchestrator/live_evidence.py \
+            out/live-bound/live-math-assurance.json \
+            out/live-bound/live-engine-files-sha256.txt \
+            | tee out/live-bound/live-binding-sha256.txt
+          {
+            echo '## P11 Live Engine Evidence Bind'
+            echo "- Source SHA: $GITHUB_SHA"
+            echo "- Workflow run: $GITHUB_RUN_ID"
+            echo '- Lean + Sage theorem evidence: bound'
+            echo '- Sage + Julia exact algebra evidence: bound'
+            echo '- Arb + Sage rigorous numerical evidence: bound'
+            echo '- Julia + Sage HPC/replay evidence: bound'
+            echo '- All raw outputs and bound inputs were SHA-256 read back before P5-P10'
+            echo '- Claim ceiling: PASS applies only to ALG-LIVE, THM-LIVE, RIG-LIVE, HPC-LIVE in this exact run'
+            echo '```'
+            cat out/live-bound/live-binding-sha256.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve bound live assurance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: math-live-assurance-${{ github.sha }}
+          path: |
+            out/live-input
+            out/live-bound
+            research_math/orchestrator/live_claims.json
+            research_math/orchestrator/live_evidence.py
+            research_math/orchestrator/claim_router.py
+            research_math/orchestrator/assurance_pipeline.py
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
