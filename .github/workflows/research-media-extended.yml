@@ -1,0 +1,304 @@
+name: Research Media Extended Verification
+
+on:
+  push:
+    branches:
+      - research-media-verifier
+    paths:
+      - "research_media/**"
+      - ".github/workflows/research-media-extended.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-26-13-06/ffmpeg-N-126277-ga8c7afa7d7-linux64-gpl.tar.xz
+  FFMPEG_SHA256: 545857e8720ccc4b9570aef3a3540814f8d42c4bd26599df3084e9c5094f667d
+
+jobs:
+  voice-asr:
+    name: M5 Voice TTS + independent ASR cross-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install exact FFmpeg foundation
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/ffmpeg
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+          echo "/tmp/ffmpeg/bin" >> "$GITHUB_PATH"
+
+      - name: Build exact eSpeak NG 1.52.0 TTS engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends autoconf automake libtool pkg-config libpcaudio-dev libsonic-dev
+          git clone --quiet https://github.com/espeak-ng/espeak-ng /tmp/espeak-ng
+          git -C /tmp/espeak-ng checkout --detach 4870adfa25b1a32b4361592f1be8a40337c58d6c
+          test "$(git -C /tmp/espeak-ng rev-parse HEAD)" = "4870adfa25b1a32b4361592f1be8a40337c58d6c"
+          cd /tmp/espeak-ng
+          ./autogen.sh >/dev/null
+          ./configure --without-speechplayer >/dev/null
+          make -j2 src/espeak-ng src/speak-ng >/dev/null
+          make >/dev/null
+          ESPEAK_DATA_PATH=/tmp/espeak-ng LD_LIBRARY_PATH=/tmp/espeak-ng/src:${LD_LIBRARY_PATH:-} src/espeak-ng --version
+          echo 'M5-A ESPEAK SOURCE IDENTITY = PASS'
+
+      - name: Synthesize deterministic narration
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          ESPEAK_DATA_PATH=/tmp/espeak-ng LD_LIBRARY_PATH=/tmp/espeak-ng/src:${LD_LIBRARY_PATH:-} \
+            /tmp/espeak-ng/src/espeak-ng -v en-us -s 145 -f research_media/voice_script.txt -w out/voice.wav
+          test -s out/voice.wav
+          ffmpeg -hide_banner -loglevel error -y -i out/voice.wav -ar 16000 -ac 1 -c:a pcm_s16le out/voice16.wav
+          ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of default=nw=1 out/voice16.wav
+          echo 'M5-B TTS NARRATION = PASS'
+
+      - name: Build exact whisper.cpp v1.9.2 ASR engine
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          git -C /tmp/whisper.cpp checkout --detach 306c88f4d1286aec1bf96e544632897886af5501
+          test "$(git -C /tmp/whisper.cpp rev-parse HEAD)" = "306c88f4d1286aec1bf96e544632897886af5501"
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper-build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_EXAMPLES=ON >/dev/null
+          cmake --build /tmp/whisper-build --config Release -j2 --target whisper-cli >/dev/null
+          test -x /tmp/whisper-build/bin/whisper-cli
+          echo 'M5-C WHISPER.CPP SOURCE IDENTITY = PASS'
+
+      - name: Download hash-pinned Whisper tiny.en q5_1 model
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error \
+            'https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-tiny.en-q5_1.bin?download=true' \
+            -o /tmp/ggml-tiny.en-q5_1.bin
+          echo 'c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b  /tmp/ggml-tiny.en-q5_1.bin' | sha256sum -c -
+          echo 'M5-D ASR MODEL SHA256 = PASS'
+
+      - name: Transcribe narration and compare to source text
+        run: |
+          set -euo pipefail
+          /tmp/whisper-build/bin/whisper-cli \
+            -m /tmp/ggml-tiny.en-q5_1.bin \
+            -f out/voice16.wav \
+            -otxt -of out/asr -nt
+          test -s out/asr.txt
+          cat out/asr.txt
+          python3 research_media/asr_compare.py research_media/voice_script.txt out/asr.txt
+          echo 'M5-E TTS -> ASR CROSS-CHECK = PASS'
+
+      - name: Seal voice source snapshot
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > out/source-sha.txt
+          echo 'M5-S SOURCE SNAPSHOT = PASS'
+
+      - name: Preserve voice/ASR evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: media-voice-asr-${{ github.sha }}
+          path: |
+            out/voice.wav
+            out/voice16.wav
+            out/asr.txt
+            out/source-sha.txt
+            research_media/voice_script.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  remotion-render:
+    name: M6 Remotion programmatic scene render
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install exact FFmpeg foundation
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/ffmpeg
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+          echo "/tmp/ffmpeg/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve exact Remotion dependency graph
+        working-directory: research_media/remotion
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          sha256sum package-lock.json
+          npm ci --no-audit --no-fund
+          npx remotion versions
+          echo 'M6-A REMOTION 4.0.506 DEPENDENCY GRAPH = PASS'
+
+      - name: Render six-second 1080p Remotion scene
+        working-directory: research_media/remotion
+        run: |
+          set -euo pipefail
+          mkdir -p ../../out
+          npm run render
+          test -s ../../out/remotion.mp4
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=codec_name,width,height,pix_fmt,r_frame_rate \
+            -show_entries format=duration \
+            -of json ../../out/remotion.mp4 > ../../out/remotion.ffprobe.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path('../../out/remotion.ffprobe.json').read_text())
+          v = d['streams'][0]
+          assert v['codec_name'] == 'h264', v
+          assert int(v['width']) == 1920 and int(v['height']) == 1080, v
+          assert v['r_frame_rate'] == '30/1', v
+          assert v['pix_fmt'] == 'yuv420p', v
+          duration = float(d['format']['duration'])
+          assert 5.8 <= duration <= 6.2, duration
+          print('remotion_duration_seconds =', duration)
+          print('M6-B REMOTION RENDER QC = PASS')
+          PY
+
+      - name: Seal Remotion source snapshot
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > out/source-sha.txt
+          echo 'M6-S SOURCE SNAPSHOT = PASS'
+
+      - name: Preserve Remotion evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: media-remotion-${{ github.sha }}
+          path: |
+            out/remotion.mp4
+            out/remotion.ffprobe.json
+            out/source-sha.txt
+            research_media/remotion/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  integrated-factory:
+    name: M7-M8 Integrated voice-visual factory + publication package
+    needs: [voice-asr, remotion-render]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download verified voice evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: media-voice-asr-${{ github.sha }}
+          path: in/voice
+
+      - name: Download verified Remotion render
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: media-remotion-${{ github.sha }}
+          path: in/remotion
+
+      - name: Verify same-snapshot upstream evidence
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(cat in/voice/out/source-sha.txt)" = "$GITHUB_SHA"
+          test "$(cat in/remotion/out/source-sha.txt)" = "$GITHUB_SHA"
+          cmp -s in/voice/out/source-sha.txt in/remotion/out/source-sha.txt
+          echo 'M7-S SAME-SNAPSHOT CI = PASS'
+
+      - name: Install exact FFmpeg foundation
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/ffmpeg
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+          echo "/tmp/ffmpeg/bin" >> "$GITHUB_PATH"
+
+      - name: Normalize verified narration with two-pass EBU R128
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          test -s in/voice/out/voice.wav
+          python3 research_media/normalize_narration.py in/voice/out/voice.wav out/narration-normalized.wav
+          test -s out/narration-normalized.wav
+          echo 'M7-N TWO-PASS EBU R128 WIRING = PASS'
+
+      - name: Mux normalized narration into Remotion visual
+        run: |
+          set -euo pipefail
+          test -s in/remotion/out/remotion.mp4
+          ffmpeg -hide_banner -loglevel error -y \
+            -i in/remotion/out/remotion.mp4 \
+            -i out/narration-normalized.wav \
+            -map 0:v:0 -map 1:a:0 -t 6 \
+            -c:v copy -c:a aac -b:a 128k -ar 48000 -ac 2 \
+            out/narrated.mp4
+          test -s out/narrated.mp4
+          echo 'M7-A REMOTION + NORMALIZED VERIFIED VOICE = PASS'
+
+      - name: Burn and mux narration captions
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/narrated.mp4 \
+            -vf "subtitles=research_media/voice_canary.srt:force_style='FontName=DejaVu Sans,FontSize=28,Outline=1,Shadow=0,Alignment=2,MarginV=52'" \
+            -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p -c:a copy \
+            out/captioned.mp4
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/captioned.mp4 -i research_media/voice_canary.srt \
+            -map 0:v:0 -map 0:a:0 -map 1:0 \
+            -c:v copy -c:a copy -c:s mov_text \
+            -metadata:s:s:0 language=eng -movflags +faststart \
+            out/final-factory.mp4
+          echo 'M7-B INTEGRATED CAPTIONS = PASS'
+
+      - name: Final integrated delivery QC
+        run: |
+          set -euo pipefail
+          python3 research_media/qc.py out/final-factory.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 1 -i out/final-factory.mp4 -frames:v 1 -q:v 2 out/factory-poster.jpg
+          test -s out/factory-poster.jpg
+          echo 'M7-C INTEGRATED FACTORY QC = PASS'
+
+      - name: Build fail-closed YouTube publication package
+        run: |
+          set -euo pipefail
+          python3 research_media/publication_package.py \
+            out/final-factory.mp4 \
+            research_media/voice_canary.srt \
+            out/factory-poster.jpg \
+            research_media/publication_metadata.json
+          test -s out/publication-package.json
+          grep -q 'HOLD_PENDING_UPLOAD' out/publication-package.json
+          echo 'M8-P PUBLICATION PACKAGE = PASS / REMOTE_READBACK = HOLD_PENDING_UPLOAD'
+
+      - name: Preserve integrated factory evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: media-factory-${{ github.sha }}
+          path: |
+            out/narration-normalized.wav
+            out/final-factory.mp4
+            out/final-factory.mp4.sha256
+            out/final-factory.mp4.ffprobe.json
+            out/factory-poster.jpg
+            out/publication-package.json
+            in/voice/out/asr.txt
+            in/voice/out/source-sha.txt
+            in/remotion/out/source-sha.txt
+            research_media/voice_canary.srt
+            research_media/publication_metadata.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

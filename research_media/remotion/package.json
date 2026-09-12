@@ -1,0 +1,14 @@
+{
+  "name": "proofpath-media-remotion-canary",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "render": "remotion render src/index.jsx Main ../../out/remotion-raw.mp4 --codec h264 --crf 23 && python3 ../normalize_remotion.py ../../out/remotion-raw.mp4 ../../out/remotion.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.506",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.506"
+  }
+}

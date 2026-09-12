@@ -1,0 +1,146 @@
+name: Research Media Verification
+
+on:
+  push:
+    branches:
+      - research-media-verifier
+    paths:
+      - "research_media/**"
+      - ".github/workflows/research-media.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  media-core:
+    name: Media manifest-render-edit-audio-caption-QC
+    runs-on: ubuntu-24.04
+    env:
+      FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-26-13-06/ffmpeg-N-126277-ga8c7afa7d7-linux64-gpl.tar.xz
+      FFMPEG_SHA256: 545857e8720ccc4b9570aef3a3540814f8d42c4bd26599df3084e9c5094f667d
+    steps:
+      - name: Checkout exact repository state
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: M0-0 Validate application-video manifest and caption timing
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 research_media/manifest.py \
+            research_media/canary_manifest.json \
+            out/generated.srt
+          diff -u research_media/canary.srt out/generated.srt
+          echo 'M0-0 MANIFEST -> STORYBOARD -> SRT = PASS'
+
+      - name: M0-A Install hash-verified FFmpeg foundation
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/ffmpeg
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+          echo "/tmp/ffmpeg/bin" >> "$GITHUB_PATH"
+          /tmp/ffmpeg/bin/ffmpeg -version | head -n 1
+          /tmp/ffmpeg/bin/ffprobe -version | head -n 1
+          /tmp/ffmpeg/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libx264'
+          /tmp/ffmpeg/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q ' AAC '
+          /tmp/ffmpeg/bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q ' subtitles '
+          echo 'M0-A MEDIA FOUNDATION = PASS'
+
+      - name: M1-B Render deterministic 1080p source
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=8" \
+            -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=8" \
+            -filter_complex "[1:a]volume=0.08,pan=stereo|c0=c0|c1=c0[a]" \
+            -map 0:v -map "[a]" \
+            -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p \
+            -c:a aac -b:a 128k -shortest \
+            out/source.mp4
+          test -s out/source.mp4
+          echo 'M1-B SOURCE RENDER = PASS'
+
+      - name: M1-C Perform real trim and concat edit
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/source.mp4 \
+            -filter_complex "[0:v]trim=start=0:end=3,setpts=PTS-STARTPTS[v0];[0:a]atrim=start=0:end=3,asetpts=PTS-STARTPTS[a0];[0:v]trim=start=5:end=8,setpts=PTS-STARTPTS[v1];[0:a]atrim=start=5:end=8,asetpts=PTS-STARTPTS[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]" \
+            -map "[v]" -map "[a]" \
+            -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p \
+            -c:a aac -b:a 128k \
+            out/cut.mp4
+          duration="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 out/cut.mp4)"
+          python3 - "$duration" <<'PY'
+          import sys
+          d = float(sys.argv[1])
+          assert 5.8 <= d <= 6.3, d
+          print(f"cut_duration_seconds = {d:.3f}")
+          PY
+          echo 'M1-C CUT/CONCAT = PASS'
+
+      - name: M2-D Normalize delivery audio
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/cut.mp4 \
+            -map 0:v:0 -map 0:a:0 \
+            -c:v copy \
+            -af "loudnorm=I=-16:TP=-1.5:LRA=11" \
+            -c:a aac -b:a 128k -ar 48000 -ac 2 \
+            out/normalized.mp4
+          test -s out/normalized.mp4
+          echo 'M2-D AUDIO NORMALIZATION = PASS'
+
+      - name: M3-E Burn generated captions into picture
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/normalized.mp4 \
+            -vf "subtitles=out/generated.srt:force_style='FontName=DejaVu Sans,FontSize=28,Outline=1,Shadow=0,Alignment=2,MarginV=52'" \
+            -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p \
+            -c:a copy \
+            out/captioned.mp4
+          test -s out/captioned.mp4
+          echo 'M3-E HARD CAPTIONS = PASS'
+
+      - name: M3-F Mux accessible soft subtitle track
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i out/captioned.mp4 \
+            -i out/generated.srt \
+            -map 0:v:0 -map 0:a:0 -map 1:0 \
+            -c:v copy -c:a copy -c:s mov_text \
+            -metadata:s:s:0 language=eng \
+            -movflags +faststart \
+            out/final.mp4
+          test -s out/final.mp4
+          echo 'M3-F SOFT SUBTITLE MUX = PASS'
+
+      - name: M4-G Final delivery technical QC
+        run: |
+          set -euo pipefail
+          python3 research_media/qc.py out/final.mp4
+          ffmpeg -hide_banner -loglevel error -y \
+            -ss 1 -i out/final.mp4 -frames:v 1 -q:v 2 out/poster.jpg
+          test -s out/poster.jpg
+          echo 'M4-G FINAL MEDIA PACKAGE = PASS'
+
+      - name: Preserve bounded verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: research-media-verification-${{ github.sha }}
+          path: |
+            out/final.mp4
+            out/final.mp4.sha256
+            out/final.mp4.ffprobe.json
+            out/poster.jpg
+            out/generated.srt
+            research_media/canary_manifest.json
+            research_media/canary.srt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

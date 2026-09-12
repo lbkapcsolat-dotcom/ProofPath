@@ -1,0 +1,32 @@
+{
+  "project_id": "proofpath-media-canary",
+  "title": "ProofPath Media Verification",
+  "target": "generic-grant-application",
+  "profile": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "max_duration_seconds": 180
+  },
+  "scenes": [
+    {
+      "id": "scene-01",
+      "caption_start": 0.4,
+      "caption_end": 2.6,
+      "caption": "ProofPath media verification"
+    },
+    {
+      "id": "scene-02",
+      "caption_start": 3.2,
+      "caption_end": 5.5,
+      "caption": "Render. Cut. Audio. Captions. QC."
+    }
+  ],
+  "deliverables": {
+    "mp4": true,
+    "srt": true,
+    "poster": true,
+    "sha256": true,
+    "ffprobe_json": true
+  }
+}
