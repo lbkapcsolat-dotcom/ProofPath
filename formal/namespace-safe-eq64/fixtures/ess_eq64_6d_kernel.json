@@ -1,0 +1,7 @@
+{
+  "namespace_id": "ESS_EQ64_6D_KERNEL",
+  "structural_class": "B6_Q6",
+  "axes": ["energy_load", "volatility", "coherence", "phase_stability", "transient_headroom", "lock_margin"],
+  "polarity": ["risk", "risk", "protect", "protect", "protect", "protect"],
+  "claim_ceiling": "CANONICAL_STRUCTURAL_EQ64_REFERENCE"
+}
