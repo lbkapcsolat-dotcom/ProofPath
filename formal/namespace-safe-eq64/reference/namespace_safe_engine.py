@@ -105,3 +105,90 @@ def check_structural_mapping(permutation: tuple[int, ...]) -> dict:
         "join_preserved": bool(join_ok),
         "hamming_preserved": bool(hamming_ok),
     }
+
+
+def _criterion_reason(key: str) -> str:
+    return {
+        "C4": "POLARITY_CONFLICT",
+        "C5": "ALIAS_CONFLICT",
+        "C9": "POST_HOC_SELECTION",
+    }.get(key, f"CRITERION_DENY_{key}")
+
+
+def _axis_mapping(axis_equivalences: list[dict]) -> tuple[int, ...] | None:
+    if len(axis_equivalences) != 6:
+        return None
+    pairs = {(item.get("source"), item.get("target")) for item in axis_equivalences}
+    if len(pairs) != 6:
+        return None
+    sources = {source for source, _ in pairs}
+    targets = {target for _, target in pairs}
+    if sources != set(range(6)) or targets != set(range(6)):
+        return None
+    by_source = dict(pairs)
+    return tuple(by_source[i] for i in range(6))
+
+
+def check_semantic_crosswalk(
+    source: dict,
+    target: dict,
+    evidence: dict,
+    permutation: tuple[int, ...],
+) -> dict:
+    _validate_permutation(permutation)
+    source_id = source.get("namespace_id")
+    target_id = target.get("namespace_id")
+
+    if source_id == "EQ64" or target_id == "EQ64":
+        return {
+            "status": Tri.DENY,
+            "reason_codes": ["DENY_POLICY_BARE_EQ64_FORBIDDEN"],
+        }
+    if source_id not in REGISTERED_NAMESPACES or target_id not in REGISTERED_NAMESPACES:
+        return {"status": Tri.HOLD, "reason_codes": ["UNREGISTERED_NAMESPACE"]}
+
+    criteria = evidence.get("criteria", {})
+    required = [f"C{i}" for i in range(1, 12)]
+    if set(criteria) != set(required):
+        return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
+    if any(criteria[key] not in {"PASS", "HOLD", "DENY"} for key in required):
+        return {"status": Tri.DENY, "reason_codes": ["INVALID_CRITERION_STATE"]}
+
+    denied = [key for key in required if criteria[key] == "DENY"]
+    if denied:
+        return {"status": Tri.DENY, "reason_codes": [_criterion_reason(denied[0])]}
+
+    derived_mapping = _axis_mapping(evidence.get("axis_equivalences", []))
+    if criteria["C7"] != "PASS" or derived_mapping is None:
+        return {"status": Tri.HOLD, "reason_codes": ["NO_AXIS_LEVEL_EVIDENCE"]}
+    if any(criteria[key] != "PASS" for key in required):
+        return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
+
+    exact = evidence.get("exact_mapping")
+    if exact is None:
+        return {"status": Tri.HOLD, "reason_codes": ["NO_PREDECLARED_EXACT_MAPPING"]}
+    exact_tuple = tuple(exact)
+    if derived_mapping != exact_tuple:
+        return {"status": Tri.DENY, "reason_codes": ["EVIDENCE_MAPPING_CONFLICT"]}
+    if exact_tuple != permutation:
+        return {"status": Tri.DENY, "reason_codes": ["DENY_EXACT_MAPPING_CONFLICT"]}
+    return {"status": Tri.PASS, "reason_codes": []}
+
+
+def classify_mapping(
+    source: dict,
+    target: dict,
+    evidence: dict,
+    permutation: tuple[int, ...],
+) -> dict:
+    structural = check_structural_mapping(permutation)
+    semantic = check_semantic_crosswalk(source, target, evidence, permutation)
+    structural_pass = all(structural.values())
+    return {
+        "structural_status": Tri.PASS if structural_pass else Tri.DENY,
+        "semantic_status": semantic["status"],
+        "claim_ceiling": (
+            "SEMANTIC_EXACT" if semantic["status"] is Tri.PASS else "STRUCTURAL_ONLY"
+        ),
+        "reason_codes": semantic["reason_codes"],
+    }
