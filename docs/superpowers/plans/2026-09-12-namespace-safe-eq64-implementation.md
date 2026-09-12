@@ -4,24 +4,22 @@
 
 **Goal:** Build and verify a fail-closed formal/reference subsystem that permits B6/Q6 structural reuse while preventing any semantic EQ64 crosswalk from becoming PASS without explicit C1-C11 evidence.
 
-**Architecture:** Keep the subsystem isolated under `formal/namespace-safe-eq64/`. Lean 4 proves the non-inference and structural obligations; a Python standard-library reference engine performs exhaustive 64-state and 720-permutation conformance checks, synthetic positive/negative controls, and content-addressed receipt generation. No runtime consumer is wired in this plan.
+**Architecture:** Keep the subsystem isolated under `formal/namespace-safe-eq64/`. Lean 4 proves structural preservation and semantic non-inference; a Python standard-library reference engine exhaustively checks all 64 states and all 720 coordinate permutations, runs a one-positive synthetic control, and emits a content-addressed receipt for the real AIPRBG→ESS negative canary. No runtime consumer is wired in this phase.
 
-**Tech Stack:** Lean 4.33.1, Lake, Python 3 standard library (`dataclasses`, `enum`, `hashlib`, `itertools`, `json`, `pathlib`, `unittest`), JSON fixtures/schemas, SHA256.
+**Tech Stack:** Lean 4.33.1, Lake, Python 3 standard library (`enum`, `hashlib`, `itertools`, `json`, `pathlib`, `unittest`), JSON fixtures/schemas, SHA256.
 
 **Spec:** `docs/superpowers/specs/2026-09-12-namespace-safe-eq64-design.md`
 
 ## Global Constraints
 
-- `FORMAL SPEC -> REFERENCE ENGINE -> 720 ADVERSARIAL CANARY -> POSITIVE CONTROL -> CONTENT-ADDRESSED RECEIPT` is the mandatory order.
+- Mandatory order: `FORMAL SPEC -> REFERENCE ENGINE -> 720 ADVERSARIAL CANARY -> POSITIVE CONTROL -> CONTENT-ADDRESSED RECEIPT`.
 - `RUNTIME_BIND = FALSE` throughout this plan.
-- No active runtime imports or consumer wiring.
-- No production dependency or engine auto-registration.
-- No pointer mutation/promotion.
-- No global authority bind or runtime admission.
+- No active runtime imports, consumer wiring, production dependency, or engine auto-registration.
+- No pointer mutation/promotion, global authority bind, or runtime admission.
 - No empirical or physical validation claim.
 - `STRUCTURAL REUSE MAY CROSS NAMESPACES. SEMANTIC MEANINGS MAY NOT CROSS NAMESPACES WITHOUT C1-C11 PROOF.`
 - Bare `EQ64` semantic references are policy DENY.
-- Missing evidence yields HOLD; explicit contradiction/policy conflict yields DENY; unknown is never coerced to PASS.
+- Criterion states are TRI-valued: PASS / HOLD / DENY. HOLD means insufficient evidence; DENY means explicit contradiction or policy conflict. Unknown is never coerced to PASS.
 - No weighted score may override a failed mandatory gate.
 - Maximum success claim: `PASS_REFERENCE_IMPLEMENTATION_CONFORMS_TO_NAMESPACE_SEPARATION_CONTRACT`.
 
@@ -29,40 +27,38 @@
 
 ## File Structure
 
-Create the following subsystem. Do not modify application/runtime files in this phase.
-
 ```text
 formal/namespace-safe-eq64/
-├── NamespaceSafeEQ64.lean              # typed model + theorem obligations
-├── NamespaceSafeEQ64Test.lean          # compile-time theorem checks and concrete countermodels
-├── lakefile.lean                       # isolated Lean package
-├── lean-toolchain                      # pin Lean 4.33.1
-├── README.md                           # exact build/test/readback commands and claim ceiling
+├── NamespaceSafeEQ64.lean
+├── NamespaceSafeEQ64Test.lean
+├── lakefile.lean
+├── lean-toolchain
+├── README.md
 ├── reference/
-│   ├── namespace_safe_engine.py        # typed TRI engine; structure + semantics
-│   ├── permutation_canary_720.py       # exhaustive real and synthetic permutation runner
-│   └── receipt.py                      # canonical JSON + SHA256 bundle/readback verification
+│   ├── namespace_safe_engine.py
+│   ├── permutation_canary_720.py
+│   └── receipt.py
 ├── fixtures/
-│   ├── ess_eq64_6d_kernel.json         # canonical ESS namespace fixture
-│   ├── x_aiprbg_6gate.json             # audit namespace fixture, no semantic crosswalk evidence
-│   ├── synthetic_exact_a.json          # synthetic source with complete exact mapping evidence
-│   └── synthetic_exact_b.json          # synthetic target with matching evidence
+│   ├── ess_eq64_6d_kernel.json
+│   ├── x_aiprbg_6gate.json
+│   ├── synthetic_exact_a.json
+│   └── synthetic_exact_b.json
 ├── schema/
-│   ├── namespace.schema.json           # declarative namespace contract
-│   ├── crosswalk_evidence.schema.json  # C1-C11 evidence contract
-│   └── canary_receipt.schema.json      # receipt field/type contract
+│   ├── namespace.schema.json
+│   ├── crosswalk_evidence.schema.json
+│   └── canary_receipt.schema.json
 └── tests/
-    ├── test_structure.py               # 64-state, encode/decode, meet/join, Hamming, polarity
-    ├── test_semantic_gate.py           # PASS/HOLD/DENY policy matrix
-    ├── test_720_canary.py              # 720/720 real negative canary
-    └── test_positive_control.py        # exactly 1 PASS, 719 DENY synthetic control
+    ├── test_structure.py
+    ├── test_semantic_gate.py
+    ├── test_720_canary.py
+    └── test_positive_control.py
 ```
 
-Generated receipts go to a caller-supplied output path (for example `/tmp/eq64_namespace_safe_canary_receipt.json`) and are not committed by this plan.
+Generated full canary results and receipts are caller-supplied output files under `/tmp` during verification and are not committed.
 
 ---
 
-### Task 1: Bootstrap the isolated Lean package and typed namespace model
+### Task 1: Bootstrap the isolated Lean package and typed namespace/evidence model
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/lean-toolchain`
@@ -71,18 +67,17 @@ Generated receipts go to a caller-supplied output path (for example `/tmp/eq64_n
 - Create: `formal/namespace-safe-eq64/NamespaceSafeEQ64Test.lean`
 
 **Interfaces:**
-- Consumes: no implementation files; only the approved spec.
-- Produces: `NamespaceId`, `Polarity`, `StructuralClass`, `AxisSchema`, `SemanticEvidence`, `CrosswalkCandidate`, `Tri`, `ExactSemanticAuthorized`, and `SemanticRequestAllowed` for later theorem tasks.
+- Produces: `NamespaceId`, `Polarity`, `StructuralClass`, `Tri`, `State6`, `AxisSchema`, `PolaritySchema`, `NamespaceSpec`, `SemanticEvidence`, `CrosswalkCandidate`, `SemanticRequestAllowed`, `ExactSemanticAuthorized`.
 
-- [ ] **Step 1: Write the package pin and Lake manifest**
+- [ ] **Step 1: Pin the same Lean toolchain family already used by the repository**
 
-`formal/namespace-safe-eq64/lean-toolchain`:
+`lean-toolchain`:
 
 ```text
 leanprover/lean4:v4.33.1
 ```
 
-`formal/namespace-safe-eq64/lakefile.lean`:
+`lakefile.lean`:
 
 ```lean
 import Lake
@@ -94,7 +89,7 @@ package namespaceSafeEq64 where
 lean_lib NamespaceSafeEQ64
 ```
 
-- [ ] **Step 2: Write the initial failing Lean test**
+- [ ] **Step 2: Write the initial failing theorem/type checks**
 
 Create `NamespaceSafeEQ64Test.lean`:
 
@@ -105,26 +100,25 @@ open NamespaceSafeEQ64
 #check NamespaceId
 #check Polarity
 #check StructuralClass
+#check Tri
+#check State6
 #check AxisSchema
 #check SemanticEvidence
 #check CrosswalkCandidate
-#check Tri
 #check ExactSemanticAuthorized
 #check SemanticRequestAllowed
 ```
 
-- [ ] **Step 3: Run the test and verify it fails before definitions exist**
-
-Run:
+- [ ] **Step 3: Run the test and confirm RED**
 
 ```bash
 cd formal/namespace-safe-eq64
 lake env lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: FAIL with unknown identifier errors for the checked names.
+Expected: FAIL with unknown identifiers because `NamespaceSafeEQ64.lean` is not implemented.
 
-- [ ] **Step 4: Implement the minimal typed model**
+- [ ] **Step 4: Add the minimal typed model**
 
 Create `NamespaceSafeEQ64.lean`:
 
@@ -172,23 +166,23 @@ structure NamespaceSpec where
   claimCeiling : String
 
 structure SemanticEvidence where
-  c1SourceIdentity : Bool
-  c2StructuralClass : Bool
-  c3AxisCompleteness : Bool
-  c4Polarity : Bool
-  c5ConflictFree : Bool
-  c6BijectionCandidate : Bool
-  c7AxisEvidence : Bool
-  c8OrderSemantics : Bool
-  c9NoPostHocSelection : Bool
-  c10GovernanceScope : Bool
-  c11ClaimCeiling : Bool
+  c1SourceIdentity : Tri
+  c2StructuralClass : Tri
+  c3AxisCompleteness : Tri
+  c4Polarity : Tri
+  c5ConflictFree : Tri
+  c6BijectionCandidate : Tri
+  c7AxisEvidence : Tri
+  c8OrderSemantics : Tri
+  c9NoPostHocSelection : Tri
+  c10GovernanceScope : Tri
+  c11ClaimCeiling : Tri
   deriving Repr
 
 structure CrosswalkCandidate where
   source : NamespaceId
   target : NamespaceId
-  permutation : Fin 6 → Fin 6
+  permutation : Equiv.Perm (Fin 6)
   evidence : SemanticEvidence
 
 
@@ -198,31 +192,28 @@ def SemanticRequestAllowed (c : CrosswalkCandidate) : Prop :=
 
 def ExactSemanticAuthorized (c : CrosswalkCandidate) : Prop :=
   SemanticRequestAllowed c ∧
-  c.evidence.c1SourceIdentity = true ∧
-  c.evidence.c2StructuralClass = true ∧
-  c.evidence.c3AxisCompleteness = true ∧
-  c.evidence.c4Polarity = true ∧
-  c.evidence.c5ConflictFree = true ∧
-  c.evidence.c6BijectionCandidate = true ∧
-  c.evidence.c7AxisEvidence = true ∧
-  c.evidence.c8OrderSemantics = true ∧
-  c.evidence.c9NoPostHocSelection = true ∧
-  c.evidence.c10GovernanceScope = true ∧
-  c.evidence.c11ClaimCeiling = true
+  c.evidence.c1SourceIdentity = .pass ∧
+  c.evidence.c2StructuralClass = .pass ∧
+  c.evidence.c3AxisCompleteness = .pass ∧
+  c.evidence.c4Polarity = .pass ∧
+  c.evidence.c5ConflictFree = .pass ∧
+  c.evidence.c6BijectionCandidate = .pass ∧
+  c.evidence.c7AxisEvidence = .pass ∧
+  c.evidence.c8OrderSemantics = .pass ∧
+  c.evidence.c9NoPostHocSelection = .pass ∧
+  c.evidence.c10GovernanceScope = .pass ∧
+  c.evidence.c11ClaimCeiling = .pass
 
 end NamespaceSafeEQ64
 ```
 
-- [ ] **Step 5: Run Lean test and verify the typed model passes**
-
-Run:
+- [ ] **Step 5: Run the type checks and confirm GREEN**
 
 ```bash
-cd formal/namespace-safe-eq64
 lake env lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: PASS, exit code 0.
+Expected: exit 0.
 
 - [ ] **Step 6: Commit**
 
@@ -233,15 +224,14 @@ git commit -m "feat: add namespace-safe EQ64 formal types"
 
 ---
 
-### Task 2: Prove B6 structural preservation under coordinate permutations
+### Task 2: Prove B6/Q6 structural preservation under coordinate permutations
 
 **Files:**
 - Modify: `formal/namespace-safe-eq64/NamespaceSafeEQ64.lean`
 - Modify: `formal/namespace-safe-eq64/NamespaceSafeEQ64Test.lean`
 
 **Interfaces:**
-- Consumes: `State6` from Task 1.
-- Produces: `bMeet`, `bJoin`, `applyPerm`, `HammingOne`, `coordinate_permutation_preserves_B6_structure`, and `coordinate_permutation_preserves_Q6_hamming`.
+- Produces: `bMeet`, `bJoin`, `applyPerm`, `HammingOne`, `coordinate_permutation_preserves_B6_structure`, `coordinate_permutation_preserves_Q6_hamming`.
 
 - [ ] **Step 1: Add failing theorem checks**
 
@@ -256,19 +246,17 @@ Append to `NamespaceSafeEQ64Test.lean`:
 #check coordinate_permutation_preserves_Q6_hamming
 ```
 
-- [ ] **Step 2: Run and verify failure**
-
-Run:
+- [ ] **Step 2: Run and confirm RED**
 
 ```bash
 lake env lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: FAIL because the new structural names are undefined.
+Expected: FAIL on the new names.
 
-- [ ] **Step 3: Add B6 operations and permutation map**
+- [ ] **Step 3: Add B6 operations and the coordinate permutation action**
 
-Append inside `namespace NamespaceSafeEQ64` before its final `end`:
+Insert before `end NamespaceSafeEQ64`:
 
 ```lean
 def bMeet (a b : State6) : State6 := fun i => a i && b i
@@ -278,12 +266,12 @@ def bJoin (a b : State6) : State6 := fun i => a i || b i
 def applyPerm (p : Equiv.Perm (Fin 6)) (s : State6) : State6 :=
   fun i => s (p.symm i)
 
-/-- Hamming-distance-one adjacency without importing a heavier algebra library. -/
+/-- Q6 adjacency expressed as Hamming distance exactly one. -/
 def HammingOne (a b : State6) : Prop :=
   ∃ j : Fin 6, a j ≠ b j ∧ ∀ i : Fin 6, i ≠ j → a i = b i
 ```
 
-- [ ] **Step 4: Add the B6 preservation theorem**
+- [ ] **Step 4: Prove meet/join preservation**
 
 ```lean
 theorem coordinate_permutation_preserves_B6_structure
@@ -293,7 +281,7 @@ theorem coordinate_permutation_preserves_B6_structure
   constructor <;> funext i <;> rfl
 ```
 
-- [ ] **Step 5: Add the Q6 Hamming-one preservation theorem**
+- [ ] **Step 5: Prove Hamming-one/Q6 adjacency preservation**
 
 ```lean
 theorem coordinate_permutation_preserves_Q6_hamming
@@ -302,29 +290,26 @@ theorem coordinate_permutation_preserves_Q6_hamming
     HammingOne (applyPerm p a) (applyPerm p b) := by
   rcases h with ⟨j, hjdiff, hjrest⟩
   refine ⟨p j, ?_, ?_⟩
-  · simpa [applyPerm] using hjdiff
-  · intro i hi
-    have hpre : p.symm i ≠ j := by
-      intro hEq
-      apply hi
-      exact p.injective (by simpa using congrArg p hEq)
-    exact hjrest (p.symm i) hpre
-```
-
-If Lean rejects the `simpa` bridge because of simplifier normalization, use the equivalent explicit equalities below, not a new axiom:
-
-```lean
   · change a (p.symm (p j)) ≠ b (p.symm (p j))
     simpa using hjdiff
+  · intro i hi
+    change a (p.symm i) = b (p.symm i)
+    apply hjrest
+    intro hEq
+    apply hi
+    calc
+      i = p (p.symm i) := (p.apply_symm_apply i).symm
+      _ = p j := congrArg p hEq
 ```
 
-- [ ] **Step 6: Run Lean and verify both theorem checks pass**
+- [ ] **Step 6: Run Lean and scan for proof escapes**
 
 ```bash
 lake env lean NamespaceSafeEQ64Test.lean
+! grep -R "\bsorry\b\|\badmit\b\|\baxiom\b" -n NamespaceSafeEQ64.lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: PASS, exit code 0, no `sorry` warnings.
+Expected: both commands exit 0; no proof escape appears.
 
 - [ ] **Step 7: Commit**
 
@@ -342,121 +327,123 @@ git commit -m "feat: prove B6 Q6 permutation preservation"
 - Modify: `formal/namespace-safe-eq64/NamespaceSafeEQ64Test.lean`
 
 **Interfaces:**
-- Consumes: `CrosswalkCandidate`, `ExactSemanticAuthorized`.
-- Produces: `no_semantic_authorization_from_structure_alone`, `missing_axis_evidence_blocks_exact_crosswalk`, `polarity_conflict_blocks_exact_crosswalk`, `namespace_identity_required`.
+- Produces: `missing_axis_evidence_blocks_exact_crosswalk`, `polarity_conflict_blocks_exact_crosswalk`, `namespace_identity_required`, `no_semantic_authorization_from_structure_alone`.
 
 - [ ] **Step 1: Add failing theorem checks**
 
-Append:
-
 ```lean
-#check no_semantic_authorization_from_structure_alone
 #check missing_axis_evidence_blocks_exact_crosswalk
 #check polarity_conflict_blocks_exact_crosswalk
 #check namespace_identity_required
+#check no_semantic_authorization_from_structure_alone
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [ ] **Step 2: Run and confirm RED**
 
 ```bash
 lake env lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: FAIL with unknown theorem identifiers.
+Expected: FAIL on unknown theorem identifiers.
 
-- [ ] **Step 3: Prove missing axis evidence blocks exact authorization**
+- [ ] **Step 3: Add the semantic safety theorems**
 
-Add:
+Insert before `end NamespaceSafeEQ64`:
 
 ```lean
 theorem missing_axis_evidence_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
-    (hMissing : c.evidence.c7AxisEvidence = false) :
+    (hMissing : c.evidence.c7AxisEvidence = .hold) :
     ¬ ExactSemanticAuthorized c := by
-  intro h
-  rcases h with ⟨_, _, _, _, _, _, _, hAxis, _, _, _, _⟩
-  simp [hMissing] at hAxis
-```
+  simp [ExactSemanticAuthorized, hMissing]
 
-- [ ] **Step 4: Prove polarity conflict blocks exact authorization**
 
-```lean
 theorem polarity_conflict_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
-    (hConflict : c.evidence.c4Polarity = false) :
+    (hConflict : c.evidence.c4Polarity = .deny) :
     ¬ ExactSemanticAuthorized c := by
-  intro h
-  rcases h with ⟨_, _, _, _, hPolarity, _, _, _, _, _, _, _⟩
-  simp [hConflict] at hPolarity
-```
+  simp [ExactSemanticAuthorized, hConflict]
 
-- [ ] **Step 5: Prove namespace identity is mandatory**
 
-```lean
 theorem namespace_identity_required
     (c : CrosswalkCandidate)
     (h : ExactSemanticAuthorized c) :
     c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64 :=
   h.1
-```
 
-- [ ] **Step 6: Prove structure alone cannot mint semantic authority**
 
-```lean
 theorem no_semantic_authorization_from_structure_alone
     (c : CrosswalkCandidate)
     (structuralIso : Prop)
-    (hStructural : structuralIso)
-    (hNoAxisEvidence : c.evidence.c7AxisEvidence = false) :
-    ¬ ExactSemanticAuthorized c := by
-  exact missing_axis_evidence_blocks_exact_crosswalk c hNoAxisEvidence
+    (_hStructural : structuralIso)
+    (hNoAxisEvidence : c.evidence.c7AxisEvidence = .hold) :
+    ¬ ExactSemanticAuthorized c :=
+  missing_axis_evidence_blocks_exact_crosswalk c hNoAxisEvidence
 ```
 
-The intentionally unused `hStructural` documents the theorem's boundary: structural truth does not discharge the missing semantic-evidence obligation. Do not replace this with an axiom or `sorry`.
-
-- [ ] **Step 7: Add a concrete bare-EQ64 countermodel**
+- [ ] **Step 4: Add concrete HOLD, DENY, and bare-name countermodels**
 
 Append to `NamespaceSafeEQ64Test.lean`:
 
 ```lean
-def allTrueEvidence : SemanticEvidence := {
-  c1SourceIdentity := true,
-  c2StructuralClass := true,
-  c3AxisCompleteness := true,
-  c4Polarity := true,
-  c5ConflictFree := true,
-  c6BijectionCandidate := true,
-  c7AxisEvidence := true,
-  c8OrderSemantics := true,
-  c9NoPostHocSelection := true,
-  c10GovernanceScope := true,
-  c11ClaimCeiling := true
+def evidencePass : SemanticEvidence := {
+  c1SourceIdentity := .pass, c2StructuralClass := .pass,
+  c3AxisCompleteness := .pass, c4Polarity := .pass,
+  c5ConflictFree := .pass, c6BijectionCandidate := .pass,
+  c7AxisEvidence := .pass, c8OrderSemantics := .pass,
+  c9NoPostHocSelection := .pass, c10GovernanceScope := .pass,
+  c11ClaimCeiling := .pass
 }
 
-def identityFin6 : Fin 6 → Fin 6 := fun i => i
+def evidenceMissingAxis : SemanticEvidence :=
+  { evidencePass with c7AxisEvidence := .hold }
+
+def evidencePolarityConflict : SemanticEvidence :=
+  { evidencePass with c4Polarity := .deny }
 
 def bareCandidate : CrosswalkCandidate := {
   source := .bareEq64,
   target := .essEq64Kernel,
-  permutation := identityFin6,
-  evidence := allTrueEvidence
+  permutation := Equiv.refl (Fin 6),
+  evidence := evidencePass
+}
+
+def missingAxisCandidate : CrosswalkCandidate := {
+  source := .aipRbgDiagnostic,
+  target := .essEq64Kernel,
+  permutation := Equiv.refl (Fin 6),
+  evidence := evidenceMissingAxis
+}
+
+def polarityConflictCandidate : CrosswalkCandidate := {
+  source := .aipRbgDiagnostic,
+  target := .essEq64Kernel,
+  permutation := Equiv.refl (Fin 6),
+  evidence := evidencePolarityConflict
 }
 
 example : ¬ ExactSemanticAuthorized bareCandidate := by
   intro h
   exact h.1.1 rfl
+
+example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
+  missing_axis_evidence_blocks_exact_crosswalk missingAxisCandidate rfl
+
+example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
+  polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
 ```
 
-- [ ] **Step 8: Run Lean with an explicit `sorry` scan**
+- [ ] **Step 5: Run the complete Lean gate**
 
 ```bash
+lake build
 lake env lean NamespaceSafeEQ64Test.lean
 ! grep -R "\bsorry\b\|\badmit\b\|\baxiom\b" -n NamespaceSafeEQ64.lean NamespaceSafeEQ64Test.lean
 ```
 
-Expected: both commands exit 0; scan prints no matches.
+Expected: all exit 0.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add formal/namespace-safe-eq64/NamespaceSafeEQ64*.lean
@@ -465,7 +452,7 @@ git commit -m "feat: prove namespace semantic non-inference"
 
 ---
 
-### Task 4: Add canonical fixtures, schemas, and the structural reference engine
+### Task 4: Add canonical fixtures, TRI schemas, and the structural reference engine
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/fixtures/ess_eq64_6d_kernel.json`
@@ -476,9 +463,9 @@ git commit -m "feat: prove namespace semantic non-inference"
 - Create: `formal/namespace-safe-eq64/tests/test_structure.py`
 
 **Interfaces:**
-- Produces Python API: `Tri`, `load_namespace`, `validate_namespace`, `all_states`, `encode_state`, `decode_state`, `normalize_polarity`, `apply_permutation`, `meet`, `join`, `hamming_distance`, `check_structural_mapping`.
+- Produces: `Tri`, `load_namespace`, `validate_namespace`, `all_states`, `encode_state`, `decode_state`, `normalize_polarity`, `apply_permutation`, `meet`, `join`, `hamming_distance`, `check_structural_mapping`.
 
-- [ ] **Step 1: Write the real namespace fixtures**
+- [ ] **Step 1: Create the canonical real fixtures**
 
 `fixtures/ess_eq64_6d_kernel.json`:
 
@@ -504,7 +491,7 @@ git commit -m "feat: prove namespace semantic non-inference"
 }
 ```
 
-- [ ] **Step 2: Write strict declarative schemas**
+- [ ] **Step 2: Create strict namespace and evidence schemas**
 
 `schema/namespace.schema.json`:
 
@@ -538,10 +525,12 @@ git commit -m "feat: prove namespace semantic non-inference"
       "additionalProperties": false,
       "required": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11"],
       "properties": {
-        "C1": {"type": "boolean"}, "C2": {"type": "boolean"}, "C3": {"type": "boolean"},
-        "C4": {"type": "boolean"}, "C5": {"type": "boolean"}, "C6": {"type": "boolean"},
-        "C7": {"type": "boolean"}, "C8": {"type": "boolean"}, "C9": {"type": "boolean"},
-        "C10": {"type": "boolean"}, "C11": {"type": "boolean"}
+        "C1": {"enum": ["PASS", "HOLD", "DENY"]}, "C2": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C3": {"enum": ["PASS", "HOLD", "DENY"]}, "C4": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C5": {"enum": ["PASS", "HOLD", "DENY"]}, "C6": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C7": {"enum": ["PASS", "HOLD", "DENY"]}, "C8": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C9": {"enum": ["PASS", "HOLD", "DENY"]}, "C10": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C11": {"enum": ["PASS", "HOLD", "DENY"]}
       }
     },
     "axis_equivalences": {"type": "array", "minItems": 0, "maxItems": 6},
@@ -555,19 +544,15 @@ git commit -m "feat: prove namespace semantic non-inference"
 Create `tests/test_structure.py`:
 
 ```python
-import itertools
-import json
 import pathlib
 import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference"))
-
 from namespace_safe_engine import (
-    all_states, apply_permutation, check_structural_mapping, decode_state,
-    encode_state, hamming_distance, join, load_namespace, meet,
-    normalize_polarity, validate_namespace,
+    all_states, check_structural_mapping, decode_state, encode_state,
+    hamming_distance, load_namespace, normalize_polarity, validate_namespace,
 )
 
 class StructureTests(unittest.TestCase):
@@ -588,18 +573,13 @@ class StructureTests(unittest.TestCase):
 
     def test_normalization_is_involution_for_ess(self):
         for state in all_states():
-            self.assertEqual(
-                normalize_polarity(self.ess, normalize_polarity(self.ess, state)),
-                state,
-            )
+            self.assertEqual(normalize_polarity(self.ess, normalize_polarity(self.ess, state)), state)
 
     def test_identity_structural_mapping(self):
         result = check_structural_mapping(tuple(range(6)))
-        self.assertTrue(result["meet_preserved"])
-        self.assertTrue(result["join_preserved"])
-        self.assertTrue(result["hamming_preserved"])
+        self.assertEqual(result, {"meet_preserved": True, "join_preserved": True, "hamming_preserved": True})
 
-    def test_hamming_one_examples(self):
+    def test_hamming_examples(self):
         self.assertEqual(hamming_distance((0,0,0,0,0,0), (1,0,0,0,0,0)), 1)
         self.assertEqual(hamming_distance((0,0,0,0,0,0), (1,1,0,0,0,0)), 2)
 
@@ -607,14 +587,14 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 4: Run tests and verify failure**
+- [ ] **Step 4: Run the structural tests and confirm RED**
 
 ```bash
 cd formal/namespace-safe-eq64
-python -m unittest tests.test_structure -v
+python -m unittest discover -s tests -p 'test_structure.py' -v
 ```
 
-Expected: FAIL because `namespace_safe_engine` does not exist.
+Expected: FAIL because `namespace_safe_engine.py` does not exist.
 
 - [ ] **Step 5: Implement the minimal structural engine**
 
@@ -675,7 +655,7 @@ def decode_state(value: int) -> tuple[int, ...]:
 
 def normalize_polarity(ns: dict, state: tuple[int, ...]) -> tuple[int, ...]:
     validate_namespace(ns)
-    if len(state) != 6:
+    if len(state) != 6 or any(bit not in (0, 1) for bit in state):
         raise ValueError("STATE_NOT_B6")
     return tuple((1 - bit) if polarity == "risk" else bit for bit, polarity in zip(state, ns["polarity"]))
 
@@ -705,9 +685,7 @@ def hamming_distance(a: tuple[int, ...], b: tuple[int, ...]) -> int:
 def check_structural_mapping(permutation: tuple[int, ...]) -> dict:
     _validate_permutation(permutation)
     states = all_states()
-    meet_ok = True
-    join_ok = True
-    hamming_ok = True
+    meet_ok = join_ok = hamming_ok = True
     for a in states:
         pa = apply_permutation(a, permutation)
         for b in states:
@@ -715,20 +693,16 @@ def check_structural_mapping(permutation: tuple[int, ...]) -> dict:
             meet_ok &= apply_permutation(meet(a, b), permutation) == meet(pa, pb)
             join_ok &= apply_permutation(join(a, b), permutation) == join(pa, pb)
             hamming_ok &= hamming_distance(a, b) == hamming_distance(pa, pb)
-    return {
-        "meet_preserved": bool(meet_ok),
-        "join_preserved": bool(join_ok),
-        "hamming_preserved": bool(hamming_ok),
-    }
+    return {"meet_preserved": bool(meet_ok), "join_preserved": bool(join_ok), "hamming_preserved": bool(hamming_ok)}
 ```
 
-- [ ] **Step 6: Run structural tests and verify PASS**
+- [ ] **Step 6: Run structural tests and confirm GREEN**
 
 ```bash
-python -m unittest tests.test_structure -v
+python -m unittest discover -s tests -p 'test_structure.py' -v
 ```
 
-Expected: all tests PASS.
+Expected: all PASS.
 
 - [ ] **Step 7: Commit**
 
@@ -746,7 +720,7 @@ git commit -m "feat: add namespace structural reference engine"
 - Create: `formal/namespace-safe-eq64/tests/test_semantic_gate.py`
 
 **Interfaces:**
-- Produces: `check_semantic_crosswalk(source, target, evidence, permutation)` and `classify_mapping(...)`.
+- Produces: `check_semantic_crosswalk(source, target, evidence, permutation)` and `classify_mapping(source, target, evidence, permutation)`.
 
 - [ ] **Step 1: Write failing semantic policy tests**
 
@@ -761,48 +735,56 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference"))
 from namespace_safe_engine import Tri, check_semantic_crosswalk, load_namespace
 
-ALL_TRUE = {f"C{i}": True for i in range(1, 12)}
 IDENTITY = tuple(range(6))
+PASS11 = {f"C{i}": "PASS" for i in range(1, 12)}
+HOLD11 = {f"C{i}": "HOLD" for i in range(1, 12)}
+FULL_EQ = [{"source": i, "target": i, "evidence_id": f"E-{i}"} for i in range(6)]
 
 class SemanticGateTests(unittest.TestCase):
     def setUp(self):
         self.ess = load_namespace(ROOT / "fixtures" / "ess_eq64_6d_kernel.json")
         self.aip = load_namespace(ROOT / "fixtures" / "x_aiprbg_6gate.json")
 
-    def test_real_namespaces_without_axis_evidence_hold(self):
-        evidence = {"criteria": {f"C{i}": False for i in range(1, 12)}, "axis_equivalences": [], "exact_mapping": None}
+    def test_real_namespaces_without_semantic_evidence_hold(self):
+        evidence = {"criteria": dict(HOLD11), "axis_equivalences": [], "exact_mapping": None}
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.HOLD)
         self.assertIn("NO_AXIS_LEVEL_EVIDENCE", result["reason_codes"])
 
     def test_five_of_six_axis_evidence_holds(self):
-        evidence = {"criteria": dict(ALL_TRUE), "axis_equivalences": [{"source": i, "target": i} for i in range(5)], "exact_mapping": list(IDENTITY)}
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": FULL_EQ[:5], "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.HOLD)
 
     def test_polarity_conflict_denies(self):
-        criteria = dict(ALL_TRUE); criteria["C4"] = False
-        evidence = {"criteria": criteria, "axis_equivalences": [{"source": i, "target": i} for i in range(6)], "exact_mapping": list(IDENTITY)}
+        criteria = dict(PASS11); criteria["C4"] = "DENY"
+        evidence = {"criteria": criteria, "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.DENY)
         self.assertIn("POLARITY_CONFLICT", result["reason_codes"])
 
+    def test_alias_conflict_denies(self):
+        criteria = dict(PASS11); criteria["C5"] = "DENY"
+        evidence = {"criteria": criteria, "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
+        result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
+        self.assertEqual(result["status"], Tri.DENY)
+
     def test_post_hoc_selection_denies(self):
-        criteria = dict(ALL_TRUE); criteria["C9"] = False
-        evidence = {"criteria": criteria, "axis_equivalences": [{"source": i, "target": i} for i in range(6)], "exact_mapping": list(IDENTITY)}
+        criteria = dict(PASS11); criteria["C9"] = "DENY"
+        evidence = {"criteria": criteria, "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.DENY)
 
     def test_bare_eq64_denies_by_policy(self):
         bare = dict(self.aip); bare["namespace_id"] = "EQ64"
-        evidence = {"criteria": dict(ALL_TRUE), "axis_equivalences": [{"source": i, "target": i} for i in range(6)], "exact_mapping": list(IDENTITY)}
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(bare, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.DENY)
         self.assertIn("DENY_POLICY_BARE_EQ64_FORBIDDEN", result["reason_codes"])
 
     def test_unknown_namespace_holds(self):
         unknown = dict(self.aip); unknown["namespace_id"] = "UNKNOWN_NAMESPACE"
-        evidence = {"criteria": dict(ALL_TRUE), "axis_equivalences": [{"source": i, "target": i} for i in range(6)], "exact_mapping": list(IDENTITY)}
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(unknown, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.HOLD)
         self.assertIn("UNREGISTERED_NAMESPACE", result["reason_codes"])
@@ -811,19 +793,41 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [ ] **Step 2: Run and confirm RED**
 
 ```bash
-python -m unittest tests.test_semantic_gate -v
+python -m unittest discover -s tests -p 'test_semantic_gate.py' -v
 ```
 
 Expected: FAIL because `check_semantic_crosswalk` is undefined.
 
-- [ ] **Step 3: Implement exact HOLD/DENY/PASS policy**
+- [ ] **Step 3: Implement exact TRI semantics**
 
 Append to `reference/namespace_safe_engine.py`:
 
 ```python
+def _criterion_reason(key: str) -> str:
+    return {
+        "C4": "POLARITY_CONFLICT",
+        "C5": "ALIAS_CONFLICT",
+        "C9": "POST_HOC_SELECTION",
+    }.get(key, f"CRITERION_DENY_{key}")
+
+
+def _axis_mapping(axis_equivalences: list[dict]) -> tuple[int, ...] | None:
+    if len(axis_equivalences) != 6:
+        return None
+    pairs = {(item.get("source"), item.get("target")) for item in axis_equivalences}
+    if len(pairs) != 6:
+        return None
+    sources = {s for s, _ in pairs}
+    targets = {t for _, t in pairs}
+    if sources != set(range(6)) or targets != set(range(6)):
+        return None
+    by_source = dict(pairs)
+    return tuple(by_source[i] for i in range(6))
+
+
 def check_semantic_crosswalk(source: dict, target: dict, evidence: dict, permutation: tuple[int, ...]) -> dict:
     _validate_permutation(permutation)
     source_id = source.get("namespace_id")
@@ -831,32 +835,34 @@ def check_semantic_crosswalk(source: dict, target: dict, evidence: dict, permuta
 
     if source_id == "EQ64" or target_id == "EQ64":
         return {"status": Tri.DENY, "reason_codes": ["DENY_POLICY_BARE_EQ64_FORBIDDEN"]}
-
     if source_id not in REGISTERED_NAMESPACES or target_id not in REGISTERED_NAMESPACES:
         return {"status": Tri.HOLD, "reason_codes": ["UNREGISTERED_NAMESPACE"]}
 
     criteria = evidence.get("criteria", {})
-    if criteria.get("C4") is False:
-        return {"status": Tri.DENY, "reason_codes": ["POLARITY_CONFLICT"]}
-    if criteria.get("C5") is False:
-        return {"status": Tri.DENY, "reason_codes": ["ALIAS_CONFLICT"]}
-    if criteria.get("C9") is False:
-        return {"status": Tri.DENY, "reason_codes": ["POST_HOC_SELECTION"]}
-
-    axis_eq = evidence.get("axis_equivalences", [])
-    if criteria.get("C7") is not True or len(axis_eq) < 6:
-        return {"status": Tri.HOLD, "reason_codes": ["NO_AXIS_LEVEL_EVIDENCE"]}
-
     required = [f"C{i}" for i in range(1, 12)]
-    if any(criteria.get(key) is not True for key in required):
+    if set(criteria) != set(required):
+        return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
+    invalid_values = [key for key in required if criteria[key] not in {"PASS", "HOLD", "DENY"}]
+    if invalid_values:
+        return {"status": Tri.DENY, "reason_codes": ["INVALID_CRITERION_STATE"]}
+    denied = [key for key in required if criteria[key] == "DENY"]
+    if denied:
+        return {"status": Tri.DENY, "reason_codes": [_criterion_reason(denied[0])]}
+
+    derived_mapping = _axis_mapping(evidence.get("axis_equivalences", []))
+    if criteria["C7"] != "PASS" or derived_mapping is None:
+        return {"status": Tri.HOLD, "reason_codes": ["NO_AXIS_LEVEL_EVIDENCE"]}
+    if any(criteria[key] != "PASS" for key in required):
         return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
 
     exact = evidence.get("exact_mapping")
     if exact is None:
         return {"status": Tri.HOLD, "reason_codes": ["NO_PREDECLARED_EXACT_MAPPING"]}
-    if tuple(exact) != permutation:
+    exact_tuple = tuple(exact)
+    if derived_mapping != exact_tuple:
+        return {"status": Tri.DENY, "reason_codes": ["EVIDENCE_MAPPING_CONFLICT"]}
+    if exact_tuple != permutation:
         return {"status": Tri.DENY, "reason_codes": ["DENY_EXACT_MAPPING_CONFLICT"]}
-
     return {"status": Tri.PASS, "reason_codes": []}
 
 
@@ -872,21 +878,21 @@ def classify_mapping(source: dict, target: dict, evidence: dict, permutation: tu
     }
 ```
 
-- [ ] **Step 4: Run semantic matrix tests**
+- [ ] **Step 4: Run semantic tests and confirm GREEN**
 
 ```bash
-python -m unittest tests.test_semantic_gate -v
+python -m unittest discover -s tests -p 'test_semantic_gate.py' -v
 ```
 
-Expected: all tests PASS.
+Expected: all PASS.
 
-- [ ] **Step 5: Run all Python tests so far**
+- [ ] **Step 5: Run the whole Python suite so far**
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Expected: all tests PASS.
+Expected: all PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -897,16 +903,16 @@ git commit -m "feat: add fail-closed semantic crosswalk gate"
 
 ---
 
-### Task 6: Implement and verify the exhaustive 720-permutation negative canary
+### Task 6: Implement the exhaustive 720-permutation real negative canary
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/reference/permutation_canary_720.py`
 - Create: `formal/namespace-safe-eq64/tests/test_720_canary.py`
 
 **Interfaces:**
-- Produces: `run_canary(source, target, evidence) -> dict` with exact summary counts and per-permutation results.
+- Produces: `run_canary(source, target, evidence) -> dict` with exact summary counts and all 720 result rows.
 
-- [ ] **Step 1: Write the failing 720 canary test**
+- [ ] **Step 1: Write the failing canary test**
 
 Create `tests/test_720_canary.py`:
 
@@ -920,32 +926,35 @@ sys.path.insert(0, str(ROOT / "reference"))
 from namespace_safe_engine import load_namespace
 from permutation_canary_720 import run_canary
 
+HOLD11 = {f"C{i}": "HOLD" for i in range(1, 12)}
+
 class Canary720Tests(unittest.TestCase):
     def test_real_namespaces_have_zero_semantic_leakage(self):
         source = load_namespace(ROOT / "fixtures" / "x_aiprbg_6gate.json")
         target = load_namespace(ROOT / "fixtures" / "ess_eq64_6d_kernel.json")
-        evidence = {"criteria": {f"C{i}": False for i in range(1, 12)}, "axis_equivalences": [], "exact_mapping": None}
-        receipt = run_canary(source, target, evidence)
-        self.assertEqual(receipt["permutation_count"], 720)
-        self.assertEqual(receipt["structural_pass"], 720)
-        self.assertEqual(receipt["semantic_pass"], 0)
-        self.assertEqual(receipt["semantic_hold"], 720)
-        self.assertEqual(receipt["semantic_deny"], 0)
-        self.assertEqual(receipt["unexpected_passes"], [])
+        evidence = {"criteria": dict(HOLD11), "axis_equivalences": [], "exact_mapping": None}
+        result = run_canary(source, target, evidence)
+        self.assertEqual(result["permutation_count"], 720)
+        self.assertEqual(result["structural_pass"], 720)
+        self.assertEqual(result["semantic_pass"], 0)
+        self.assertEqual(result["semantic_hold"], 720)
+        self.assertEqual(result["semantic_deny"], 0)
+        self.assertEqual(result["semantic_pass_permutations"], [])
+        self.assertEqual(len(result["results"]), 720)
 
 if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [ ] **Step 2: Run and confirm RED**
 
 ```bash
-python -m unittest tests.test_720_canary -v
+python -m unittest discover -s tests -p 'test_720_canary.py' -v
 ```
 
-Expected: FAIL because `permutation_canary_720` does not exist.
+Expected: FAIL because the runner does not exist.
 
-- [ ] **Step 3: Implement exhaustive runner**
+- [ ] **Step 3: Implement exhaustive enumeration**
 
 Create `reference/permutation_canary_720.py`:
 
@@ -968,18 +977,16 @@ def run_canary(source: dict, target: dict, evidence: dict) -> dict:
         })
 
     structural_pass = sum(r["structural_status"] == Tri.PASS.value for r in results)
-    semantic_pass = sum(r["semantic_status"] == Tri.PASS.value for r in results)
+    semantic_pass_rows = [r for r in results if r["semantic_status"] == Tri.PASS.value]
     semantic_hold = sum(r["semantic_status"] == Tri.HOLD.value for r in results)
     semantic_deny = sum(r["semantic_status"] == Tri.DENY.value for r in results)
-    unexpected = [r["permutation"] for r in results if r["semantic_status"] == Tri.PASS.value]
-
     return {
         "permutation_count": len(results),
         "structural_pass": structural_pass,
-        "semantic_pass": semantic_pass,
+        "semantic_pass": len(semantic_pass_rows),
         "semantic_hold": semantic_hold,
         "semantic_deny": semantic_deny,
-        "unexpected_passes": unexpected,
+        "semantic_pass_permutations": [r["permutation"] for r in semantic_pass_rows],
         "results": results,
     }
 ```
@@ -987,35 +994,12 @@ def run_canary(source: dict, target: dict, evidence: dict) -> dict:
 - [ ] **Step 4: Run the exhaustive negative canary**
 
 ```bash
-python -m unittest tests.test_720_canary -v
+python -m unittest discover -s tests -p 'test_720_canary.py' -v
 ```
 
-Expected exact assertions: `720 structural PASS`, `0 semantic PASS`, `720 semantic HOLD`, `0 DENY`, `unexpected_passes=[]`.
+Expected exact result: 720 structural PASS, 0 semantic PASS, 720 semantic HOLD, 0 DENY, no semantic-pass permutation.
 
-- [ ] **Step 5: Run a direct count-only smoke command**
-
-```bash
-python - <<'PY'
-import json, pathlib, sys
-root = pathlib.Path('.').resolve()
-sys.path.insert(0, str(root / 'reference'))
-from namespace_safe_engine import load_namespace
-from permutation_canary_720 import run_canary
-src = load_namespace(root/'fixtures/x_aiprbg_6gate.json')
-dst = load_namespace(root/'fixtures/ess_eq64_6d_kernel.json')
-ev = {'criteria': {f'C{i}': False for i in range(1,12)}, 'axis_equivalences': [], 'exact_mapping': None}
-r = run_canary(src,dst,ev)
-print({k:r[k] for k in ('permutation_count','structural_pass','semantic_pass','semantic_hold','semantic_deny','unexpected_passes')})
-PY
-```
-
-Expected:
-
-```text
-{'permutation_count': 720, 'structural_pass': 720, 'semantic_pass': 0, 'semantic_hold': 720, 'semantic_deny': 0, 'unexpected_passes': []}
-```
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add formal/namespace-safe-eq64/reference/permutation_canary_720.py formal/namespace-safe-eq64/tests/test_720_canary.py
@@ -1024,7 +1008,7 @@ git commit -m "test: add 720 permutation semantic leakage canary"
 
 ---
 
-### Task 7: Add the synthetic one-positive/719-deny control
+### Task 7: Add the synthetic one-PASS/719-DENY selectivity control
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/fixtures/synthetic_exact_a.json`
@@ -1032,10 +1016,10 @@ git commit -m "test: add 720 permutation semantic leakage canary"
 - Create: `formal/namespace-safe-eq64/tests/test_positive_control.py`
 
 **Interfaces:**
-- Consumes: `run_canary` and semantic gate from Tasks 5-6.
-- Produces: proof that the gate is selective, not permanently HOLD.
+- Consumes: `run_canary` from Task 6.
+- Produces: executable evidence that the semantic gate is selective rather than permanently HOLD.
 
-- [ ] **Step 1: Add synthetic namespace fixtures**
+- [ ] **Step 1: Create synthetic fixtures**
 
 `fixtures/synthetic_exact_a.json`:
 
@@ -1061,7 +1045,7 @@ git commit -m "test: add 720 permutation semantic leakage canary"
 }
 ```
 
-- [ ] **Step 2: Write the positive-control test**
+- [ ] **Step 2: Write the synthetic positive-control test**
 
 Create `tests/test_positive_control.py`:
 
@@ -1075,22 +1059,22 @@ sys.path.insert(0, str(ROOT / "reference"))
 from namespace_safe_engine import load_namespace
 from permutation_canary_720 import run_canary
 
+PASS11 = {f"C{i}": "PASS" for i in range(1, 12)}
+IDENTITY = [0,1,2,3,4,5]
+FULL_EQ = [{"source": i, "target": i, "evidence_id": f"SYN-{i}"} for i in range(6)]
+
 class PositiveControlTests(unittest.TestCase):
     def test_exactly_one_predeclared_mapping_passes(self):
         source = load_namespace(ROOT / "fixtures" / "synthetic_exact_a.json")
         target = load_namespace(ROOT / "fixtures" / "synthetic_exact_b.json")
-        evidence = {
-            "criteria": {f"C{i}": True for i in range(1, 12)},
-            "axis_equivalences": [{"source": i, "target": i, "evidence_id": f"SYN-{i}"} for i in range(6)],
-            "exact_mapping": [0,1,2,3,4,5],
-        }
-        receipt = run_canary(source, target, evidence)
-        self.assertEqual(receipt["permutation_count"], 720)
-        self.assertEqual(receipt["structural_pass"], 720)
-        self.assertEqual(receipt["semantic_pass"], 1)
-        self.assertEqual(receipt["semantic_hold"], 0)
-        self.assertEqual(receipt["semantic_deny"], 719)
-        self.assertEqual(receipt["unexpected_passes"], [[0,1,2,3,4,5]])
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": FULL_EQ, "exact_mapping": IDENTITY}
+        result = run_canary(source, target, evidence)
+        self.assertEqual(result["permutation_count"], 720)
+        self.assertEqual(result["structural_pass"], 720)
+        self.assertEqual(result["semantic_pass"], 1)
+        self.assertEqual(result["semantic_hold"], 0)
+        self.assertEqual(result["semantic_deny"], 719)
+        self.assertEqual(result["semantic_pass_permutations"], [IDENTITY])
 
 if __name__ == "__main__":
     unittest.main()
@@ -1099,18 +1083,18 @@ if __name__ == "__main__":
 - [ ] **Step 3: Run the positive control**
 
 ```bash
-python -m unittest tests.test_positive_control -v
+python -m unittest discover -s tests -p 'test_positive_control.py' -v
 ```
 
-Expected: PASS with exact count 1/720 semantic PASS and 719/720 DENY.
+Expected: exactly 1 semantic PASS and 719 DENY.
 
-- [ ] **Step 4: Run the negative and positive canaries together**
+- [ ] **Step 4: Run both 720-permutation tests together**
 
 ```bash
 python -m unittest tests.test_720_canary tests.test_positive_control -v
 ```
 
-Expected: both PASS; real namespaces leak zero semantic PASS; synthetic fixture admits exactly one.
+Expected: both PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -1121,17 +1105,17 @@ git commit -m "test: add selective semantic positive control"
 
 ---
 
-### Task 8: Add canonical content-addressed receipts and independent readback
+### Task 8: Add content-addressed result/receipt generation and exact independent readback
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/schema/canary_receipt.schema.json`
 - Create: `formal/namespace-safe-eq64/reference/receipt.py`
 - Modify: `formal/namespace-safe-eq64/reference/permutation_canary_720.py`
 - Modify: `formal/namespace-safe-eq64/tests/test_720_canary.py`
-- Modify: `formal/namespace-safe-eq64/tests/test_positive_control.py`
 
 **Interfaces:**
-- Produces: `canonical_json_bytes`, `sha256_bytes`, `hash_bundle`, `build_receipt`, `write_receipt`, `readback_receipt`, and a CLI entry point in `permutation_canary_720.py`.
+- Produces: `canonical_json_bytes`, `sha256_bytes`, `hash_bundle`, `write_canonical_json`, `build_receipt`, `write_receipt`, `readback_receipt`.
+- The receipt binds exact source fixture bytes, target fixture bytes, evidence bytes, engine bytes, runner bytes, receipt-builder bytes, and exact canonical result-file bytes.
 
 - [ ] **Step 1: Define the strict receipt schema**
 
@@ -1142,7 +1126,7 @@ Create `schema/canary_receipt.schema.json`:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "source_namespace", "target_namespace", "permutation_count", "structural_pass", "semantic_pass", "semantic_hold", "semantic_deny", "unexpected_passes", "fixture_sha256", "engine_sha256", "runner_sha256", "result_sha256", "payload_sha256", "runtime_bind"],
+  "required": ["schema", "source_namespace", "target_namespace", "permutation_count", "structural_pass", "semantic_pass", "semantic_hold", "semantic_deny", "unexpected_passes", "fixture_sha256", "evidence_sha256", "engine_sha256", "runner_sha256", "receipt_builder_sha256", "result_sha256", "payload_sha256", "runtime_bind"],
   "properties": {
     "schema": {"const": "EQ64_NAMESPACE_SAFE_CANARY_RECEIPT_V1"},
     "source_namespace": {"type": "string"},
@@ -1154,8 +1138,10 @@ Create `schema/canary_receipt.schema.json`:
     "semantic_deny": {"type": "integer", "minimum": 0, "maximum": 720},
     "unexpected_passes": {"type": "array"},
     "fixture_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "engine_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "runner_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "receipt_builder_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "runtime_bind": {"const": false}
@@ -1163,39 +1149,46 @@ Create `schema/canary_receipt.schema.json`:
 }
 ```
 
-- [ ] **Step 2: Write failing receipt readback assertions**
+- [ ] **Step 2: Add a failing receipt roundtrip test**
 
-Append to `tests/test_720_canary.py` a new test that writes to a temporary directory:
+Append imports and test to `tests/test_720_canary.py`:
 
 ```python
+import json
 import tempfile
-from receipt import build_receipt, readback_receipt, write_receipt
+from receipt import build_receipt, readback_receipt, write_canonical_json, write_receipt
 
-    def test_receipt_roundtrip_is_content_addressed(self):
+    def test_real_receipt_roundtrip_binds_all_inputs(self):
         source_path = ROOT / "fixtures" / "x_aiprbg_6gate.json"
         target_path = ROOT / "fixtures" / "ess_eq64_6d_kernel.json"
         source = load_namespace(source_path)
         target = load_namespace(target_path)
-        evidence = {"criteria": {f"C{i}": False for i in range(1, 12)}, "axis_equivalences": [], "exact_mapping": None}
+        evidence = {"criteria": dict(HOLD11), "axis_equivalences": [], "exact_mapping": None}
         result = run_canary(source, target, evidence)
-        receipt = build_receipt(ROOT, source_path, target_path, result)
         with tempfile.TemporaryDirectory() as td:
-            path = pathlib.Path(td) / "receipt.json"
-            write_receipt(path, receipt)
-            reread = readback_receipt(path)
+            td = pathlib.Path(td)
+            evidence_path = td / "evidence.json"
+            result_path = td / "result.json"
+            receipt_path = td / "receipt.json"
+            write_canonical_json(evidence_path, evidence)
+            write_canonical_json(result_path, result)
+            receipt = build_receipt(ROOT, source_path, target_path, evidence_path, result_path)
+            write_receipt(receipt_path, receipt)
+            reread = readback_receipt(receipt_path)
         self.assertEqual(reread, receipt)
+        self.assertEqual(receipt["unexpected_passes"], [])
         self.assertFalse(receipt["runtime_bind"])
 ```
 
-- [ ] **Step 3: Run and verify failure**
+- [ ] **Step 3: Run and confirm RED**
 
 ```bash
-python -m unittest tests.test_720_canary.Canary720Tests.test_receipt_roundtrip_is_content_addressed -v
+python -m unittest discover -s tests -p 'test_720_canary.py' -v
 ```
 
 Expected: FAIL because `receipt.py` does not exist.
 
-- [ ] **Step 4: Implement canonical hashes and strict receipt validation**
+- [ ] **Step 4: Implement canonical writing, hashes, strict shape validation, and readback**
 
 Create `reference/receipt.py`:
 
@@ -1207,7 +1200,17 @@ import json
 from pathlib import Path
 
 SCHEMA_NAME = "EQ64_NAMESPACE_SAFE_CANARY_RECEIPT_V1"
-HASH_FIELDS = {"fixture_sha256", "engine_sha256", "runner_sha256", "result_sha256", "payload_sha256"}
+REQUIRED = {
+    "schema", "source_namespace", "target_namespace", "permutation_count",
+    "structural_pass", "semantic_pass", "semantic_hold", "semantic_deny",
+    "unexpected_passes", "fixture_sha256", "evidence_sha256", "engine_sha256",
+    "runner_sha256", "receipt_builder_sha256", "result_sha256", "payload_sha256",
+    "runtime_bind",
+}
+HASH_FIELDS = {
+    "fixture_sha256", "evidence_sha256", "engine_sha256", "runner_sha256",
+    "receipt_builder_sha256", "result_sha256", "payload_sha256",
+}
 
 
 def canonical_json_bytes(value) -> bytes:
@@ -1223,14 +1226,12 @@ def hash_bundle(parts: list[bytes]) -> str:
     return sha256_bytes(framed)
 
 
+def write_canonical_json(path: Path, value) -> None:
+    path.write_bytes(canonical_json_bytes(value) + b"\n")
+
+
 def _validate_receipt_shape(receipt: dict) -> None:
-    required = {
-        "schema", "source_namespace", "target_namespace", "permutation_count",
-        "structural_pass", "semantic_pass", "semantic_hold", "semantic_deny",
-        "unexpected_passes", "fixture_sha256", "engine_sha256", "runner_sha256",
-        "result_sha256", "payload_sha256", "runtime_bind",
-    }
-    if set(receipt) != required:
+    if set(receipt) != REQUIRED:
         raise ValueError("RECEIPT_FIELDS_MISMATCH")
     if receipt["schema"] != SCHEMA_NAME or receipt["permutation_count"] != 720:
         raise ValueError("RECEIPT_SCHEMA_OR_COUNT_INVALID")
@@ -1240,28 +1241,33 @@ def _validate_receipt_shape(receipt: dict) -> None:
         raise ValueError("SEMANTIC_COUNT_SUM_INVALID")
     for field in HASH_FIELDS:
         value = receipt[field]
-        if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+        if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             raise ValueError(f"INVALID_SHA256:{field}")
 
 
-def build_receipt(root: Path, source_path: Path, target_path: Path, result: dict) -> dict:
+def build_receipt(root: Path, source_path: Path, target_path: Path, evidence_path: Path, result_path: Path) -> dict:
     engine_path = root / "reference" / "namespace_safe_engine.py"
     runner_path = root / "reference" / "permutation_canary_720.py"
-    result_core = result["results"]
+    builder_path = root / "reference" / "receipt.py"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    target = json.loads(target_path.read_text(encoding="utf-8"))
     payload = {
         "schema": SCHEMA_NAME,
-        "source_namespace": json.loads(source_path.read_text(encoding="utf-8"))["namespace_id"],
-        "target_namespace": json.loads(target_path.read_text(encoding="utf-8"))["namespace_id"],
+        "source_namespace": source["namespace_id"],
+        "target_namespace": target["namespace_id"],
         "permutation_count": result["permutation_count"],
         "structural_pass": result["structural_pass"],
         "semantic_pass": result["semantic_pass"],
         "semantic_hold": result["semantic_hold"],
         "semantic_deny": result["semantic_deny"],
-        "unexpected_passes": result["unexpected_passes"],
+        "unexpected_passes": result["semantic_pass_permutations"],
         "fixture_sha256": hash_bundle([source_path.read_bytes(), target_path.read_bytes()]),
+        "evidence_sha256": sha256_bytes(evidence_path.read_bytes()),
         "engine_sha256": sha256_bytes(engine_path.read_bytes()),
         "runner_sha256": sha256_bytes(runner_path.read_bytes()),
-        "result_sha256": sha256_bytes(canonical_json_bytes(result_core)),
+        "receipt_builder_sha256": sha256_bytes(builder_path.read_bytes()),
+        "result_sha256": sha256_bytes(result_path.read_bytes()),
         "runtime_bind": False,
     }
     receipt = dict(payload)
@@ -1272,7 +1278,7 @@ def build_receipt(root: Path, source_path: Path, target_path: Path, result: dict
 
 def write_receipt(path: Path, receipt: dict) -> None:
     _validate_receipt_shape(receipt)
-    path.write_bytes(canonical_json_bytes(receipt) + b"\n")
+    write_canonical_json(path, receipt)
 
 
 def readback_receipt(path: Path) -> dict:
@@ -1286,15 +1292,15 @@ def readback_receipt(path: Path) -> dict:
     return receipt
 ```
 
-- [ ] **Step 5: Run receipt roundtrip test**
+- [ ] **Step 5: Run receipt test and confirm GREEN**
 
 ```bash
-python -m unittest tests.test_720_canary.Canary720Tests.test_receipt_roundtrip_is_content_addressed -v
+python -m unittest discover -s tests -p 'test_720_canary.py' -v
 ```
 
 Expected: PASS.
 
-- [ ] **Step 6: Add CLI receipt generation to the canary runner**
+- [ ] **Step 6: Add a CLI that writes the full canonical result before the receipt**
 
 Append to `reference/permutation_canary_720.py`:
 
@@ -1304,60 +1310,55 @@ if __name__ == "__main__":
     import json
     from pathlib import Path
     from namespace_safe_engine import load_namespace
-    from receipt import build_receipt, write_receipt
+    from receipt import build_receipt, write_canonical_json, write_receipt
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--result-out", type=Path, required=True)
+    parser.add_argument("--receipt-out", type=Path, required=True)
     args = parser.parse_args()
 
     source = load_namespace(args.source)
     target = load_namespace(args.target)
     evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
     result = run_canary(source, target, evidence)
-    receipt = build_receipt(args.root, args.source, args.target, result)
-    write_receipt(args.out, receipt)
+    write_canonical_json(args.result_out, result)
+    receipt = build_receipt(args.root, args.source, args.target, args.evidence, args.result_out)
+    write_receipt(args.receipt_out, receipt)
     print(json.dumps(receipt, sort_keys=True))
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add formal/namespace-safe-eq64/{schema/canary_receipt.schema.json,reference/receipt.py,reference/permutation_canary_720.py,tests}
+git add formal/namespace-safe-eq64/{schema/canary_receipt.schema.json,reference/receipt.py,reference/permutation_canary_720.py,tests/test_720_canary.py}
 git commit -m "feat: add content-addressed namespace canary receipt"
 ```
 
 ---
 
-### Task 9: Execute the full gate, independent readback, and document the bounded claim ceiling
+### Task 9: Execute the full gate, independently rehash every bound input, and document the claim ceiling
 
 **Files:**
 - Create: `formal/namespace-safe-eq64/README.md`
-- Modify only if test evidence requires a correction: files created in Tasks 1-8.
+- Modify implementation files only if an observed test failure proves the plan code needs correction; repeat the failing test before and after the fix.
 - Do not touch runtime/application files.
 
 **Interfaces:**
-- Consumes all prior tasks.
-- Produces final bounded evidence that all mandatory stages pass while `RUNTIME_BIND=false`.
+- Produces final bounded phase evidence and exact readback while preserving `RUNTIME_BIND=false`.
 
-- [ ] **Step 1: Create two evidence files outside the repository for the real and synthetic runs**
-
-Run:
+- [ ] **Step 1: Materialize the real no-semantic-evidence input outside the repository**
 
 ```bash
 cat >/tmp/aiprbg_no_semantic_evidence.json <<'JSON'
-{"criteria":{"C1":false,"C2":false,"C3":false,"C4":true,"C5":true,"C6":false,"C7":false,"C8":false,"C9":true,"C10":true,"C11":true},"axis_equivalences":[],"exact_mapping":null}
-JSON
-
-cat >/tmp/synthetic_exact_evidence.json <<'JSON'
-{"criteria":{"C1":true,"C2":true,"C3":true,"C4":true,"C5":true,"C6":true,"C7":true,"C8":true,"C9":true,"C10":true,"C11":true},"axis_equivalences":[{"source":0,"target":0,"evidence_id":"SYN-0"},{"source":1,"target":1,"evidence_id":"SYN-1"},{"source":2,"target":2,"evidence_id":"SYN-2"},{"source":3,"target":3,"evidence_id":"SYN-3"},{"source":4,"target":4,"evidence_id":"SYN-4"},{"source":5,"target":5,"evidence_id":"SYN-5"}],"exact_mapping":[0,1,2,3,4,5]}
+{"axis_equivalences":[],"criteria":{"C1":"HOLD","C10":"HOLD","C11":"HOLD","C2":"HOLD","C3":"HOLD","C4":"HOLD","C5":"HOLD","C6":"HOLD","C7":"HOLD","C8":"HOLD","C9":"HOLD"},"exact_mapping":null}
 JSON
 ```
 
-- [ ] **Step 2: Run the Lean formal gate**
+- [ ] **Step 2: Run the full Lean proof gate**
 
 ```bash
 cd formal/namespace-safe-eq64
@@ -1368,15 +1369,15 @@ lake env lean NamespaceSafeEQ64Test.lean
 
 Expected: all exit 0.
 
-- [ ] **Step 3: Run the complete Python TDD suite**
+- [ ] **Step 3: Run all Python tests, including both exhaustive 720 runs**
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Expected: all tests PASS, including 720 real negative canary and 1/720 synthetic positive control.
+Expected: all PASS. Real AIPRBG→ESS: 720/720 structural PASS and zero semantic PASS. Synthetic: exactly 1 semantic PASS and 719 DENY.
 
-- [ ] **Step 4: Generate the real namespace receipt**
+- [ ] **Step 4: Generate the real canonical result file and its content-addressed receipt**
 
 ```bash
 python reference/permutation_canary_720.py \
@@ -1384,10 +1385,11 @@ python reference/permutation_canary_720.py \
   --source fixtures/x_aiprbg_6gate.json \
   --target fixtures/ess_eq64_6d_kernel.json \
   --evidence /tmp/aiprbg_no_semantic_evidence.json \
-  --out /tmp/eq64_namespace_safe_real_receipt.json
+  --result-out /tmp/eq64_namespace_safe_real_result.json \
+  --receipt-out /tmp/eq64_namespace_safe_real_receipt.json
 ```
 
-Expected summary inside receipt:
+Expected receipt summary:
 
 ```text
 permutation_count=720
@@ -1399,66 +1401,72 @@ unexpected_passes=[]
 runtime_bind=false
 ```
 
-- [ ] **Step 5: Generate the synthetic positive-control receipt**
+- [ ] **Step 5: Perform independent readback without importing `receipt.py`**
 
-```bash
-python reference/permutation_canary_720.py \
-  --root . \
-  --source fixtures/synthetic_exact_a.json \
-  --target fixtures/synthetic_exact_b.json \
-  --evidence /tmp/synthetic_exact_evidence.json \
-  --out /tmp/eq64_namespace_safe_synthetic_receipt.json
-```
-
-Expected:
-
-```text
-permutation_count=720
-structural_pass=720
-semantic_pass=1
-semantic_hold=0
-semantic_deny=719
-unexpected_passes=[[0,1,2,3,4,5]]
-runtime_bind=false
-```
-
-- [ ] **Step 6: Perform independent receipt readback and byte/hash verification in a fresh Python process**
+Run a fresh Python process that reimplements only the framing/hash rules needed for verification:
 
 ```bash
 python - <<'PY'
 from pathlib import Path
-import hashlib, json, sys
+import hashlib, json
+
 root = Path('.').resolve()
-sys.path.insert(0, str(root/'reference'))
-from receipt import readback_receipt
-for path in [Path('/tmp/eq64_namespace_safe_real_receipt.json'), Path('/tmp/eq64_namespace_safe_synthetic_receipt.json')]:
-    raw = path.read_bytes()
-    receipt = readback_receipt(path)
-    print(path.name, len(raw), hashlib.sha256(raw).hexdigest(), receipt['payload_sha256'], receipt['runtime_bind'])
-    assert receipt['runtime_bind'] is False
+receipt_path = Path('/tmp/eq64_namespace_safe_real_receipt.json')
+result_path = Path('/tmp/eq64_namespace_safe_real_result.json')
+evidence_path = Path('/tmp/aiprbg_no_semantic_evidence.json')
+source_path = root/'fixtures/x_aiprbg_6gate.json'
+target_path = root/'fixtures/ess_eq64_6d_kernel.json'
+engine_path = root/'reference/namespace_safe_engine.py'
+runner_path = root/'reference/permutation_canary_720.py'
+builder_path = root/'reference/receipt.py'
+
+def sha(data): return hashlib.sha256(data).hexdigest()
+def bundle(parts): return sha(b''.join(len(p).to_bytes(8,'big') + p for p in parts))
+def canon(v): return json.dumps(v, sort_keys=True, separators=(',',':'), ensure_ascii=False).encode('utf-8')
+
+raw_receipt = receipt_path.read_bytes()
+r = json.loads(raw_receipt)
+payload = dict(r); claimed = payload.pop('payload_sha256')
+assert sha(canon(payload)) == claimed
+assert r['fixture_sha256'] == bundle([source_path.read_bytes(), target_path.read_bytes()])
+assert r['evidence_sha256'] == sha(evidence_path.read_bytes())
+assert r['engine_sha256'] == sha(engine_path.read_bytes())
+assert r['runner_sha256'] == sha(runner_path.read_bytes())
+assert r['receipt_builder_sha256'] == sha(builder_path.read_bytes())
+assert r['result_sha256'] == sha(result_path.read_bytes())
+assert r['permutation_count'] == 720
+assert r['structural_pass'] == 720
+assert r['semantic_pass'] == 0
+assert r['semantic_hold'] == 720
+assert r['semantic_deny'] == 0
+assert r['unexpected_passes'] == []
+assert r['runtime_bind'] is False
+print('PASS_INDEPENDENT_READBACK', len(raw_receipt), sha(raw_receipt), claimed)
 PY
 ```
 
-Expected: both files read successfully; exact byte size and file SHA256 are printed; embedded payload SHA256 verifies; `runtime_bind` prints `False` twice.
+Expected: one `PASS_INDEPENDENT_READBACK` line with exact receipt byte count, receipt-file SHA256, and verified payload SHA256.
 
-- [ ] **Step 7: Write the README with exact commands and claim boundary**
+- [ ] **Step 6: Write README with exact verification commands and claim ceiling**
 
-Create `README.md` containing:
+Create `README.md` with these substantive contents:
 
 ```markdown
 # Namespace-Safe EQ64 Formal/Reference Gate
 
-This subsystem separates abstract B6/Q6 structural equivalence from semantic namespace authority.
+This isolated subsystem separates abstract B6/Q6 structural equivalence from semantic namespace authority.
 
 ## Mandatory verification
 
-```bash
-lake build
-lake env lean NamespaceSafeEQ64Test.lean
-python -m unittest discover -s tests -v
-```
+Run from this directory:
 
-The real AIPRBG -> ESS canary must produce 720/720 structural PASS and zero semantic PASS without axis-level evidence. The synthetic control must produce exactly one semantic PASS and 719 DENY.
+`lake build`
+
+`lake env lean NamespaceSafeEQ64Test.lean`
+
+`python -m unittest discover -s tests -v`
+
+The real `X_AIPRBG_6GATE_DIAGNOSTIC_V1 -> ESS_EQ64_6D_KERNEL` canary must produce 720/720 structural PASS and zero semantic PASS without C1-C11 axis evidence. The synthetic control must produce exactly one semantic PASS and 719 DENY.
 
 ## Claim ceiling
 
@@ -1471,9 +1479,7 @@ It does not establish empirical truth, physical correctness, historical semantic
 `RUNTIME_BIND = FALSE` in this package.
 ```
 
-Use four tildes (`~~~~`) around the outer Markdown snippet if editing through a Markdown renderer that would otherwise nest the code fence incorrectly.
-
-- [ ] **Step 8: Run final regression after README creation**
+- [ ] **Step 7: Run final regression**
 
 ```bash
 lake build
@@ -1483,26 +1489,24 @@ python -m unittest discover -s tests -v
 
 Expected: all PASS.
 
-- [ ] **Step 9: Confirm the change set contains no runtime wiring**
+- [ ] **Step 8: Confirm the branch contains no runtime wiring**
 
-Run from repository root:
+From repository root:
 
 ```bash
 git diff --name-only main...HEAD
 ```
 
-Expected: only `formal/namespace-safe-eq64/**`, the approved spec, and this plan. No `app.js`, `model.js`, runtime workflow, pointer, or authority file is changed.
+Expected: changes are limited to `formal/namespace-safe-eq64/**`, `docs/superpowers/specs/2026-09-12-namespace-safe-eq64-design.md`, and `docs/superpowers/plans/2026-09-12-namespace-safe-eq64-implementation.md`. No `app.js`, `model.js`, pointer, global-authority, or active workflow file changes.
 
-- [ ] **Step 10: Commit the README/final documentation**
+- [ ] **Step 9: Commit the README**
 
 ```bash
 git add formal/namespace-safe-eq64/README.md
 git commit -m "docs: document namespace-safe EQ64 verification gate"
 ```
 
-- [ ] **Step 11: Record the final bounded phase verdict**
-
-Only if Tasks 1-9 all satisfy their exact expected results, report:
+- [ ] **Step 10: Report the bounded final verdict only if every mandatory assertion above passed**
 
 ```text
 LEAN_FORMAL_LAYER = PASS
@@ -1512,8 +1516,9 @@ SYNTHETIC_POSITIVE = 1/720
 SYNTHETIC_CONFLICT_DENY = 719/720
 SEMANTIC_LEAKAGE = 0
 CONTENT_ADDRESSED_RECEIPT = PASS
+INDEPENDENT_READBACK = PASS
 RUNTIME_BIND = FALSE
 FINAL = PASS_REFERENCE_IMPLEMENTATION_CONFORMS_TO_NAMESPACE_SEPARATION_CONTRACT
 ```
 
-Otherwise report `FINAL = HOLD` at the first unmet mandatory gate; do not average or compensate around it.
+If any mandatory gate fails, report `FINAL = HOLD` at the first unmet proof. Do not average or compensate around it.
