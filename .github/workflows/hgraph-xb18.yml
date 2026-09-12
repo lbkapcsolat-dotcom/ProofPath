@@ -67,12 +67,19 @@ jobs:
           sha256sum -c /tmp/xb18-shadow-receipt/package.sha256
           echo 'PASS_XB18_EXPLICIT_SEPARATE_PROCESS_READBACK'
 
-      - name: Reject request package byte tamper
+      - name: Reject request semantic-content tamper
         working-directory: formal/namespace-safe-eq64
         run: |
           set -euo pipefail
           cp /tmp/xb18-shadow-receipt/request.json /tmp/xb18-shadow-receipt/request.original.json
-          printf ' ' >> /tmp/xb18-shadow-receipt/request.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('/tmp/xb18-shadow-receipt/request.json')
+          value = json.loads(path.read_text(encoding='utf-8'))
+          value['policy'] = 'TAMPERED_POLICY'
+          path.write_text(json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n', encoding='utf-8')
+          PY
           set +e
           python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt > /tmp/xb18-request-tamper.log 2>&1
           status=$?
@@ -85,7 +92,7 @@ jobs:
           fi
           grep -q 'DEPENDENCY_SHA256_MISMATCH:request_sha256' /tmp/xb18-request-tamper.log
           python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
-          echo 'PASS_XB18_REQUEST_BYTE_TAMPER_REJECTED'
+          echo 'PASS_XB18_REQUEST_CONTENT_TAMPER_REJECTED'
 
       - name: Reject adapter dependency byte tamper and restore exact bytes
         working-directory: formal/namespace-safe-eq64
