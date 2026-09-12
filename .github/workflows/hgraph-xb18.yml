@@ -47,6 +47,67 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s hgraph_adapter/tests -p 'test_*.py' -v
 
+      - name: Generate persisted XB18 shadow receipt package
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/xb18-shadow-receipt
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-shadow-receipt
+          sha256sum \
+            /tmp/xb18-shadow-receipt/request.json \
+            /tmp/xb18-shadow-receipt/verdict.json \
+            /tmp/xb18-shadow-receipt/receipt.json \
+            | tee /tmp/xb18-shadow-receipt/package.sha256
+
+      - name: Independent verifier process readback
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          sha256sum -c /tmp/xb18-shadow-receipt/package.sha256
+          echo 'PASS_XB18_EXPLICIT_SEPARATE_PROCESS_READBACK'
+
+      - name: Reject request package byte tamper
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          cp /tmp/xb18-shadow-receipt/request.json /tmp/xb18-shadow-receipt/request.original.json
+          printf ' ' >> /tmp/xb18-shadow-receipt/request.json
+          set +e
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt > /tmp/xb18-request-tamper.log 2>&1
+          status=$?
+          set -e
+          mv /tmp/xb18-shadow-receipt/request.original.json /tmp/xb18-shadow-receipt/request.json
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/xb18-request-tamper.log
+            echo 'FAIL_XB18_REQUEST_TAMPER_ACCEPTED'
+            exit 61
+          fi
+          grep -q 'DEPENDENCY_SHA256_MISMATCH:request_sha256' /tmp/xb18-request-tamper.log
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          echo 'PASS_XB18_REQUEST_BYTE_TAMPER_REJECTED'
+
+      - name: Reject adapter dependency byte tamper and restore exact bytes
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          cp hgraph_adapter/xb18.py /tmp/xb18.py.original
+          printf '\n' >> hgraph_adapter/xb18.py
+          set +e
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt > /tmp/xb18-adapter-tamper.log 2>&1
+          status=$?
+          set -e
+          mv /tmp/xb18.py.original hgraph_adapter/xb18.py
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/xb18-adapter-tamper.log
+            echo 'FAIL_XB18_ADAPTER_TAMPER_ACCEPTED'
+            exit 62
+          fi
+          grep -q 'DEPENDENCY_SHA256_MISMATCH:adapter_sha256' /tmp/xb18-adapter-tamper.log
+          git diff --exit-code -- hgraph_adapter/xb18.py
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          echo 'PASS_XB18_ADAPTER_BYTE_TAMPER_REJECTED_AND_RESTORED'
+
       - name: Re-run namespace-safe reference tests
         working-directory: formal/namespace-safe-eq64
         run: |
