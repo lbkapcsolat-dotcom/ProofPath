@@ -1,0 +1,26 @@
+name: WebMCP Regression
+
+on:
+  push:
+    branches: [webmcp-challenge]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Model regression
+        run: node tests.mjs
+      - name: UI contract
+        run: node test-ui.mjs
+      - name: WebMCP adapter contract
+        run: node test-webmcp.mjs
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check webmcp.js

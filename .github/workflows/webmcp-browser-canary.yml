@@ -1,0 +1,33 @@
+name: WebMCP Browser Canary
+
+on:
+  push:
+    branches: [webmcp-challenge]
+  pull_request:
+    branches: [main]
+
+jobs:
+  browser-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require Chrome 149+
+        run: |
+          google-chrome --version
+          VERSION=$(google-chrome --version | grep -oE '[0-9]+' | head -1)
+          test "$VERSION" -ge 149
+      - name: Install browser test dependency
+        run: npm install --no-save puppeteer-core
+      - name: Start local ProofPath
+        run: |
+          python3 -m http.server 8000 >/tmp/proofpath-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000 >/dev/null && exit 0; sleep 1; done
+          cat /tmp/proofpath-http.log
+          exit 1
+      - name: Discover and invoke WebMCP tool in headed Chrome
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: xvfb-run -a node webmcp-browser-canary.mjs

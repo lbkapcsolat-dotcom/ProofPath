@@ -1,5 +1,5 @@
-
 import { TRAINING_SET, HOLDOUT_SET, trainSoftmax, predict } from "./model.js";
+import { registerProofPathWebMCP } from "./webmcp.js";
 const model=trainSoftmax(TRAINING_SET);
 const claimEl=document.querySelector("#claim");
 const evidenceEl=document.querySelector("#evidence");
@@ -40,4 +40,5 @@ exampleSelect.addEventListener("change",()=>{
   const demo=HOLDOUT_SET[Number(exampleSelect.value)];
   if(!demo)return;claimEl.value=demo.claim;evidenceEl.value=demo.evidence;render(analyze(demo.claim,demo.evidence));
 });
+registerProofPathWebMCP(analyze);
 modelStatus.textContent=`Offline ML ready · ${TRAINING_SET.length} training pairs · ${HOLDOUT_SET.length} untouched holdout/demo pairs · no API · no CDN · no account`;
