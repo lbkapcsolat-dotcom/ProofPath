@@ -1,4 +1,5 @@
 import NamespaceSafeEQ64
+import HomologyGate
 open NamespaceSafeEQ64
 
 #check NamespaceId
@@ -82,13 +83,13 @@ example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
 example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
   polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
 
-/-!
-Machine-checkable homology gate. These checks are intentionally introduced
-before the implementation so the first CI run must be RED for missing theorem
-contracts rather than for syntax or environment errors.
--/
+/-! Machine-checkable homology gate. -/
 #check HomologyGate.boundary_sq_zero
 #check HomologyGate.image_subset_kernel_of_sq_zero
 #check HomologyGate.boundary_shift_preserves_cycle
 #check HomologyGate.homologySetoid
+#check HomologyGate.HomologyQuotient
+#check HomologyGate.quotient_eq_of_homologous
+#check HomologyGate.tiny_boundary_sq_zero
+#check HomologyGate.tiny_kernel_subset_image
 #check HomologyGate.local_conditions_do_not_force_global_nontriviality
