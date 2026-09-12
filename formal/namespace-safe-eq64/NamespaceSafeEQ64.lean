@@ -57,7 +57,7 @@ structure SemanticEvidence where
 structure CrosswalkCandidate where
   source : NamespaceId
   target : NamespaceId
-  permutation : Equiv.Perm (Fin 6)
+  permutation : Equiv (Fin 6) (Fin 6)
   evidence : SemanticEvidence
 
 
