@@ -1,0 +1,62 @@
+name: HGraph XB18 Shadow Gate
+
+on:
+  push:
+    branches:
+      - design/hgraph-xb18-isomorphism
+    paths:
+      - 'formal/namespace-safe-eq64/hgraph_adapter/**'
+      - '.github/workflows/hgraph-xb18.yml'
+  pull_request:
+    branches:
+      - design/namespace-safe-eq64
+    paths:
+      - 'formal/namespace-safe-eq64/hgraph_adapter/**'
+      - '.github/workflows/hgraph-xb18.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hgraph-xb18-shadow:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Assert supported Python runtime
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          assert sys.version_info >= (3, 12), sys.version
+          print(sys.version)
+          PY
+
+      - name: Install pinned hgraph shadow dependency
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check -r hgraph_adapter/requirements.txt
+
+      - name: Run XB18 public wiring tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s hgraph_adapter/tests -p 'test_*.py' -v
+
+      - name: Re-run namespace-safe reference tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Assert shadow-only claim ceiling
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          grep -q 'RUNTIME_BIND = FALSE' README.md
+          ! grep -R 'GLOBAL_BIND = TRUE\|POINTER_PROMOTION = TRUE\|PRODUCTION_READINESS = TRUE' -n hgraph_adapter
+          echo 'PASS_HGRAPH_XB18_SHADOW_SCOPE_ONLY'
