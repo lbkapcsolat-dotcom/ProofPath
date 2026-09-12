@@ -15,3 +15,21 @@ export function nextEvidenceNeeded(label, category){
   if(label === "CONTRADICTED") return `Identify the exact conflicting measurement or relationship, then verify its source, date, scale, and comparison baseline.`;
   return `Specify the missing baseline, comparison group, time window, scale, or measured outcome that would make this ${domain} testable.`;
 }
+
+export function evidenceContextCoverage(claim,evidence){
+  const text = String(evidence ?? "").toLowerCase();
+  const status = (field, pattern) => {
+    const escaped = field.replace(/_/g,"[ _-]");
+    const na = new RegExp(`\\b${escaped}\\b[^.]{0,24}\\b(?:not applicable|n\\/?a)\\b`,"i");
+    if(na.test(text)) return "NOT_APPLICABLE";
+    return pattern.test(text) ? "PRESENT" : "MISSING";
+  };
+  return {
+    baseline: status("baseline",/\b(baseline|before|prior|historical|starting|initial)\b/),
+    comparison: status("comparison",/\b(compared?|comparison|versus|vs\.?|control group|reference group|than)\b/),
+    time_window: status("time_window",/\b(19|20)\d{2}\b|\b(day|week|month|year|hour|season|period|between|during|from)\b/),
+    spatial_scale: status("spatial_scale",/\b(citywide|city|local|regional|national|global|site|district|county|state|country|watershed|km|kilometer|mile)\b/),
+    measured_outcome: status("measured_outcome",/\b(measured|measurement|observed|recorded|lower|higher|increase|decrease|reduced|reduction|emission|pollution|temperature|concentration|runoff|water level|biodiversity|waste)\b|\b\d+(?:\.\d+)?\s*(?:%|ppm|ppb|mg|kg|g|mm|cm|km|m3|tons?|tonnes?)\b/),
+    source_provenance: status("source_provenance",/\b(source|dataset|study|report|agency|doi|url|survey|monitoring station|satellite|publication)\b/)
+  };
+}
