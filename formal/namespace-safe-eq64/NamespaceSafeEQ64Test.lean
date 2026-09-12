@@ -23,3 +23,61 @@ open NamespaceSafeEQ64
 #check polarity_conflict_blocks_exact_crosswalk
 #check namespace_identity_required
 #check no_semantic_authorization_from_structure_alone
+
+def identityPermutation6 : Permutation6 := {
+  toFun := fun i => i
+  invFun := fun i => i
+  leftInv := by intro i; rfl
+  rightInv := by intro i; rfl
+}
+
+def evidencePass : SemanticEvidence := {
+  c1SourceIdentity := .pass
+  c2StructuralClass := .pass
+  c3AxisCompleteness := .pass
+  c4Polarity := .pass
+  c5ConflictFree := .pass
+  c6BijectionCandidate := .pass
+  c7AxisEvidence := .pass
+  c8OrderSemantics := .pass
+  c9NoPostHocSelection := .pass
+  c10GovernanceScope := .pass
+  c11ClaimCeiling := .pass
+}
+
+def evidenceMissingAxis : SemanticEvidence :=
+  { evidencePass with c7AxisEvidence := .hold }
+
+def evidencePolarityConflict : SemanticEvidence :=
+  { evidencePass with c4Polarity := .deny }
+
+def bareCandidate : CrosswalkCandidate := {
+  source := .bareEq64
+  target := .essEq64Kernel
+  permutation := identityPermutation6
+  evidence := evidencePass
+}
+
+def missingAxisCandidate : CrosswalkCandidate := {
+  source := .aipRbgDiagnostic
+  target := .essEq64Kernel
+  permutation := identityPermutation6
+  evidence := evidenceMissingAxis
+}
+
+def polarityConflictCandidate : CrosswalkCandidate := {
+  source := .aipRbgDiagnostic
+  target := .essEq64Kernel
+  permutation := identityPermutation6
+  evidence := evidencePolarityConflict
+}
+
+example : ¬ ExactSemanticAuthorized bareCandidate := by
+  intro h
+  exact h.1.1 rfl
+
+example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
+  missing_axis_evidence_blocks_exact_crosswalk missingAxisCandidate rfl
+
+example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
+  polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
