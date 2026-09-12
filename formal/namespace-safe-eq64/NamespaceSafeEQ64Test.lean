@@ -25,6 +25,7 @@ open NamespaceSafeEQ64
 #check no_semantic_authorization_from_structure_alone
 #check exact_authorization_requires_mapping_match
 #check mapping_mismatch_blocks_exact_crosswalk
+#check exact_authorization_unique_for_predeclared_mapping
 
 def identityPermutation6 : Permutation6 := {
   toFun := fun i => i
@@ -45,6 +46,7 @@ def evidencePass : SemanticEvidence := {
   c9NoPostHocSelection := .pass
   c10GovernanceScope := .pass
   c11ClaimCeiling := .pass
+  exactMapping := identityPermutation6
 }
 
 def evidenceMissingAxis : SemanticEvidence :=
@@ -83,3 +85,7 @@ example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
 
 example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
   polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
+
+example (c : CrosswalkCandidate) (h : ExactSemanticAuthorized c) :
+    SamePermutation c.permutation c.evidence.exactMapping :=
+  exact_authorization_requires_mapping_match c h
