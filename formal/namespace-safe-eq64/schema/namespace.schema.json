@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namespace_id", "structural_class", "axes", "polarity", "claim_ceiling"],
+  "properties": {
+    "namespace_id": {"type": "string", "minLength": 1},
+    "structural_class": {"const": "B6_Q6"},
+    "axes": {"type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "polarity": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"enum": ["risk", "protect", "neutral"]}},
+    "claim_ceiling": {"type": "string", "minLength": 1}
+  }
+}
