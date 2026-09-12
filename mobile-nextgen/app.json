@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "ProofPath Mobile",
+    "slug": "proofpath-mobile-nextgen",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.lbkapcsolat.proofpath.nextgen"
+    },
+    "ios": {
+      "bundleIdentifier": "com.lbkapcsolat.proofpath.nextgen"
+    }
+  }
+}
