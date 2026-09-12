@@ -23,6 +23,8 @@ open NamespaceSafeEQ64
 #check polarity_conflict_blocks_exact_crosswalk
 #check namespace_identity_required
 #check no_semantic_authorization_from_structure_alone
+#check exact_authorization_requires_mapping_match
+#check mapping_mismatch_blocks_exact_crosswalk
 
 def identityPermutation6 : Permutation6 := {
   toFun := fun i => i
