@@ -49,3 +49,59 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -v
+
+      - name: Generate receipt and independently rehash every bound input
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          cat >/tmp/aiprbg_no_semantic_evidence.json <<'JSON'
+          {"axis_equivalences":[],"criteria":{"C1":"HOLD","C10":"HOLD","C11":"HOLD","C2":"HOLD","C3":"HOLD","C4":"HOLD","C5":"HOLD","C6":"HOLD","C7":"HOLD","C8":"HOLD","C9":"HOLD"},"exact_mapping":null}
+          JSON
+
+          python3 reference/permutation_canary_720.py \
+            --root . \
+            --source fixtures/x_aiprbg_6gate.json \
+            --target fixtures/ess_eq64_6d_kernel.json \
+            --evidence /tmp/aiprbg_no_semantic_evidence.json \
+            --result-out /tmp/eq64_namespace_safe_real_result.json \
+            --receipt-out /tmp/eq64_namespace_safe_real_receipt.json
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+
+          root = Path('.').resolve()
+          receipt_path = Path('/tmp/eq64_namespace_safe_real_receipt.json')
+          result_path = Path('/tmp/eq64_namespace_safe_real_result.json')
+          evidence_path = Path('/tmp/aiprbg_no_semantic_evidence.json')
+          source_path = root/'fixtures/x_aiprbg_6gate.json'
+          target_path = root/'fixtures/ess_eq64_6d_kernel.json'
+          engine_path = root/'reference/namespace_safe_engine.py'
+          runner_path = root/'reference/permutation_canary_720.py'
+          builder_path = root/'reference/receipt.py'
+
+          def sha(data): return hashlib.sha256(data).hexdigest()
+          def bundle(parts): return sha(b''.join(len(p).to_bytes(8,'big') + p for p in parts))
+          def canon(v): return json.dumps(v, sort_keys=True, separators=(',',':'), ensure_ascii=False).encode('utf-8')
+
+          raw_receipt = receipt_path.read_bytes()
+          r = json.loads(raw_receipt)
+          payload = dict(r); claimed = payload.pop('payload_sha256')
+          assert sha(canon(payload)) == claimed
+          assert r['fixture_sha256'] == bundle([source_path.read_bytes(), target_path.read_bytes()])
+          assert r['evidence_sha256'] == sha(evidence_path.read_bytes())
+          assert r['engine_sha256'] == sha(engine_path.read_bytes())
+          assert r['runner_sha256'] == sha(runner_path.read_bytes())
+          assert r['receipt_builder_sha256'] == sha(builder_path.read_bytes())
+          assert r['result_sha256'] == sha(result_path.read_bytes())
+          assert r['permutation_count'] == 720
+          assert r['structural_pass'] == 720
+          assert r['semantic_pass'] == 0
+          assert r['semantic_hold'] == 720
+          assert r['semantic_deny'] == 0
+          assert r['unexpected_passes'] == []
+          assert r['runtime_bind'] is False
+          print('PASS_INDEPENDENT_READBACK', len(raw_receipt), sha(raw_receipt), claimed)
+          print('RESULT_SHA256', sha(result_path.read_bytes()))
+          print('RECEIPT_SUMMARY', json.dumps(r, sort_keys=True))
+          PY
