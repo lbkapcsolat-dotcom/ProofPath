@@ -1,0 +1,46 @@
+{
+  "schema": "HGRAPH_XB18_MOTORBIND_ELIGIBILITY_AUDIT_V1",
+  "audit_mode": "READ_ONLY_SYSTEM_STATE__REPORT_ARTIFACT_ONLY",
+  "lineage": {
+    "base_branch": "design/namespace-safe-eq64",
+    "base_commit": "da54d8a5c2e7ba4007c8062adf17be86dfc2c6cf",
+    "convergence_commit": "8b492e937b392c4a6d1c0d5885a29527325398d1",
+    "behind_by_after_convergence": 0,
+    "status": "PASS_BASE_INCLUDED"
+  },
+  "scope_isolation": {
+    "status": "PASS",
+    "allowed_scope": [
+      ".github/workflows/hgraph-xb18.yml",
+      "formal/namespace-safe-eq64/hgraph_adapter/**"
+    ],
+    "direct_bootvalidator_change": false,
+    "runtime_product_path_change": false
+  },
+  "evidence_chain": {
+    "typed_hgraph_shadow_contract": "PASS",
+    "reference_to_hgraph_verdict_equality": "PASS",
+    "content_bound_receipt": "PASS",
+    "independent_verifier_process": "PASS",
+    "dual_process_exact_replay_equality": "PASS",
+    "request_content_tamper_rejection": "PASS",
+    "adapter_byte_tamper_rejection": "PASS",
+    "real_aiprbg_to_ess_structural_status": "PASS",
+    "real_aiprbg_to_ess_semantic_status": "HOLD",
+    "real_aiprbg_to_ess_reason_codes": [
+      "NO_AXIS_LEVEL_EVIDENCE"
+    ],
+    "last_full_green_run_id_before_convergence": 34716233941
+  },
+  "claim_ceiling": {
+    "structural_only": true,
+    "semantic_equivalence_proven": false,
+    "runtime_bind": false,
+    "global_bind": false,
+    "pointer_promotion": false,
+    "production_readiness": false
+  },
+  "motorbind_eligibility": "HOLD",
+  "first_missing_proof": "C7_SOURCE_GROUNDED_AXIS_LEVEL_EQUIVALENCE",
+  "next_required_gate": "C6_C7_AXIS_LEVEL_SOURCE_EVIDENCE__RECOVERY_AND_BIJECTION_ADMISSION_OR_HOLD_V1"
+}
