@@ -31,6 +31,20 @@ class SemanticGateTests(unittest.TestCase):
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.HOLD)
 
+    def test_c7_pass_without_evidence_refs_denies(self):
+        no_refs = [{"source": i, "target": i} for i in range(6)]
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": no_refs, "exact_mapping": list(IDENTITY)}
+        result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
+        self.assertEqual(result["status"], Tri.DENY)
+        self.assertIn("C7_EVIDENCE_REFERENCE_INVALID", result["reason_codes"])
+
+    def test_c7_pass_duplicate_evidence_refs_denies(self):
+        duplicate_refs = [{"source": i, "target": i, "evidence_id": "SAME-EVIDENCE"} for i in range(6)]
+        evidence = {"criteria": dict(PASS11), "axis_equivalences": duplicate_refs, "exact_mapping": list(IDENTITY)}
+        result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
+        self.assertEqual(result["status"], Tri.DENY)
+        self.assertIn("C7_EVIDENCE_REFERENCE_NOT_INDEPENDENT", result["reason_codes"])
+
     def test_polarity_conflict_denies(self):
         criteria = dict(PASS11)
         criteria["C4"] = "DENY"
