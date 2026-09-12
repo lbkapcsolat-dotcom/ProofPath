@@ -38,3 +38,29 @@ def run_canary(source: dict, target: dict, evidence: dict) -> dict:
         ],
         "results": results,
     }
+
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    from pathlib import Path
+    from namespace_safe_engine import load_namespace
+    from receipt import build_receipt, write_canonical_json, write_receipt
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--result-out", type=Path, required=True)
+    parser.add_argument("--receipt-out", type=Path, required=True)
+    args = parser.parse_args()
+
+    source = load_namespace(args.source)
+    target = load_namespace(args.target)
+    evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
+    result = run_canary(source, target, evidence)
+    write_canonical_json(args.result_out, result)
+    receipt = build_receipt(args.root, args.source, args.target, args.evidence, args.result_out)
+    write_receipt(args.receipt_out, receipt)
+    print(json.dumps(receipt, sort_keys=True))
