@@ -1,22 +1,62 @@
 from __future__ import annotations
 
 from enum import Enum
+import hashlib
 import itertools
 import json
 from pathlib import Path
 
-REGISTERED_NAMESPACES = {
-    "ESS_EQ64_6D_KERNEL",
-    "X_AIPRBG_6GATE_DIAGNOSTIC_V1",
-    "SYNTHETIC_NAMESPACE_A",
-    "SYNTHETIC_NAMESPACE_B",
+CANONICAL_NAMESPACE_SPECS = {
+    "ESS_EQ64_6D_KERNEL": {
+        "namespace_id": "ESS_EQ64_6D_KERNEL",
+        "structural_class": "B6_Q6",
+        "axes": ["energy_load", "volatility", "coherence", "phase_stability", "transient_headroom", "lock_margin"],
+        "polarity": ["risk", "risk", "protect", "protect", "protect", "protect"],
+        "claim_ceiling": "CANONICAL_STRUCTURAL_EQ64_REFERENCE",
+    },
+    "X_AIPRBG_6GATE_DIAGNOSTIC_V1": {
+        "namespace_id": "X_AIPRBG_6GATE_DIAGNOSTIC_V1",
+        "structural_class": "B6_Q6",
+        "axes": ["Authority", "Identity", "Provenance", "Runtime", "Readback", "Governance"],
+        "polarity": ["protect", "protect", "protect", "protect", "protect", "protect"],
+        "claim_ceiling": "AUDIT_DIAGNOSTIC_ONLY",
+    },
+    "SYNTHETIC_NAMESPACE_A": {
+        "namespace_id": "SYNTHETIC_NAMESPACE_A",
+        "structural_class": "B6_Q6",
+        "axes": ["a0", "a1", "a2", "a3", "a4", "a5"],
+        "polarity": ["protect", "protect", "protect", "protect", "protect", "protect"],
+        "claim_ceiling": "SYNTHETIC_TEST_ONLY",
+    },
+    "SYNTHETIC_NAMESPACE_B": {
+        "namespace_id": "SYNTHETIC_NAMESPACE_B",
+        "structural_class": "B6_Q6",
+        "axes": ["b0", "b1", "b2", "b3", "b4", "b5"],
+        "polarity": ["protect", "protect", "protect", "protect", "protect", "protect"],
+        "claim_ceiling": "SYNTHETIC_TEST_ONLY",
+    },
 }
+REGISTERED_NAMESPACES = set(CANONICAL_NAMESPACE_SPECS)
 
 
 class Tri(str, Enum):
     PASS = "PASS"
     HOLD = "HOLD"
     DENY = "DENY"
+
+
+def _canonical_json_bytes(value: dict) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def canonical_namespace_digest(ns: dict) -> str:
+    return hashlib.sha256(_canonical_json_bytes(ns)).hexdigest()
+
+
+CANONICAL_NAMESPACE_DIGESTS = {
+    namespace_id: canonical_namespace_digest(spec)
+    for namespace_id, spec in CANONICAL_NAMESPACE_SPECS.items()
+}
 
 
 def load_namespace(path: Path) -> dict:
@@ -35,6 +75,17 @@ def validate_namespace(ns: dict) -> None:
         polarity not in {"risk", "protect", "neutral"} for polarity in ns["polarity"]
     ):
         raise ValueError("POLARITY_SCHEMA_INVALID")
+
+
+def canonical_namespace_matches_registry(ns: dict) -> bool:
+    namespace_id = ns.get("namespace_id")
+    if namespace_id not in REGISTERED_NAMESPACES:
+        return False
+    try:
+        validate_namespace(ns)
+    except (TypeError, ValueError, KeyError):
+        return False
+    return canonical_namespace_digest(ns) == CANONICAL_NAMESPACE_DIGESTS[namespace_id]
 
 
 def all_states() -> list[tuple[int, ...]]:
@@ -146,6 +197,8 @@ def check_semantic_crosswalk(
         }
     if source_id not in REGISTERED_NAMESPACES or target_id not in REGISTERED_NAMESPACES:
         return {"status": Tri.HOLD, "reason_codes": ["UNREGISTERED_NAMESPACE"]}
+    if not canonical_namespace_matches_registry(source) or not canonical_namespace_matches_registry(target):
+        return {"status": Tri.DENY, "reason_codes": ["REGISTERED_NAMESPACE_SCHEMA_MISMATCH"]}
 
     criteria = evidence.get("criteria", {})
     required = [f"C{i}" for i in range(1, 12)]
