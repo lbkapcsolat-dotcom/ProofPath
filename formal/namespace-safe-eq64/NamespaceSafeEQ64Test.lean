@@ -83,7 +83,7 @@ example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
 example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
   polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
 
-/-! Machine-checkable homology gate. -/
+/-! Machine-checkable characteristic-two homology gate. -/
 #check HomologyGate.boundary_sq_zero
 #check HomologyGate.image_subset_kernel_of_sq_zero
 #check HomologyGate.boundary_shift_preserves_cycle
@@ -93,3 +93,17 @@ example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
 #check HomologyGate.tiny_boundary_sq_zero
 #check HomologyGate.tiny_kernel_subset_image
 #check HomologyGate.local_conditions_do_not_force_global_nontriviality
+
+/-!
+General abelian lift gate. These contracts intentionally precede implementation
+so CI must first fail on missing generic theorems.
+-/
+#check HomologyGate.AbelianChainData
+#check HomologyGate.abelian_boundary_sq_zero
+#check HomologyGate.abelian_image_subset_kernel
+#check HomologyGate.abelian_boundary_shift_preserves_cycle
+#check HomologyGate.abelianHomologySetoid
+#check HomologyGate.AbelianHomologyQuotient
+#check HomologyGate.intPair_boundary_sq_zero
+#check HomologyGate.intPair_kernel_subset_image
+#check HomologyGate.abelian_local_conditions_do_not_force_global_nontriviality
