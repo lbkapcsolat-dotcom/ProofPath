@@ -17,7 +17,32 @@
         "C11": {"enum": ["PASS", "HOLD", "DENY"]}
       }
     },
-    "axis_equivalences": {"type": "array", "minItems": 0, "maxItems": 6},
-    "exact_mapping": {"type": ["array", "null"]}
+    "axis_equivalences": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target", "evidence_id"],
+        "properties": {
+          "source": {"type": "integer", "minimum": 0, "maximum": 5},
+          "target": {"type": "integer", "minimum": 0, "maximum": 5},
+          "evidence_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "exact_mapping": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0, "maximum": 5}
+        }
+      ]
+    }
   }
 }
