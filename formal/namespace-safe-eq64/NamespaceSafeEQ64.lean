@@ -33,6 +33,12 @@ abbrev State6 := Fin 6 → Bool
 abbrev AxisSchema := Fin 6 → String
 abbrev PolaritySchema := Fin 6 → Polarity
 
+structure Permutation6 where
+  toFun : Fin 6 → Fin 6
+  invFun : Fin 6 → Fin 6
+  leftInv : ∀ i, invFun (toFun i) = i
+  rightInv : ∀ i, toFun (invFun i) = i
+
 structure NamespaceSpec where
   id : NamespaceId
   axes : AxisSchema
@@ -57,7 +63,7 @@ structure SemanticEvidence where
 structure CrosswalkCandidate where
   source : NamespaceId
   target : NamespaceId
-  permutation : Equiv (Fin 6) (Fin 6)
+  permutation : Permutation6
   evidence : SemanticEvidence
 
 
