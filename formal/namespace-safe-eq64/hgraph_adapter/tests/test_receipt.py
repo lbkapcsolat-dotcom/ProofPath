@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import pathlib
 import shutil
 import tempfile
@@ -34,6 +33,8 @@ def copy_dependency_tree(source_root: pathlib.Path, destination_root: pathlib.Pa
     files = (
         "hgraph_adapter/xb18.py",
         "hgraph_adapter/receipt.py",
+        "hgraph_adapter/run_shadow_receipt.py",
+        "hgraph_adapter/verify_shadow_receipt.py",
         "hgraph_adapter/requirements.txt",
         "hgraph_adapter/tests/test_xb18.py",
         "reference/namespace_safe_engine.py",
