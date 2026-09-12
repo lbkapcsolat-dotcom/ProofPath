@@ -26,6 +26,7 @@ from hgraph_adapter.xb18 import (
 )
 
 IDENTITY = (0, 1, 2, 3, 4, 5)
+SUMMARY_SCHEMA = "HGRAPH_XB18_REAL_SHADOW_CANARY_SUMMARY_V1"
 
 
 def _load_namespace(path: Path) -> NamespaceSpec:
@@ -80,6 +81,7 @@ def main() -> int:
         verdict.structural_status != "PASS"
         or verdict.semantic_status != "HOLD"
         or verdict.claim_ceiling != "STRUCTURAL_ONLY"
+        or tuple(verdict.reason_codes) != ("NO_AXIS_LEVEL_EVIDENCE",)
         or verdict.runtime_bind is not False
     ):
         raise RuntimeError("XB18_REAL_NAMESPACE_FAIL_CLOSED_EXPECTATION_MISMATCH")
@@ -99,12 +101,27 @@ def main() -> int:
     request_path = args.output_dir / "request.json"
     verdict_path = args.output_dir / "verdict.json"
     receipt_path = args.output_dir / "receipt.json"
+    summary_path = args.output_dir / "shadow_canary_summary.json"
     _write_json(request_path, request_payload)
     _write_json(verdict_path, verdict_payload)
     receipt = build_shadow_receipt(ROOT, request_payload, verdict_payload)
     write_shadow_receipt(receipt_path, receipt)
 
+    summary = {
+        "schema": SUMMARY_SCHEMA,
+        "source_namespace": source.namespace_id,
+        "target_namespace": target.namespace_id,
+        "structural_status": verdict.structural_status,
+        "semantic_status": verdict.semantic_status,
+        "claim_ceiling": verdict.claim_ceiling,
+        "reason_codes": list(verdict.reason_codes),
+        "runtime_bind": verdict.runtime_bind,
+        "receipt_payload_sha256": receipt["payload_sha256"],
+    }
+    _write_json(summary_path, summary)
+
     print("PASS_XB18_SHADOW_RECEIPT_GENERATED")
+    print("PASS_XB18_REAL_AIPRBG_TO_ESS_SHADOW_CANARY_SUMMARY_GENERATED")
     print(f"XB18_RECEIPT_PAYLOAD_SHA256={receipt['payload_sha256']}")
     return 0
 
