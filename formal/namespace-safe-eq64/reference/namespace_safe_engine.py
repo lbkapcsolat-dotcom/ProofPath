@@ -180,6 +180,18 @@ def _axis_mapping(axis_equivalences: list[dict]) -> tuple[int, ...] | None:
     return tuple(by_source[i] for i in range(6))
 
 
+def _axis_evidence_reference_error(axis_equivalences: list[dict]) -> str | None:
+    refs: list[str] = []
+    for item in axis_equivalences:
+        ref = item.get("evidence_id")
+        if not isinstance(ref, str) or not ref.strip():
+            return "C7_EVIDENCE_REFERENCE_INVALID"
+        refs.append(ref.strip())
+    if len(set(refs)) != len(refs):
+        return "C7_EVIDENCE_REFERENCE_NOT_INDEPENDENT"
+    return None
+
+
 def check_semantic_crosswalk(
     source: dict,
     target: dict,
@@ -211,9 +223,15 @@ def check_semantic_crosswalk(
     if denied:
         return {"status": Tri.DENY, "reason_codes": [_criterion_reason(denied[0])]}
 
-    derived_mapping = _axis_mapping(evidence.get("axis_equivalences", []))
+    axis_equivalences = evidence.get("axis_equivalences", [])
+    derived_mapping = _axis_mapping(axis_equivalences)
     if criteria["C7"] != "PASS" or derived_mapping is None:
         return {"status": Tri.HOLD, "reason_codes": ["NO_AXIS_LEVEL_EVIDENCE"]}
+
+    c7_error = _axis_evidence_reference_error(axis_equivalences)
+    if c7_error is not None:
+        return {"status": Tri.DENY, "reason_codes": [c7_error]}
+
     if any(criteria[key] != "PASS" for key in required):
         return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
 
