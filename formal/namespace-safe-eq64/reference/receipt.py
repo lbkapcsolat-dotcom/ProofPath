@@ -95,3 +95,32 @@ def readback_receipt(path: Path) -> dict:
     if actual != claimed:
         raise ValueError("PAYLOAD_SHA256_MISMATCH")
     return receipt
+
+
+def verify_receipt_dependencies(
+    root: Path,
+    source_path: Path,
+    target_path: Path,
+    evidence_path: Path,
+    result_path: Path,
+    receipt_path: Path,
+) -> dict:
+    """Freshly rehash every dependency bound into a persisted receipt.
+
+    The receipt is first validated and self-rehashed, then each dependency is
+    read again from disk. Any byte-level mutation after receipt creation fails
+    closed with the exact dependency field that diverged.
+    """
+    receipt = readback_receipt(receipt_path)
+    expected = {
+        "fixture_sha256": hash_bundle([source_path.read_bytes(), target_path.read_bytes()]),
+        "evidence_sha256": sha256_bytes(evidence_path.read_bytes()),
+        "engine_sha256": sha256_bytes((root / "reference" / "namespace_safe_engine.py").read_bytes()),
+        "runner_sha256": sha256_bytes((root / "reference" / "permutation_canary_720.py").read_bytes()),
+        "receipt_builder_sha256": sha256_bytes((root / "reference" / "receipt.py").read_bytes()),
+        "result_sha256": sha256_bytes(result_path.read_bytes()),
+    }
+    for field, actual in expected.items():
+        if receipt[field] != actual:
+            raise ValueError(f"DEPENDENCY_SHA256_MISMATCH:{field}")
+    return receipt
