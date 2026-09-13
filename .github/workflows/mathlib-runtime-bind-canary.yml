@@ -60,8 +60,32 @@ jobs:
           test "$(cat runtime-oracle-positive.json)" = "$expected_positive"
           test "$(cat runtime-oracle-negative.json)" = "$expected_negative"
 
-      - name: Run RED exact-engine replay receipt contract
+      - name: Run exact-engine replay receipt unit contract
         working-directory: formal/namespace-safe-eq64
         run: |
           set -euo pipefail
           python3 -m unittest runtime.test_runtime_bind_canary -v
+
+      - name: Run exact-engine replay receipt gate
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/mathlib-runtime-bind-canary"
+          rm -rf "$artifact_dir"
+
+          python3 runtime/runtime_bind_canary.py --output-dir "$artifact_dir" | tee "$RUNNER_TEMP/mathlib-runtime-bind-canary-summary.json"
+
+          cmp "$artifact_dir/positive-a.json" "$artifact_dir/positive-b.json"
+          cmp "$artifact_dir/receipt-a.json" "$artifact_dir/receipt-b.json"
+          cmp "$artifact_dir/receipt-a.json" "$artifact_dir/receipt.json"
+
+          printf '%s\n' 'FRESH_ARTIFACT_SHA256_READBACK'
+          sha256sum \
+            "$artifact_dir/engine-manifest.json" \
+            "$artifact_dir/witness.json" \
+            "$artifact_dir/positive-a.json" \
+            "$artifact_dir/negative.json" \
+            "$artifact_dir/positive-b.json" \
+            "$artifact_dir/receipt-a.json" \
+            "$artifact_dir/receipt-b.json" \
+            "$artifact_dir/receipt.json"
