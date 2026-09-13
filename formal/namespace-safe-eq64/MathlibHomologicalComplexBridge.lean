@@ -116,6 +116,153 @@ theorem mathlib_degree_boundary_iff
     rw [mathlib_chain_d_succ_apply K n]
     exact hy
 
+/-- For a natural-number chain complex, mathlib's next index is exactly `pred`. -/
+private theorem mathlib_chain_next_eq_pred (n : Nat) :
+    (ComplexShape.down Nat).next n = Nat.pred n := by
+  cases n with
+  | zero => exact ChainComplex.next_nat_zero
+  | succ n => simpa [Nat.succ_eq_add_one] using ChainComplex.next_nat_succ n
+
+/-- The explicit three-object short complex used to compute degree-`n` homology. -/
+private abbrev mathlibDegreeShortComplex
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) : ShortComplex Ab.{u} :=
+  (mathlibChainComplex K).sc' (Nat.succ n) n (Nat.pred n)
+
+/-- The explicit additive quotient underlying mathlib's degree-`n` homology. -/
+private abbrev mathlibDegreeExplicitHomology
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :=
+  (AddMonoidHom.ker (mathlibDegreeShortComplex K n).g.hom) ⧸
+    AddMonoidHom.range (mathlibDegreeShortComplex K n).abToCycles
+
+/-- A custom cycle, viewed as an element of mathlib's explicit kernel. -/
+private def mathlibDegreeKernelCycle
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) (x : NatCycle K n) :
+    AddMonoidHom.ker (mathlibDegreeShortComplex K n).g.hom := by
+  refine ⟨x.1, ?_⟩
+  change (ConcreteCategory.hom ((mathlibChainComplex K).d n (Nat.pred n))) x.1 = 0
+  exact (mathlib_degree_cycle_iff K n x.1).2 x.2
+
+/--
+The quotient map from our setoid presentation to mathlib's explicit
+`ker dₙ / range dₙ₊₁` presentation.
+-/
+private noncomputable def mathlibDegreeExplicitMap
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    NatHomologyQuotient K n → mathlibDegreeExplicitHomology K n :=
+  Quotient.lift
+    (fun x => QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n x))
+    (by
+      intro x y hxy
+      apply (QuotientAddGroup.mk'_eq_mk').2
+      rcases hxy with ⟨b, hb⟩
+      let z := (mathlibDegreeShortComplex K n).abToCycles b
+      refine ⟨z, ?_, ?_⟩
+      · exact ⟨b, rfl⟩
+      · apply Subtype.ext
+        change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1
+        rw [mathlib_chain_d_succ_apply K n]
+        exact hb.symm)
+
+private theorem mathlibDegreeExplicitMap_surjective
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    Function.Surjective (mathlibDegreeExplicitMap K n) := by
+  intro q
+  obtain ⟨z, rfl⟩ := QuotientAddGroup.mk'_surjective _ q
+  have hz := z.2
+  change (ConcreteCategory.hom ((mathlibChainComplex K).d n (Nat.pred n))) z.1 = 0 at hz
+  let x : NatCycle K n := ⟨z.1, (mathlib_degree_cycle_iff K n z.1).1 hz⟩
+  refine ⟨Quotient.mk (natHomologySetoid K n) x, ?_⟩
+  change QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n x) =
+    QuotientAddGroup.mk' _ z
+  apply congrArg (QuotientAddGroup.mk' _)
+  apply Subtype.ext
+  rfl
+
+private theorem mathlibDegreeExplicitMap_injective
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    Function.Injective (mathlibDegreeExplicitMap K n) := by
+  intro q₁ q₂
+  refine Quotient.inductionOn₂ q₁ q₂ ?_
+  intro x y h
+  change QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n x) =
+    QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n y) at h
+  rcases (QuotientAddGroup.mk'_eq_mk').1 h with ⟨z, hz, hxy⟩
+  rcases hz with ⟨b, rfl⟩
+  apply Quotient.sound
+  change NatHomologous K n x y
+  refine ⟨b, ?_⟩
+  have hval := congrArg (fun t => t.1) hxy
+  change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1 at hval
+  rw [mathlib_chain_d_succ_apply K n] at hval
+  exact hval.symm
+
+/-- Mathlib's abstract degree-`n` homology, identified with the explicit quotient. -/
+private noncomputable def mathlibDegreeHomologyIsoToExplicit
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    (mathlibChainComplex K).homology n ≅
+      AddCommGrpCat.of (mathlibDegreeExplicitHomology K n) :=
+  (mathlibChainComplex K).homologyIsoSc'
+      (Nat.succ n) n (Nat.pred n)
+      (by simpa [Nat.succ_eq_add_one] using ChainComplex.prev Nat n)
+      (mathlib_chain_next_eq_pred n) ≪≫
+    (mathlibDegreeShortComplex K n).abHomologyIso
+
+/--
+Canonical map from the custom degreewise quotient into mathlib's standard
+homology object. It factors through mathlib's own explicit kernel/range quotient.
+-/
+noncomputable def mathlibDegreeHomologyMap
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    NatHomologyQuotient K n → ((mathlibChainComplex K).homology n : Type u) :=
+  fun q => (mathlibDegreeHomologyIsoToExplicit K n).inv
+    (mathlibDegreeExplicitMap K n q)
+
+/-- Every standard mathlib homology class comes from a custom quotient class. -/
+theorem mathlibDegreeHomologyMap_surjective
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    Function.Surjective (mathlibDegreeHomologyMap K n) := by
+  intro h
+  obtain ⟨q, hq⟩ := mathlibDegreeExplicitMap_surjective K n
+    ((mathlibDegreeHomologyIsoToExplicit K n).hom h)
+  refine ⟨q, ?_⟩
+  change (mathlibDegreeHomologyIsoToExplicit K n).inv
+      (mathlibDegreeExplicitMap K n q) = h
+  rw [hq]
+  simp
+
+/-- Equality of mapped classes is exactly equality in the custom quotient. -/
+theorem mathlibDegreeHomologyMap_eq_iff
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat)
+    (q₁ q₂ : NatHomologyQuotient K n) :
+    mathlibDegreeHomologyMap K n q₁ = mathlibDegreeHomologyMap K n q₂ ↔ q₁ = q₂ := by
+  constructor
+  · intro h
+    apply mathlibDegreeExplicitMap_injective K n
+    have h' := congrArg
+      (fun z => (mathlibDegreeHomologyIsoToExplicit K n).hom z) h
+    simpa [mathlibDegreeHomologyMap] using h'
+  · intro h
+    exact congrArg (mathlibDegreeHomologyMap K n) h
+
+/-- The custom quotient is equivalent to mathlib's standard degree-`n` homology. -/
+noncomputable def mathlibDegreeHomologyEquiv
+    {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
+    (K : NatIndexedChainData C) (n : Nat) :
+    NatHomologyQuotient K n ≃ ((mathlibChainComplex K).homology n : Type u) :=
+  Equiv.ofBijective (mathlibDegreeHomologyMap K n)
+    ⟨(fun q₁ q₂ h => (mathlibDegreeHomologyMap_eq_iff K n q₁ q₂).1 h),
+      mathlibDegreeHomologyMap_surjective K n⟩
+
 end
 
 end HomologyGate
