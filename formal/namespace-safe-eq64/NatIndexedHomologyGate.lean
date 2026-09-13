@@ -72,7 +72,7 @@ theorem nat_boundary_shift_preserves_cycle
       change K.boundary n x = 0 at hx
       change K.boundary n (x + K.boundary (Nat.succ n) b) = 0
       rw [map_add, hx]
-      exact K.boundary_sq n b
+      simpa using K.boundary_sq n b
 
 /-- Degree-`n` cycles as a subtype. -/
 def NatCycle
