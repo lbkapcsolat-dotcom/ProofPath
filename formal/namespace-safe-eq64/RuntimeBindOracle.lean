@@ -36,9 +36,10 @@ def degreeOneCycle (x : Z4) : NatCycle witnessChain 1 :=
   ⟨x, by simp [NatInKernel, natDegreeBoundary, witnessChain, z4Boundary]⟩
 
 /-- Executable finite decision of the custom homology relation at degree 1.
-It enumerates every possible boundary witness in the exact finite carrier. -/
+The frozen representative list exhausts `ZMod 4`, so this searches every
+possible boundary witness in the exact custom relation. -/
 def customClassEq (a b : Z4) : Bool :=
-  (Finset.univ : Finset Z4).any fun t =>
+  representatives.any fun t =>
     decide (b = a + witnessChain.boundary 1 t)
 
 def customMatrix : List (List Bool) :=
