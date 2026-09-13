@@ -164,9 +164,9 @@ private noncomputable def mathlibDegreeExplicitMap
       refine ⟨z, ?_, ?_⟩
       · exact ⟨b, rfl⟩
       · apply Subtype.ext
-        have hb' : x.1 + K.boundary n b = y.1 := hb.symm
-        simpa [z, mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
-          mathlib_chain_d_succ_apply] using hb')
+        change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1
+        rw [mathlib_chain_d_succ_apply K n]
+        exact hb.symm)
 
 private theorem mathlibDegreeExplicitMap_surjective
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
@@ -201,8 +201,9 @@ private theorem mathlibDegreeExplicitMap_injective
   refine ⟨b, ?_⟩
   have hval := congrArg (fun t => t.1) hxy
   have hval' : x.1 + K.boundary n b = y.1 := by
-    simpa [mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
-      mathlib_chain_d_succ_apply] using hval
+    change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1 at hval
+    rw [mathlib_chain_d_succ_apply K n] at hval
+    exact hval
   exact hval'.symm
 
 /-- Mathlib's abstract degree-`n` homology, identified with the explicit quotient. -/
