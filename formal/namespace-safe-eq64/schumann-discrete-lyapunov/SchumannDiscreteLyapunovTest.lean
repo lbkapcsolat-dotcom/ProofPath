@@ -80,3 +80,22 @@ example
         < omega^2 * x1^2 + x2^2 :=
   schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certificate
     hdt homega hzeta hr1 hJury hLyap hx
+
+#check discrete_lyapunov_general_2d_jury_schur_exists_certificate
+
+example {a b c d : ℝ}
+    (hj1 : 0 < 1 - (a + d) + (a * d - b * c))
+    (hj2 : 0 < 1 + (a + d) + (a * d - b * c))
+    (hj3 : a * d - b * c < 1) :
+    ∃ p q r : ℝ,
+      0 < p ∧
+      0 < p * r - q^2 ∧
+      p - (p * a^2 + 2 * q * a * c + r * c^2) = 1 ∧
+      q - (p * a * b + q * (a * d + c * b) + r * c * d) = 0 ∧
+      r - (p * b^2 + 2 * q * b * d + r * d^2) = 1 ∧
+      ∀ x1 x2 : ℝ, x1 ≠ 0 ∨ x2 ≠ 0 →
+        p * (a * x1 + b * x2)^2 +
+            2 * q * (a * x1 + b * x2) * (c * x1 + d * x2) +
+            r * (c * x1 + d * x2)^2
+          < p * x1^2 + 2 * q * x1 * x2 + r * x2^2 :=
+  discrete_lyapunov_general_2d_jury_schur_exists_certificate hj1 hj2 hj3
