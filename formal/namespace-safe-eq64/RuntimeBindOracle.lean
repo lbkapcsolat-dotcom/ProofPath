@@ -35,8 +35,11 @@ def expectedMatrix : List (List Bool) :=
 def degreeOneCycle (x : Z4) : NatCycle witnessChain 1 :=
   ⟨x, by simp [NatInKernel, natDegreeBoundary, witnessChain, z4Boundary]⟩
 
+/-- Executable finite decision of the custom homology relation at degree 1.
+It enumerates every possible boundary witness in the exact finite carrier. -/
 def customClassEq (a b : Z4) : Bool :=
-  decide (NatHomologous witnessChain 1 (degreeOneCycle a) (degreeOneCycle b))
+  (Finset.univ : Finset Z4).any fun t =>
+    decide (b = a + witnessChain.boundary 1 t)
 
 def customMatrix : List (List Bool) :=
   representatives.map fun a => representatives.map fun b => customClassEq a b
