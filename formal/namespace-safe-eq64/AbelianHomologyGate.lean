@@ -92,7 +92,7 @@ private theorem abelianHomologous_symm
   rcases h with ⟨b, hb⟩
   refine ⟨-b, ?_⟩
   rw [hb, map_neg]
-  abel
+  simp [add_assoc]
 
 private theorem abelianHomologous_trans
     {C₂ : Type u₂} {C₁ : Type u₁} {C₀ : Type u₀}
@@ -103,8 +103,7 @@ private theorem abelianHomologous_trans
   rcases hxy with ⟨a, ha⟩
   rcases hyz with ⟨b, hb⟩
   refine ⟨a + b, ?_⟩
-  rw [hb, ha, map_add]
-  abel
+  rw [hb, ha, map_add, add_assoc]
 
 /-- Generic gate 2b: the boundary relation is a setoid on cycles. -/
 def abelianHomologySetoid
