@@ -188,4 +188,163 @@ theorem schumann_discrete_lyapunov_2d_matrix_strict_decay_certificate
   · rw [hdelta] at hDpos
     linarith
 
+/--
+Jury's three strict inequalities for a real monic quadratic imply that every
+complex root, represented by real and imaginary coordinates, lies strictly
+inside the unit disk.
+-/
+theorem quadratic_schur_stable_of_jury
+    {trace det : ℝ}
+    (hj1 : 0 < 1 - trace + det)
+    (hj2 : 0 < 1 + trace + det)
+    (hj3 : det < 1) :
+    ∀ xr xi : ℝ,
+      xr^2 - xi^2 - trace * xr + det = 0 →
+      (2 * xr - trace) * xi = 0 →
+      xr^2 + xi^2 < 1 := by
+  intro xr xi hre him
+  by_cases hxi : xi = 0
+  · subst xi
+    simp at hre ⊢
+    have hxrlt : xr < 1 := by
+      by_contra hnot
+      have hxr1 : 1 ≤ xr := le_of_not_gt hnot
+      have hfac : 0 < (1 - xr) * (1 + xr - trace) := by
+        nlinarith [hre, hj1]
+      rcases (mul_pos_iff.mp hfac) with hpos | hneg
+      · nlinarith [hpos.1]
+      · have hprod : 0 ≤ (xr - 1) * (trace - xr) :=
+          mul_nonneg (sub_nonneg.mpr hxr1) (by linarith [hneg.2])
+        nlinarith [hre, hj3, hneg.2, hprod]
+    have hxrgt : -1 < xr := by
+      by_contra hnot
+      have hxrle : xr ≤ -1 := le_of_not_gt hnot
+      have hfac : 0 < (1 + xr) * (1 - xr + trace) := by
+        nlinarith [hre, hj2]
+      rcases (mul_pos_iff.mp hfac) with hpos | hneg
+      · nlinarith [hpos.1]
+      · have hprod : 0 ≤ (-xr - 1) * (xr - trace) :=
+          mul_nonneg (by linarith [hxrle]) (by linarith [hneg.2])
+        nlinarith [hre, hj3, hneg.2, hprod]
+    have hunit : 0 < (1 - xr) * (1 + xr) :=
+      mul_pos (by linarith) (by linarith)
+    nlinarith [hunit]
+  · have hcoef : 2 * xr - trace = 0 := by
+      rcases mul_eq_zero.mp him with hcoef | hzero
+      · exact hcoef
+      · exact False.elim (hxi hzero)
+    nlinarith [hre, hj3]
+
+/--
+For the semi-implicit discretization of the damped oscillator
+
+`v⁺ = (1 - 2 ζω Δt) v - Δt ω² x`
+`x⁺ = x + Δt v⁺`,
+
+the explicit state matrix is tied to `(Δt, ω, ζ)`. Under transparent strict
+step-size certificates, the characteristic quadratic is Schur stable and the
+constructive choice `P = diag(ω², 1)` satisfies `P - Aᵀ P A ≻ 0`, giving
+strict one-step Lyapunov decay away from the origin.
+-/
+theorem schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certificate
+    {dt omega zeta x1 x2 : ℝ}
+    (hdt : 0 < dt)
+    (homega : 0 < omega)
+    (hzeta : 0 < zeta)
+    (hr1 : dt * omega < 1)
+    (hJury : (dt * omega)^2 + 4 * zeta * (dt * omega) < 4)
+    (hLyap : (dt * omega) * (4 * zeta^2 + 1) < 4 * zeta)
+    (hx : x1 ≠ 0 ∨ x2 ≠ 0) :
+    (∀ xr xi : ℝ,
+      xr^2 - xi^2 -
+          (2 - (dt * omega)^2 - 2 * zeta * (dt * omega)) * xr +
+          (1 - 2 * zeta * (dt * omega)) = 0 →
+      (2 * xr - (2 - (dt * omega)^2 - 2 * zeta * (dt * omega))) * xi = 0 →
+      xr^2 + xi^2 < 1) ∧
+    0 < omega^2 * x1^2 + x2^2 ∧
+      omega^2 *
+          ((1 - (dt * omega)^2) * x1 +
+            dt * (1 - 2 * zeta * dt * omega) * x2)^2 +
+        (-dt * omega^2 * x1 + (1 - 2 * zeta * dt * omega) * x2)^2
+        < omega^2 * x1^2 + x2^2 := by
+  let r : ℝ := dt * omega
+  let trace : ℝ := 2 - r^2 - 2 * zeta * r
+  let det : ℝ := 1 - 2 * zeta * r
+  let a11 : ℝ := 1 - r^2
+  let a12 : ℝ := dt * (1 - 2 * zeta * r)
+  let a21 : ℝ := -dt * omega^2
+  let a22 : ℝ := 1 - 2 * zeta * r
+  have hrpos : 0 < r := by
+    simpa [r] using mul_pos hdt homega
+  have hr2pos : 0 < r^2 := by
+    have hmul : 0 < r * r := mul_pos hrpos hrpos
+    nlinarith
+  have hj1 : 0 < 1 - trace + det := by
+    dsimp [trace, det]
+    nlinarith [hr2pos]
+  have hj2 : 0 < 1 + trace + det := by
+    dsimp [trace, det]
+    simpa [r] using hJury
+  have hzrp : 0 < 2 * zeta * r := by
+    positivity
+  have hj3 : det < 1 := by
+    dsimp [det]
+    linarith
+  have hschur := quadratic_schur_stable_of_jury hj1 hj2 hj3
+  have hp11 : 0 < omega^2 := by
+    positivity
+  have hpdet : 0 < omega^2 * (1 : ℝ) - 0^2 := by
+    positivity
+  have hOneMinusRSq : 0 < 1 - r^2 := by
+    have hplus : 0 < 1 + r := by
+      linarith
+    have hprod : 0 < (1 - r) * (1 + r) :=
+      mul_pos (sub_pos.mpr (by simpa [r] using hr1)) hplus
+    nlinarith [hprod]
+  have hD11 :
+      0 < omega^2 -
+        (omega^2 * a11^2 + 2 * 0 * a11 * a21 + (1 : ℝ) * a21^2) := by
+    have hfactor :
+        omega^2 -
+            (omega^2 * a11^2 + 2 * 0 * a11 * a21 + (1 : ℝ) * a21^2) =
+          dt^2 * omega^4 * (1 - r^2) := by
+      dsimp [a11, a21, r]
+      ring
+    rw [hfactor]
+    positivity
+  have hgap : 0 < 4 * zeta - r * (4 * zeta^2 + 1) := by
+    simpa [r] using sub_pos.mpr hLyap
+  have hDdet :
+      0 <
+        (omega^2 -
+            (omega^2 * a11^2 + 2 * 0 * a11 * a21 + (1 : ℝ) * a21^2)) *
+          ((1 : ℝ) -
+            (omega^2 * a12^2 + 2 * 0 * a12 * a22 + (1 : ℝ) * a22^2)) -
+        (0 -
+          (omega^2 * a11 * a12 + 0 * (a11 * a22 + a21 * a12) +
+            (1 : ℝ) * a21 * a22))^2 := by
+    have hfactor :
+        (omega^2 -
+            (omega^2 * a11^2 + 2 * 0 * a11 * a21 + (1 : ℝ) * a21^2)) *
+          ((1 : ℝ) -
+            (omega^2 * a12^2 + 2 * 0 * a12 * a22 + (1 : ℝ) * a22^2)) -
+        (0 -
+          (omega^2 * a11 * a12 + 0 * (a11 * a22 + a21 * a12) +
+            (1 : ℝ) * a21 * a22))^2 =
+          dt^3 * omega^5 * (4 * zeta - r * (4 * zeta^2 + 1)) := by
+      dsimp [a11, a12, a21, a22, r]
+      ring
+    rw [hfactor]
+    positivity
+  have hstrict :=
+    schumann_discrete_lyapunov_2d_matrix_strict_decay_certificate
+      (a11 := a11) (a12 := a12) (a21 := a21) (a22 := a22)
+      (p11 := omega^2) (p12 := 0) (p22 := 1)
+      (x1 := x1) (x2 := x2) hp11 hpdet hD11 hDdet hx
+  constructor
+  · simpa [trace, det, r] using hschur
+  · constructor
+    · simpa [a11, a12, a21, a22, r] using hstrict.1
+    · simpa [a11, a12, a21, a22, r] using hstrict.2
+
 end SchumannDiscreteLyapunovGate
