@@ -36,3 +36,26 @@ jobs:
         run: |
           set -euo pipefail
           ~/.elan/bin/lake env lean RuntimeBindOracleTest.lean
+
+      - name: Execute positive and negative oracle with exact readback
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+
+          expected_positive='{"schema":"MATHLIB_RUNTIME_ORACLE_V1","witness":"ZMOD4_H1_BOUNDARY_TIMES_2","degree":1,"representatives":[0,1,2,3],"custom_class_equality":[[true,false,true,false],[false,true,false,true],[true,false,true,false],[false,true,false,true]],"mathlib_class_equality":[[true,false,true,false],[false,true,false,true],[true,false,true,false],[false,true,false,true]],"class_equal":true,"negative_control":false}'
+          expected_negative='{"schema":"MATHLIB_RUNTIME_ORACLE_V1","witness":"ZMOD4_H1_BOUNDARY_TIMES_2","degree":1,"representatives":[0,1,2,3],"custom_class_equality":[[true,false,true,false],[false,true,false,true],[true,false,true,false],[false,true,false,true]],"mathlib_class_equality":[[true,false,false,false],[false,true,false,false],[false,false,true,false],[false,false,false,true]],"class_equal":false,"negative_control":true}'
+
+          positive="$(~/.elan/bin/lake exe runtimeBindOracle)"
+          negative="$(~/.elan/bin/lake exe runtimeBindOracle -- --negative-control)"
+
+          printf 'POSITIVE_READBACK=%s\n' "$positive"
+          printf 'NEGATIVE_READBACK=%s\n' "$negative"
+
+          test "$positive" = "$expected_positive"
+          test "$negative" = "$expected_negative"
+
+          printf '%s\n' "$positive" > runtime-oracle-positive.json
+          printf '%s\n' "$negative" > runtime-oracle-negative.json
+
+          test "$(cat runtime-oracle-positive.json)" = "$expected_positive"
+          test "$(cat runtime-oracle-negative.json)" = "$expected_negative"
