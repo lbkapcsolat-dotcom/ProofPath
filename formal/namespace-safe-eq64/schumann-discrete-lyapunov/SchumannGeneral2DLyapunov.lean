@@ -72,14 +72,12 @@ theorem discrete_lyapunov_general_2d_jury_schur_exists_certificate
       eta = delta^2 * (((1 + delta)^2 - t^2) / (1 + delta)^2) := by
     dsimp [eta, k]
     field_simp [ne_of_gt hOnePlus]
-    ring
   have heta : 0 ≤ eta := by
     rw [hetaIdentity]
     exact mul_nonneg (sq_nonneg delta) (le_of_lt hratio)
   have hbeta : beta = -gamma * k := by
     dsimp [beta, gamma, k]
     field_simp [hdenne, ne_of_gt hOnePlus]
-    ring
 
   have hquadIdentity (x1 x2 : ℝ) :
       p * x1^2 + 2 * q * x1 * x2 + r * x2^2 =
