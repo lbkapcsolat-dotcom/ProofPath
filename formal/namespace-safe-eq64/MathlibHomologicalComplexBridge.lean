@@ -40,12 +40,15 @@ theorem mathlib_chain_d_succ_apply
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
     (K : NatIndexedChainData C) (n : Nat) (x : C (Nat.succ n)) :
     (mathlibChainComplex K).d (Nat.succ n) n x = K.boundary n x := by
-  change (ConcreteCategory.hom
-    (ChainComplex.of.d
+  have hd :
+      (mathlibChainComplex K).d (Nat.succ n) n =
+        AddCommGrpCat.ofHom (K.boundary n) := by
+    change ChainComplex.of.d
       (fun n => AddCommGrpCat.of (C n))
       (fun n => AddCommGrpCat.ofHom (K.boundary n))
-      (Nat.succ n) n)) x = K.boundary n x
-  simpa only [ChainComplex.of_d]
+      (Nat.succ n) n = AddCommGrpCat.ofHom (K.boundary n)
+    exact ChainComplex.of_d _ _ n
+  exact ConcreteCategory.congr_hom hd x
 
 /-- Every differential forbidden by `ComplexShape.down Nat` is zero. -/
 theorem mathlib_chain_d_nonrel_eq_zero
@@ -76,12 +79,16 @@ theorem mathlib_degree_cycle_iff
         natDegreeBoundary K 0 x = 0
       have hd : (mathlibChainComplex K).d 0 0 = 0 :=
         mathlib_chain_d_nonrel_eq_zero K 0 0 (by simp [ComplexShape.down])
+      have hdx :
+          (ConcreteCategory.hom ((mathlibChainComplex K).d 0 0)) x =
+            (ConcreteCategory.hom
+              (0 : (mathlibChainComplex K).X 0 ⟶ (mathlibChainComplex K).X 0)) x :=
+        ConcreteCategory.congr_hom hd x
       constructor
       · intro _
         rfl
       · intro _
-        have hx := ConcreteCategory.congr_hom hd x
-        simpa using hx
+        exact hdx
   | succ n =>
       change (mathlibChainComplex K).d (Nat.succ n) n x = 0 ↔
         K.boundary n x = 0
