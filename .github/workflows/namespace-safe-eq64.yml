@@ -35,7 +35,16 @@ jobs:
           test: false
           lint: false
           use-github-cache: false
-          use-mathlib-cache: false
+          use-mathlib-cache: true
+
+      - name: Verify pinned mathlib revision
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          EXPECTED_MATHLIB_REV='0df444a360eaa60ab8c11dca51a86af692955474'
+          ACTUAL_MATHLIB_REV="$(git -C .lake/packages/mathlib rev-parse HEAD)"
+          test "$ACTUAL_MATHLIB_REV" = "$EXPECTED_MATHLIB_REV"
+          echo "PASS_MATHLIB_PIN=$ACTUAL_MATHLIB_REV"
 
       - name: Compile theorem harness and reject proof escapes
         working-directory: formal/namespace-safe-eq64
