@@ -61,16 +61,20 @@ theorem schumann_discrete_lyapunov_n_step_geometric_decay_certificate
         (schumann_discrete_lyapunov_bound_certificate
           (e := rho^n * e0) (rho := rho) (q := q) hq0 hq1 hrho).1
       have hqSq : 0 ≤ q^2 := sq_nonneg q
+      have hfactor : rho^(Nat.succ n) * e0 = rho * (rho^n * e0) := by
+        rw [pow_succ]
+        ring
+      have hqfactor : q^(2 * Nat.succ n) = q^2 * q^(2 * n) := by
+        rw [Nat.mul_succ, pow_add]
+        ring
       calc
         (rho^(Nat.succ n) * e0)^2 = (rho * (rho^n * e0))^2 := by
-          rw [pow_succ]
-          ring
+          rw [hfactor]
         _ ≤ q^2 * (rho^n * e0)^2 := hstep
         _ ≤ q^2 * (q^(2 * n) * e0^2) :=
           mul_le_mul_of_nonneg_left ih hqSq
         _ = q^(2 * Nat.succ n) * e0^2 := by
-          rw [Nat.mul_succ]
-          rw [pow_add]
+          rw [hqfactor]
           ring
 
 end SchumannDiscreteLyapunovGate
