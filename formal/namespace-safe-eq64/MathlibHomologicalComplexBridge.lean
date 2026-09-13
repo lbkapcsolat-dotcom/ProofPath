@@ -165,7 +165,7 @@ private noncomputable def mathlibDegreeExplicitMap
       · exact ⟨b, rfl⟩
       · apply Subtype.ext
         have hb' : x.1 + K.boundary n b = y.1 := hb.symm
-        simpa only [mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
+        simpa [z, mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
           mathlib_chain_d_succ_apply] using hb')
 
 private theorem mathlibDegreeExplicitMap_surjective
@@ -201,7 +201,7 @@ private theorem mathlibDegreeExplicitMap_injective
   refine ⟨b, ?_⟩
   have hval := congrArg (fun t => t.1) hxy
   have hval' : x.1 + K.boundary n b = y.1 := by
-    simpa only [mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
+    simpa [mathlibDegreeKernelCycle, ShortComplex.abToCycles_apply_coe,
       mathlib_chain_d_succ_apply] using hval
   exact hval'.symm
 
