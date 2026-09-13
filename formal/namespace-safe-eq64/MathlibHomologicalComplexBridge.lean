@@ -157,7 +157,8 @@ private noncomputable def mathlibDegreeExplicitMap
     (fun x => QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n x))
     (by
       intro x y hxy
-      apply (QuotientAddGroup.mk'_eq_mk').2
+      apply (QuotientAddGroup.mk'_eq_mk'
+        (AddMonoidHom.range (mathlibDegreeShortComplex K n).abToCycles)).2
       rcases hxy with ⟨b, hb⟩
       let z := (mathlibDegreeShortComplex K n).abToCycles b
       refine ⟨z, ?_, ?_⟩
@@ -192,7 +193,8 @@ private theorem mathlibDegreeExplicitMap_injective
   intro x y h
   change QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n x) =
     QuotientAddGroup.mk' _ (mathlibDegreeKernelCycle K n y) at h
-  rcases (QuotientAddGroup.mk'_eq_mk').1 h with ⟨z, hz, hxy⟩
+  rcases (QuotientAddGroup.mk'_eq_mk'
+    (AddMonoidHom.range (mathlibDegreeShortComplex K n).abToCycles)).1 h with ⟨z, hz, hxy⟩
   rcases hz with ⟨b, rfl⟩
   apply Quotient.sound
   change NatHomologous K n x y
