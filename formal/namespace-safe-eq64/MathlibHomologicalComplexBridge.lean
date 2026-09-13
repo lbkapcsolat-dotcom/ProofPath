@@ -48,11 +48,10 @@ theorem mathlib_chain_d_succ_apply
       (fun n => AddCommGrpCat.ofHom (K.boundary n))
       (Nat.succ n) n = AddCommGrpCat.ofHom (K.boundary n)
     exact ChainComplex.of_d _ _ n
-  calc
-    (mathlibChainComplex K).d (Nat.succ n) n x =
-        (AddCommGrpCat.ofHom (K.boundary n)) x :=
-      ConcreteCategory.congr_hom hd x
-    _ = K.boundary n x := rfl
+  change (ConcreteCategory.hom ((mathlibChainComplex K).d (Nat.succ n) n)) x =
+    K.boundary n x
+  rw [hd]
+  rfl
 
 /-- Every differential forbidden by `ComplexShape.down Nat` is zero. -/
 theorem mathlib_chain_d_nonrel_eq_zero
