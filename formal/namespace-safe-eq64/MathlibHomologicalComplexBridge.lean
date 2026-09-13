@@ -15,32 +15,18 @@ noncomputable section
 /--
 The standard mathlib chain complex associated to our natural-number indexed
 additive chain data. The carrier in degree `n` is `C n`, bundled as an
-abelian group, and the only potentially nonzero differential is
-`d (n+1) n = K.boundary n`.
+abelian group, and `d (n+1) n = K.boundary n`.
 -/
 def mathlibChainComplex
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
-    (K : NatIndexedChainData C) : ChainComplex Ab.{u} Nat where
-  X n := AddCommGrpCat.of (C n)
-  d i j := by
-    by_cases h : j + 1 = i
-    · subst i
-      exact AddCommGrpCat.ofHom (K.boundary j)
-    · exact 0
-  shape := by
-    intro i j hrel
-    dsimp
-    by_cases h : j + 1 = i
-    · exact (hrel h).elim
-    · rfl
-  d_comp_d' := by
-    intro i j k hij hjk
-    change j + 1 = i at hij
-    change k + 1 = j at hjk
-    subst i
-    subst j
-    ext x
-    simp [K.boundary_sq]
+    (K : NatIndexedChainData C) : ChainComplex Ab.{u} Nat :=
+  ChainComplex.of
+    (fun n => AddCommGrpCat.of (C n))
+    (fun n => AddCommGrpCat.ofHom (K.boundary n))
+    (by
+      intro n
+      ext x
+      exact K.boundary_sq n x)
 
 /-- The underlying degree-`n` object is exactly the original carrier. -/
 theorem mathlib_chain_X_coe
@@ -54,7 +40,12 @@ theorem mathlib_chain_d_succ_apply
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
     (K : NatIndexedChainData C) (n : Nat) (x : C (Nat.succ n)) :
     (mathlibChainComplex K).d (Nat.succ n) n x = K.boundary n x := by
-  simp [mathlibChainComplex]
+  change (ChainComplex.of.d
+    (fun n => AddCommGrpCat.of (C n))
+    (fun n => AddCommGrpCat.ofHom (K.boundary n))
+    (Nat.succ n) n) x = K.boundary n x
+  rw [ChainComplex.of_d]
+  rfl
 
 /-- Every differential forbidden by `ComplexShape.down Nat` is zero. -/
 theorem mathlib_chain_d_nonrel_eq_zero
@@ -81,7 +72,10 @@ theorem mathlib_degree_cycle_iff
     (mathlibChainComplex K).d n (Nat.pred n) x = 0 ↔ NatInKernel K n x := by
   cases n with
   | zero =>
-      simp [NatInKernel, natDegreeBoundary, mathlibChainComplex]
+      have hd : (mathlibChainComplex K).d 0 0 = 0 :=
+        mathlib_chain_d_nonrel_eq_zero K 0 0 (by simp [ComplexShape.down])
+      rw [hd]
+      rfl
   | succ n =>
       change (mathlibChainComplex K).d (Nat.succ n) n x = 0 ↔
         K.boundary n x = 0
@@ -95,9 +89,12 @@ theorem mathlib_degree_boundary_iff
       (mathlibChainComplex K).d (Nat.succ n) n y = x) ↔ NatInImage K n x := by
   constructor
   · rintro ⟨y, hy⟩
-    exact ⟨y, by simpa using hy⟩
+    rw [mathlib_chain_d_succ_apply K n] at hy
+    exact ⟨y, hy⟩
   · rintro ⟨y, hy⟩
-    exact ⟨y, by simpa using hy⟩
+    refine ⟨y, ?_⟩
+    rw [mathlib_chain_d_succ_apply K n]
+    exact hy
 
 end
 
