@@ -1,0 +1,38 @@
+name: Mathlib Runtime Bind Canary TDD
+
+on:
+  push:
+    branches:
+      - impl/mathlib-runtime-bind-canary
+    paths:
+      - 'formal/namespace-safe-eq64/**'
+      - '.github/workflows/mathlib-runtime-bind-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-bind-tdd:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Lean and build existing default target
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/namespace-safe-eq64
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: true
+
+      - name: Run runtime oracle contract
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean RuntimeBindOracleTest.lean
