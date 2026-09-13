@@ -1,4 +1,5 @@
 import Mathlib.Data.Real.Basic
+import Mathlib.Analysis.SpecificLimits.Normed
 import Mathlib.Tactic
 
 namespace SchumannDiscreteLyapunovGate
@@ -76,5 +77,26 @@ theorem schumann_discrete_lyapunov_n_step_geometric_decay_certificate
         _ = q^(2 * Nat.succ n) * e0^2 := by
           rw [hqfactor]
           ring
+
+/--
+Under the strict contraction envelope `0 ≤ q < 1` and `|ρ| ≤ q`, the scalar
+modal error has quadratic Lyapunov energy converging to zero.
+-/
+theorem schumann_discrete_lyapunov_asymptotic_zero_certificate
+    {e0 rho q : ℝ}
+    (hq0 : 0 ≤ q)
+    (hq1 : q < 1)
+    (hrho : |rho| ≤ q) :
+    Filter.Tendsto (fun n : ℕ => (rho^n * e0)^2)
+      Filter.atTop (nhds 0) := by
+  have hrho1 : |rho| < 1 := lt_of_le_of_lt hrho hq1
+  have hpow :
+      Filter.Tendsto (fun n : ℕ => rho^n) Filter.atTop (nhds 0) :=
+    tendsto_pow_atTop_nhds_zero_of_abs_lt_one hrho1
+  have herr :
+      Filter.Tendsto (fun n : ℕ => rho^n * e0) Filter.atTop (nhds 0) := by
+    simpa using hpow.mul_const e0
+  have hsq := herr.mul herr
+  simpa [pow_two] using hsq
 
 end SchumannDiscreteLyapunovGate
