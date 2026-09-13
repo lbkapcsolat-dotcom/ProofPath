@@ -1,4 +1,5 @@
 import NatIndexedHomologyGate
+import Mathlib.Algebra.Group.ULift
 
 namespace HomologyGate
 
