@@ -1,7 +1,6 @@
-import NamespaceSafeEQ64
-import Mathlib.Data.Real.Basic
+import GECConvexInterval
 
-open NamespaceSafeEQ64
+open GECConvexIntervalGate
 
 /-! LEAN_GEC_CONVEX_INTERVAL_INVARIANCE_V1: isolated RED contract. -/
 #check gec_convex_interval_invariance
