@@ -1,4 +1,5 @@
 import SchumannDiscreteLyapunov
+import SchumannGeneral2DLyapunov
 
 open SchumannDiscreteLyapunovGate
 
