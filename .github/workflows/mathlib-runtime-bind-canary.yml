@@ -59,3 +59,9 @@ jobs:
 
           test "$(cat runtime-oracle-positive.json)" = "$expected_positive"
           test "$(cat runtime-oracle-negative.json)" = "$expected_negative"
+
+      - name: Run RED exact-engine replay receipt contract
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest runtime.test_runtime_bind_canary -v
