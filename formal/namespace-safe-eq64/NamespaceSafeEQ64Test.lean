@@ -136,3 +136,14 @@ example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
 #check HomologyGate.uliftedThreeTermDegreeOneCycleEquiv
 #check HomologyGate.uliftedThreeTerm_degree_one_homologous_iff
 #check HomologyGate.uliftedThreeTermDegreeOneHomologyEquiv
+
+/-! LEAN_EQ64_CARDINALITY_AND_NONCOMPENSATING_GATE_V1: RED contract. -/
+#check eq64_state_cardinality
+#check AllGatesPass
+#check false_gate_blocks_all_pass
+
+example : Fintype.card State6 = 64 := eq64_state_cardinality
+
+example (s : State6) (i : Fin 6) (hFalse : s i = false) :
+    ¬ AllGatesPass s :=
+  false_gate_blocks_all_pass s i hFalse
