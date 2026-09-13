@@ -1,0 +1,228 @@
+name: ESS Dual-Stack Full Egress V1
+
+on:
+  push:
+    branches:
+      - canary/dualstack-20260913-v1
+    paths:
+      - .github/workflows/ess-dualstack-full-egress-v1.yml
+
+permissions:
+  contents: read
+
+env:
+  GATE: DUAL_STACK_ACTIVE_IPV6_PATH_DISCOVERY_AND_FULL_EGRESS_CUTOFF_V1
+
+jobs:
+  client_d_independent_progress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Capture independent runner identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "gate=$GATE"
+            echo "role=client_d_independent_progress"
+            echo "utc_start=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+            echo "kernel=$(uname -a)"
+          } | tee d_identity.txt
+
+      - name: Independent remote progress loop
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : > d_progress.tsv
+          for i in $(seq 1 40); do
+            ts=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+            rc_example=0
+            rc_github=0
+            curl -4 -fsS --connect-timeout 3 --max-time 5 https://example.com/ -o /dev/null || rc_example=$?
+            curl -4 -fsS --connect-timeout 3 --max-time 5 https://api.github.com/ -o /dev/null || rc_github=$?
+            printf '%s\t%s\t%s\t%s\n' "$i" "$ts" "$rc_example" "$rc_github" | tee -a d_progress.tsv
+            sleep 1
+          done
+          test "$(awk '$3==0 && $4==0 {c++} END {print c+0}' d_progress.tsv)" -gt 0
+
+      - name: Upload D evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-dualstack-client-d
+          path: |
+            d_identity.txt
+            d_progress.tsv
+          if-no-files-found: error
+          retention-days: 7
+
+  client_c_dualstack_cutoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Capture C runner identity and routes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "gate=$GATE"
+            echo "role=client_c_dualstack_cutoff"
+            echo "utc_start=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+            echo "kernel=$(uname -a)"
+            echo "--- ip -4 route ---"
+            ip -4 route
+            echo "--- ip -6 route ---"
+            ip -6 route
+            echo "--- ip -6 addr ---"
+            ip -6 addr
+          } | tee c_identity_routes.txt
+
+      - name: Active dual-stack reachability precheck
+        id: precheck
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : > c_precheck.txt
+          ipv6_target=$(getent ahostsv6 example.com | awk '{print $1; exit}')
+          echo "ipv6_target=${ipv6_target:-NONE}" | tee -a c_precheck.txt
+
+          v4_example=0
+          v4_github=0
+          v6_example=0
+          v6_route=0
+          curl -4 -fsS --connect-timeout 5 --max-time 8 https://example.com/ -o /dev/null || v4_example=$?
+          curl -4 -fsS --connect-timeout 5 --max-time 8 https://api.github.com/ -o /dev/null || v4_github=$?
+
+          if [[ -n "${ipv6_target:-}" ]]; then
+            ip -6 route get "$ipv6_target" >> c_precheck.txt 2>&1 || v6_route=$?
+            curl -6 -fsS --connect-timeout 5 --max-time 8 https://example.com/ -o /dev/null || v6_example=$?
+          else
+            v6_route=90
+            v6_example=91
+          fi
+
+          {
+            echo "v4_example_rc=$v4_example"
+            echo "v4_github_rc=$v4_github"
+            echo "v6_route_rc=$v6_route"
+            echo "v6_example_rc=$v6_example"
+          } | tee -a c_precheck.txt
+
+          if [[ "$v4_example" -eq 0 && "$v4_github" -eq 0 && "$v6_route" -eq 0 && "$v6_example" -eq 0 ]]; then
+            echo "DUALSTACK_READY=true" >> "$GITHUB_ENV"
+            echo "PRECHECK_VERDICT=PASS_ACTIVE_DUALSTACK_PATH" | tee -a c_precheck.txt
+          else
+            echo "DUALSTACK_READY=false" >> "$GITHUB_ENV"
+            echo "PRECHECK_VERDICT=HOLD_ACTIVE_IPV6_PATH_NOT_AVAILABLE" | tee -a c_precheck.txt
+          fi
+
+      - name: Full IPv4 and IPv6 OUTPUT deny, negative probes, exact restore
+        if: env.DUALSTACK_READY == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo iptables-save > c_iptables_before.rules
+          sudo ip6tables-save > c_ip6tables_before.rules
+          cp c_iptables_before.rules c_iptables_expected.rules
+          cp c_ip6tables_before.rules c_ip6tables_expected.rules
+
+          restore_firewall() {
+            sudo iptables-restore < c_iptables_before.rules
+            sudo ip6tables-restore < c_ip6tables_before.rules
+          }
+          trap restore_firewall EXIT
+
+          deny_start=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+          echo "deny_start_utc=$deny_start" | tee c_cutoff.txt
+
+          sudo iptables -I OUTPUT 1 -o lo -j ACCEPT
+          sudo iptables -I OUTPUT 2 -j REJECT
+          sudo ip6tables -I OUTPUT 1 -o lo -j ACCEPT
+          sudo ip6tables -I OUTPUT 2 -j REJECT
+
+          sudo iptables-save > c_iptables_during.rules
+          sudo ip6tables-save > c_ip6tables_during.rules
+
+          set +e
+          curl -4 -fsS --connect-timeout 2 --max-time 4 https://example.com/ -o /dev/null
+          deny_v4_example=$?
+          curl -4 -fsS --connect-timeout 2 --max-time 4 https://api.github.com/ -o /dev/null
+          deny_v4_github=$?
+          curl -6 -fsS --connect-timeout 2 --max-time 4 https://example.com/ -o /dev/null
+          deny_v6_example=$?
+          sleep 12
+          set -e
+
+          restore_firewall
+          trap - EXIT
+          deny_end=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+
+          sudo iptables-save > c_iptables_after.rules
+          sudo ip6tables-save > c_ip6tables_after.rules
+          cmp -s c_iptables_expected.rules c_iptables_after.rules
+          cmp -s c_ip6tables_expected.rules c_ip6tables_after.rules
+
+          post_v4_example=0
+          post_v4_github=0
+          post_v6_example=0
+          curl -4 -fsS --connect-timeout 5 --max-time 8 https://example.com/ -o /dev/null || post_v4_example=$?
+          curl -4 -fsS --connect-timeout 5 --max-time 8 https://api.github.com/ -o /dev/null || post_v4_github=$?
+          curl -6 -fsS --connect-timeout 5 --max-time 8 https://example.com/ -o /dev/null || post_v6_example=$?
+
+          {
+            echo "deny_v4_example_rc=$deny_v4_example"
+            echo "deny_v4_github_rc=$deny_v4_github"
+            echo "deny_v6_example_rc=$deny_v6_example"
+            echo "deny_end_utc=$deny_end"
+            echo "post_v4_example_rc=$post_v4_example"
+            echo "post_v4_github_rc=$post_v4_github"
+            echo "post_v6_example_rc=$post_v6_example"
+          } | tee -a c_cutoff.txt
+
+          if [[ "$deny_v4_example" -eq 0 || "$deny_v4_github" -eq 0 || "$deny_v6_example" -eq 0 ]]; then
+            echo "CUTOVER_VERDICT=FAIL_TRAFFIC_ESCAPED_DENY" | tee -a c_cutoff.txt
+            exit 21
+          fi
+          if [[ "$post_v4_example" -ne 0 || "$post_v4_github" -ne 0 || "$post_v6_example" -ne 0 ]]; then
+            echo "CUTOVER_VERDICT=FAIL_RESTORE_REACHABILITY" | tee -a c_cutoff.txt
+            exit 22
+          fi
+
+          echo "CUTOVER_VERDICT=PASS_FULL_DUALSTACK_OUTPUT_DENY_AND_EXACT_RESTORE" | tee -a c_cutoff.txt
+
+      - name: Write HOLD result when active IPv6 is unavailable
+        if: env.DUALSTACK_READY != 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "CUTOVER_VERDICT=NOT_EXECUTED"
+            echo "FINAL_VERDICT=HOLD_ACTIVE_IPV6_PATH_NOT_AVAILABLE"
+            echo "FIREWALL_MUTATION=FALSE"
+          } | tee c_cutoff.txt
+
+      - name: Upload C evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ess-dualstack-client-c
+          path: |
+            c_identity_routes.txt
+            c_precheck.txt
+            c_cutoff.txt
+            c_iptables_before.rules
+            c_iptables_during.rules
+            c_iptables_after.rules
+            c_ip6tables_before.rules
+            c_ip6tables_during.rules
+            c_ip6tables_after.rules
+          if-no-files-found: warn
+          retention-days: 7
