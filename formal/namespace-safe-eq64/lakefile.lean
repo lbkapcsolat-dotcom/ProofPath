@@ -9,4 +9,4 @@ require mathlib from git
 
 @[default_target]
 lean_lib NamespaceSafeEQ64 where
-  roots := #[`NamespaceSafeEQ64, `HomologyGate, `AbelianHomologyGate, `NatIndexedHomologyGate, `CrossUniverseHomologyGate]
+  roots := #[`NamespaceSafeEQ64, `HomologyGate, `AbelianHomologyGate, `NatIndexedHomologyGate, `CrossUniverseHomologyGate, `MathlibHomologicalComplexBridge]
