@@ -124,3 +124,14 @@ example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
 #check HomologyGate.threeTermDegreeOneCycleEquiv
 #check HomologyGate.threeTerm_degree_one_homologous_iff
 #check HomologyGate.threeTermDegreeOneHomologyEquiv
+
+/-! Cross-universe ULift compatibility gate for the original three-term model. -/
+#check HomologyGate.ULiftedThreeTermCarrier
+#check HomologyGate.uliftedThreeTermNatChain
+#check HomologyGate.uliftedThreeTerm_boundary_one_down_eq
+#check HomologyGate.uliftedThreeTerm_boundary_two_down_eq
+#check HomologyGate.uliftedThreeTerm_degree_one_kernel_iff
+#check HomologyGate.uliftedThreeTerm_degree_one_image_iff
+#check HomologyGate.uliftedThreeTermDegreeOneCycleEquiv
+#check HomologyGate.uliftedThreeTerm_degree_one_homologous_iff
+#check HomologyGate.uliftedThreeTermDegreeOneHomologyEquiv
