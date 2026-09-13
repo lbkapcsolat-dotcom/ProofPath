@@ -187,6 +187,7 @@ private theorem mathlibDegreeExplicitMap_surjective
   apply Subtype.ext
   rfl
 
+set_option backward.isDefEq.respectTransparency false in
 private theorem mathlibDegreeExplicitMap_injective
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
     (K : NatIndexedChainData C) (n : Nat) :
