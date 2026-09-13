@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
-          if grep -nE "$ESCAPE_RE" SchumannDiscreteLyapunov.lean SchumannDiscreteLyapunovTest.lean; then
+          if grep -nE "$ESCAPE_RE" SchumannDiscreteLyapunov.lean SchumannGeneral2DLyapunov.lean SchumannDiscreteLyapunovTest.lean; then
             echo 'FAIL_PROOF_ESCAPE_TOKEN'
             exit 41
           fi
