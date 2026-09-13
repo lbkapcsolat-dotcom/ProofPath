@@ -161,3 +161,14 @@ example : Fintype.card State6 = 64 := eq64_state_cardinality
 example (s : State6) (i : Fin 6) (hFalse : s i = false) :
     ¬ AllGatesPass s :=
   false_gate_blocks_all_pass s i hFalse
+
+/-! LEAN_GEC_CONVEX_INTERVAL_INVARIANCE_V1: RED contract. -/
+#check gec_convex_interval_invariance
+
+example {L U x u α : ℝ}
+    (hxL : L ≤ x) (hxU : x ≤ U)
+    (huL : L ≤ u) (huU : u ≤ U)
+    (hα0 : 0 ≤ α) (hα1 : α ≤ 1) :
+    L ≤ α * x + (1 - α) * u ∧
+      α * x + (1 - α) * u ≤ U :=
+  gec_convex_interval_invariance hxL hxU huL huU hα0 hα1
