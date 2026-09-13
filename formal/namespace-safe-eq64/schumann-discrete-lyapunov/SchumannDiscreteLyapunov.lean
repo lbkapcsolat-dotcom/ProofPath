@@ -205,7 +205,6 @@ theorem quadratic_schur_stable_of_jury
   intro xr xi hre him
   by_cases hxi : xi = 0
   · subst xi
-    simp at hre ⊢
     have hxrlt : xr < 1 := by
       by_contra hnot
       have hxr1 : 1 ≤ xr := le_of_not_gt hnot
@@ -283,18 +282,21 @@ theorem schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certifi
     dsimp [trace, det]
     nlinarith [hr2pos]
   have hj2 : 0 < 1 + trace + det := by
-    dsimp [trace, det]
-    simpa [r] using hJury
+    dsimp [trace, det, r]
+    nlinarith [hJury]
   have hzrp : 0 < 2 * zeta * r := by
-    positivity
+    exact mul_pos (mul_pos (by norm_num) hzeta) hrpos
   have hj3 : det < 1 := by
     dsimp [det]
     linarith
   have hschur := quadratic_schur_stable_of_jury hj1 hj2 hj3
-  have hp11 : 0 < omega^2 := by
-    positivity
+  have homegaSq : 0 < omega^2 := by
+    have hmul : 0 < omega * omega := mul_pos homega homega
+    nlinarith
+  have hp11 : 0 < omega^2 := homegaSq
   have hpdet : 0 < omega^2 * (1 : ℝ) - 0^2 := by
-    positivity
+    norm_num
+    exact hp11
   have hOneMinusRSq : 0 < 1 - r^2 := by
     have hplus : 0 < 1 + r := by
       linarith
@@ -345,6 +347,9 @@ theorem schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certifi
   · simpa [trace, det, r] using hschur
   · constructor
     · simpa [a11, a12, a21, a22, r] using hstrict.1
-    · simpa [a11, a12, a21, a22, r] using hstrict.2
+    · have hdec := hstrict.2
+      dsimp [a11, a12, a21, a22, r] at hdec
+      ring_nf at hdec ⊢
+      exact hdec
 
 end SchumannDiscreteLyapunovGate
