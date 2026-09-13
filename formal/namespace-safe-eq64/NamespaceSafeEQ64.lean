@@ -1,4 +1,5 @@
 import Std
+import Mathlib.Data.Fintype.BigOperators
 
 namespace NamespaceSafeEQ64
 
@@ -32,6 +33,24 @@ inductive Tri where
 abbrev State6 := Fin 6 → Bool
 abbrev AxisSchema := Fin 6 → String
 abbrev PolaritySchema := Fin 6 → Polarity
+
+/-- All six EQ64 gates are true. This is the noncompensating PASS predicate. -/
+def AllGatesPass (s : State6) : Prop :=
+  ∀ i, s i = true
+
+/-- The six Boolean gates form exactly 64 states. -/
+theorem eq64_state_cardinality : Fintype.card State6 = 64 := by
+  change Fintype.card (Fin 6 → Bool) = 64
+  rw [Fintype.card_fun, Fintype.card_bool, Fintype.card_fin]
+  decide
+
+/-- Any single false gate blocks PASS, regardless of the other five gates. -/
+theorem false_gate_blocks_all_pass
+    (s : State6) (i : Fin 6) (hFalse : s i = false) :
+    ¬ AllGatesPass s := by
+  intro hAll
+  have hTrue : s i = true := hAll i
+  simp [hFalse] at hTrue
 
 structure Permutation6 where
   toFun : Fin 6 → Fin 6
