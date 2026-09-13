@@ -3,6 +3,7 @@ import HomologyGate
 import AbelianHomologyGate
 import NatIndexedHomologyGate
 import CrossUniverseHomologyGate
+import MathlibHomologicalComplexBridge
 open NamespaceSafeEQ64
 
 #check NamespaceId
@@ -136,6 +137,19 @@ example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
 #check HomologyGate.uliftedThreeTermDegreeOneCycleEquiv
 #check HomologyGate.uliftedThreeTerm_degree_one_homologous_iff
 #check HomologyGate.uliftedThreeTermDegreeOneHomologyEquiv
+
+/-! Mathlib HomologicalComplex interoperability and homology bridge: RED contract. -/
+#check HomologyGate.mathlibChainComplex
+#check HomologyGate.mathlib_chain_X_coe
+#check HomologyGate.mathlib_chain_d_succ_apply
+#check HomologyGate.mathlib_chain_d_nonrel_eq_zero
+#check HomologyGate.mathlib_chain_d_comp_d_apply
+#check HomologyGate.mathlib_degree_cycle_iff
+#check HomologyGate.mathlib_degree_boundary_iff
+#check HomologyGate.mathlibDegreeHomologyMap
+#check HomologyGate.mathlibDegreeHomologyMap_surjective
+#check HomologyGate.mathlibDegreeHomologyMap_eq_iff
+#check HomologyGate.mathlibDegreeHomologyEquiv
 
 /-! LEAN_EQ64_CARDINALITY_AND_NONCOMPENSATING_GATE_V1: RED contract. -/
 #check eq64_state_cardinality
