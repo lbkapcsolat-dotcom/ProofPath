@@ -99,4 +99,93 @@ theorem schumann_discrete_lyapunov_asymptotic_zero_certificate
   have hsq := herr.mul herr
   simpa [pow_two] using hsq
 
+/--
+The two-dimensional Sylvester criterion for a symmetric quadratic form.
+This is kept explicit so the matrix Lyapunov certificate does not depend on
+runtime matrix representations.
+-/
+theorem quadratic2_pos_of_sylvester
+    {p11 p12 p22 x1 x2 : ℝ}
+    (hp11 : 0 < p11)
+    (hpdet : 0 < p11 * p22 - p12^2)
+    (hx : x1 ≠ 0 ∨ x2 ≠ 0) :
+    0 < p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2 := by
+  by_cases hx2 : x2 = 0
+  · have hx1 : x1 ≠ 0 := by
+      rcases hx with hx1 | hx2'
+      · exact hx1
+      · exact False.elim (hx2' hx2)
+    have hx1sq : 0 < x1^2 := sq_pos_of_ne_zero hx1
+    simpa [hx2] using mul_pos hp11 hx1sq
+  · have hx2sq : 0 < x2^2 := sq_pos_of_ne_zero hx2
+    have hdetTerm : 0 < (p11 * p22 - p12^2) * x2^2 :=
+      mul_pos hpdet hx2sq
+    have hsq : 0 ≤ (p11 * x1 + p12 * x2)^2 := sq_nonneg _
+    have hidentity :
+        p11 * (p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2) =
+          (p11 * x1 + p12 * x2)^2 +
+            (p11 * p22 - p12^2) * x2^2 := by
+      ring
+    have hprod :
+        0 < p11 * (p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2) := by
+      rw [hidentity]
+      nlinarith
+    nlinarith
+
+/--
+For the two-dimensional linear state update `x⁺ = A x`, let `P` be symmetric
+positive definite. If `P - Aᵀ P A` is also positive definite, equivalently
+`Aᵀ P A - P` is negative definite, then the quadratic Lyapunov function is
+positive away from the origin and decreases strictly in one discrete step.
+-/
+theorem schumann_discrete_lyapunov_2d_matrix_strict_decay_certificate
+    {a11 a12 a21 a22 p11 p12 p22 x1 x2 : ℝ}
+    (hp11 : 0 < p11)
+    (hpdet : 0 < p11 * p22 - p12^2)
+    (hD11 :
+      0 < p11 - (p11 * a11^2 + 2 * p12 * a11 * a21 + p22 * a21^2))
+    (hDdet :
+      0 <
+        (p11 - (p11 * a11^2 + 2 * p12 * a11 * a21 + p22 * a21^2)) *
+          (p22 - (p11 * a12^2 + 2 * p12 * a12 * a22 + p22 * a22^2)) -
+        (p12 -
+          (p11 * a11 * a12 + p12 * (a11 * a22 + a21 * a12) +
+            p22 * a21 * a22))^2)
+    (hx : x1 ≠ 0 ∨ x2 ≠ 0) :
+    0 < p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2 ∧
+      p11 * (a11 * x1 + a12 * x2)^2 +
+          2 * p12 * (a11 * x1 + a12 * x2) * (a21 * x1 + a22 * x2) +
+          p22 * (a21 * x1 + a22 * x2)^2
+        < p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2 := by
+  let d11 : ℝ :=
+    p11 - (p11 * a11^2 + 2 * p12 * a11 * a21 + p22 * a21^2)
+  let d12 : ℝ :=
+    p12 -
+      (p11 * a11 * a12 + p12 * (a11 * a22 + a21 * a12) +
+        p22 * a21 * a22)
+  let d22 : ℝ :=
+    p22 - (p11 * a12^2 + 2 * p12 * a12 * a22 + p22 * a22^2)
+  have hVpos :
+      0 < p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2 :=
+    quadratic2_pos_of_sylvester hp11 hpdet hx
+  have hD11' : 0 < d11 := by
+    simpa [d11] using hD11
+  have hDdet' : 0 < d11 * d22 - d12^2 := by
+    simpa [d11, d12, d22] using hDdet
+  have hDpos :
+      0 < d11 * x1^2 + 2 * d12 * x1 * x2 + d22 * x2^2 :=
+    quadratic2_pos_of_sylvester hD11' hDdet' hx
+  have hdelta :
+      d11 * x1^2 + 2 * d12 * x1 * x2 + d22 * x2^2 =
+        (p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2) -
+          (p11 * (a11 * x1 + a12 * x2)^2 +
+            2 * p12 * (a11 * x1 + a12 * x2) * (a21 * x1 + a22 * x2) +
+            p22 * (a21 * x1 + a22 * x2)^2) := by
+    dsimp [d11, d12, d22]
+    ring
+  constructor
+  · exact hVpos
+  · rw [hdelta] at hDpos
+    linarith
+
 end SchumannDiscreteLyapunovGate
