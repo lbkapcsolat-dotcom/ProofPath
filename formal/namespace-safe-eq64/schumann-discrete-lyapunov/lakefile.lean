@@ -9,4 +9,4 @@ require mathlib from git
 
 @[default_target]
 lean_lib SchumannDiscreteLyapunov where
-  roots := #[`SchumannDiscreteLyapunov]
+  roots := #[`SchumannDiscreteLyapunov, `SchumannGeneral2DLyapunov]
