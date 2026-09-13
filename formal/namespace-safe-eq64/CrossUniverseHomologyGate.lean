@@ -100,6 +100,8 @@ theorem uliftedThreeTerm_degree_one_kernel_iff
     simpa using hd
   · intro h
     apply (Equiv.ulift).injective
+    change (natDegreeBoundary (uliftedThreeTermNatChain A) 1 x).down =
+      (0 : ULift.{max u₂ (max u₁ u₀)} C₀).down
     rw [uliftedThreeTerm_boundary_one_down_eq A x]
     simpa using h
 
@@ -123,6 +125,7 @@ theorem uliftedThreeTerm_degree_one_image_iff
     refine ⟨ULift.up y, ?_⟩
     change natDegreeBoundary (uliftedThreeTermNatChain A) 2 (ULift.up y) = x
     apply (Equiv.ulift).injective
+    change (natDegreeBoundary (uliftedThreeTermNatChain A) 2 (ULift.up y)).down = x.down
     rw [uliftedThreeTerm_boundary_two_down_eq A (ULift.up y)]
     simpa using hy
 
