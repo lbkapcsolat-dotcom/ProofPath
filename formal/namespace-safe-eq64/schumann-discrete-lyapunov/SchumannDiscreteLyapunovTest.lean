@@ -54,3 +54,29 @@ example
         < p11 * x1^2 + 2 * p12 * x1 * x2 + p22 * x2^2 :=
   schumann_discrete_lyapunov_2d_matrix_strict_decay_certificate
     hp11 hpdet hD11 hDdet hx
+
+#check schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certificate
+
+example
+    {dt omega zeta x1 x2 : ℝ}
+    (hdt : 0 < dt)
+    (homega : 0 < omega)
+    (hzeta : 0 < zeta)
+    (hr1 : dt * omega < 1)
+    (hJury : (dt * omega)^2 + 4 * zeta * (dt * omega) < 4)
+    (hLyap : (dt * omega) * (4 * zeta^2 + 1) < 4 * zeta)
+    (hx : x1 ≠ 0 ∨ x2 ≠ 0) :
+    (∀ xr xi : ℝ,
+      xr^2 - xi^2 -
+          (2 - (dt * omega)^2 - 2 * zeta * (dt * omega)) * xr +
+          (1 - 2 * zeta * (dt * omega)) = 0 →
+      (2 * xr - (2 - (dt * omega)^2 - 2 * zeta * (dt * omega))) * xi = 0 →
+      xr^2 + xi^2 < 1) ∧
+    0 < omega^2 * x1^2 + x2^2 ∧
+      omega^2 *
+          ((1 - (dt * omega)^2) * x1 +
+            dt * (1 - 2 * zeta * dt * omega) * x2)^2 +
+        (-dt * omega^2 * x1 + (1 - 2 * zeta * dt * omega) * x2)^2
+        < omega^2 * x1^2 + x2^2 :=
+  schumann_2d_damped_oscillator_semiimplicit_schur_lyapunov_bridge_certificate
+    hdt homega hzeta hr1 hJury hLyap hx
