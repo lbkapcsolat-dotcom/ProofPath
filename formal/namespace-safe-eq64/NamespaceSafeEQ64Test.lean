@@ -2,6 +2,7 @@ import NamespaceSafeEQ64
 import HomologyGate
 import AbelianHomologyGate
 import NatIndexedHomologyGate
+import CrossUniverseHomologyGate
 open NamespaceSafeEQ64
 
 #check NamespaceId
