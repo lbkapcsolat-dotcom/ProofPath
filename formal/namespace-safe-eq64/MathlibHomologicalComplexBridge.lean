@@ -164,7 +164,10 @@ private noncomputable def mathlibDegreeExplicitMap
       refine ⟨z, ?_, ?_⟩
       · exact ⟨b, rfl⟩
       · apply Subtype.ext
-        change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1
+        change
+          (show ((mathlibChainComplex K).X n : Type u) from x.1) +
+              (ConcreteCategory.hom ((mathlibChainComplex K).d (Nat.succ n) n)) b =
+            (show ((mathlibChainComplex K).X n : Type u) from y.1)
         rw [mathlib_chain_d_succ_apply K n]
         exact hb.symm)
 
@@ -200,11 +203,12 @@ private theorem mathlibDegreeExplicitMap_injective
   change NatHomologous K n x y
   refine ⟨b, ?_⟩
   have hval := congrArg (fun t => t.1) hxy
-  have hval' : x.1 + K.boundary n b = y.1 := by
-    change x.1 + (mathlibChainComplex K).d (Nat.succ n) n b = y.1 at hval
-    rw [mathlib_chain_d_succ_apply K n] at hval
-    exact hval
-  exact hval'.symm
+  change
+    (show ((mathlibChainComplex K).X n : Type u) from x.1) +
+        (ConcreteCategory.hom ((mathlibChainComplex K).d (Nat.succ n) n)) b =
+      (show ((mathlibChainComplex K).X n : Type u) from y.1) at hval
+  rw [mathlib_chain_d_succ_apply K n] at hval
+  exact hval.symm
 
 /-- Mathlib's abstract degree-`n` homology, identified with the explicit quotient. -/
 private noncomputable def mathlibDegreeHomologyIsoToExplicit
