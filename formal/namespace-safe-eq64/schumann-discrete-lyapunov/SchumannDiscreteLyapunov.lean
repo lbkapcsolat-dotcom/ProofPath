@@ -43,4 +43,34 @@ theorem schumann_discrete_lyapunov_bound_certificate
       _ = e^2 := by ring
   exact ⟨hcontract, hnonincrease⟩
 
+/--
+Iterating the one-step scalar contraction gives geometric decay of the
+quadratic Lyapunov candidate after `n` steps.
+-/
+theorem schumann_discrete_lyapunov_n_step_geometric_decay_certificate
+    {e0 rho q : ℝ} (n : ℕ)
+    (hq0 : 0 ≤ q)
+    (hq1 : q ≤ 1)
+    (hrho : |rho| ≤ q) :
+    (rho^n * e0)^2 ≤ q^(2 * n) * e0^2 := by
+  induction n with
+  | zero =>
+      norm_num
+  | succ n ih =>
+      have hstep :=
+        (schumann_discrete_lyapunov_bound_certificate
+          (e := rho^n * e0) (rho := rho) (q := q) hq0 hq1 hrho).1
+      have hqSq : 0 ≤ q^2 := sq_nonneg q
+      calc
+        (rho^(Nat.succ n) * e0)^2 = (rho * (rho^n * e0))^2 := by
+          rw [pow_succ]
+          ring
+        _ ≤ q^2 * (rho^n * e0)^2 := hstep
+        _ ≤ q^2 * (q^(2 * n) * e0^2) :=
+          mul_le_mul_of_nonneg_left ih hqSq
+        _ = q^(2 * Nat.succ n) * e0^2 := by
+          rw [Nat.mul_succ]
+          rw [pow_add]
+          ring
+
 end SchumannDiscreteLyapunovGate
