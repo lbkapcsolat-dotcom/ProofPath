@@ -84,7 +84,7 @@ modal error has quadratic Lyapunov energy converging to zero.
 -/
 theorem schumann_discrete_lyapunov_asymptotic_zero_certificate
     {e0 rho q : ℝ}
-    (hq0 : 0 ≤ q)
+    (_hq0 : 0 ≤ q)
     (hq1 : q < 1)
     (hrho : |rho| ≤ q) :
     Filter.Tendsto (fun n : ℕ => (rho^n * e0)^2)
