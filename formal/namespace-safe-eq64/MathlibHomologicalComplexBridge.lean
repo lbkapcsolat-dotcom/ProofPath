@@ -40,12 +40,12 @@ theorem mathlib_chain_d_succ_apply
     {C : Nat → Type u} [∀ n, AddCommGroup (C n)]
     (K : NatIndexedChainData C) (n : Nat) (x : C (Nat.succ n)) :
     (mathlibChainComplex K).d (Nat.succ n) n x = K.boundary n x := by
-  change (ChainComplex.of.d
-    (fun n => AddCommGrpCat.of (C n))
-    (fun n => AddCommGrpCat.ofHom (K.boundary n))
-    (Nat.succ n) n) x = K.boundary n x
-  rw [ChainComplex.of_d]
-  rfl
+  change (ConcreteCategory.hom
+    (ChainComplex.of.d
+      (fun n => AddCommGrpCat.of (C n))
+      (fun n => AddCommGrpCat.ofHom (K.boundary n))
+      (Nat.succ n) n)) x = K.boundary n x
+  simpa only [ChainComplex.of_d]
 
 /-- Every differential forbidden by `ComplexShape.down Nat` is zero. -/
 theorem mathlib_chain_d_nonrel_eq_zero
@@ -72,14 +72,21 @@ theorem mathlib_degree_cycle_iff
     (mathlibChainComplex K).d n (Nat.pred n) x = 0 ↔ NatInKernel K n x := by
   cases n with
   | zero =>
+      change (ConcreteCategory.hom ((mathlibChainComplex K).d 0 0)) x = 0 ↔
+        natDegreeBoundary K 0 x = 0
       have hd : (mathlibChainComplex K).d 0 0 = 0 :=
         mathlib_chain_d_nonrel_eq_zero K 0 0 (by simp [ComplexShape.down])
-      rw [hd]
-      rfl
+      constructor
+      · intro _
+        rfl
+      · intro _
+        have hx := ConcreteCategory.congr_hom hd x
+        simpa using hx
   | succ n =>
       change (mathlibChainComplex K).d (Nat.succ n) n x = 0 ↔
         K.boundary n x = 0
       rw [mathlib_chain_d_succ_apply K n]
+      rfl
 
 /-- The concrete standard incoming-boundary equation is our degreewise image condition. -/
 theorem mathlib_degree_boundary_iff
