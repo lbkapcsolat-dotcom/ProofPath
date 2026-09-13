@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           ~/.elan/bin/lake env lean NamespaceSafeEQ64Test.lean
           ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
-          if grep -nE "$ESCAPE_RE" NamespaceSafeEQ64.lean HomologyGate.lean AbelianHomologyGate.lean NatIndexedHomologyGate.lean CrossUniverseHomologyGate.lean NamespaceSafeEQ64Test.lean; then
+          if grep -nE "$ESCAPE_RE" NamespaceSafeEQ64.lean HomologyGate.lean AbelianHomologyGate.lean NatIndexedHomologyGate.lean CrossUniverseHomologyGate.lean MathlibHomologicalComplexBridge.lean NamespaceSafeEQ64Test.lean; then
             echo 'FAIL_PROOF_ESCAPE_TOKEN'
             exit 41
           fi
