@@ -106,3 +106,20 @@ example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
 #check HomologyGate.intPair_boundary_sq_zero
 #check HomologyGate.intPair_kernel_subset_image
 #check HomologyGate.abelian_local_conditions_do_not_force_global_nontriviality
+
+/-! N-indexed abelian chain-complex and degreewise homology gate. -/
+#check HomologyGate.NatIndexedChainData
+#check HomologyGate.nat_boundary_sq_zero
+#check HomologyGate.nat_image_subset_kernel
+#check HomologyGate.nat_boundary_shift_preserves_cycle
+#check HomologyGate.natHomologySetoid
+#check HomologyGate.NatHomologyQuotient
+#check HomologyGate.nat_quotient_eq_of_homologous
+#check HomologyGate.threeTermNatChain
+#check HomologyGate.threeTerm_boundary_one_eq
+#check HomologyGate.threeTerm_boundary_two_eq
+#check HomologyGate.threeTerm_degree_one_kernel_iff
+#check HomologyGate.threeTerm_degree_one_image_iff
+#check HomologyGate.threeTermDegreeOneCycleEquiv
+#check HomologyGate.threeTerm_degree_one_homologous_iff
+#check HomologyGate.threeTermDegreeOneHomologyEquiv
