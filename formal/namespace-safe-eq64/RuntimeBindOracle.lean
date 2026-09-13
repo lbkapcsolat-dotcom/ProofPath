@@ -80,4 +80,65 @@ theorem positive_mathlib_matches_expected : mathlibMatrix = expectedMatrix := by
 theorem positive_routes_equal : customMatrix = mathlibMatrix := by
   native_decide
 
+/-- Test-only mathlib witness with the incoming degree-one boundary removed. -/
+def negativeBoundary (_ : Nat) : Z4 →+ Z4 := 0
+
+def negativeChain : NatIndexedChainData (fun _ : Nat => Z4) where
+  boundary := negativeBoundary
+  boundary_sq := by
+    intro n x
+    simp [negativeBoundary]
+
+private abbrev negativeShort : ShortComplex Ab :=
+  (mathlibChainComplex negativeChain).sc' 2 1 0
+
+def negativeMathlibClassEq (a b : Z4) : Bool :=
+  representatives.any fun t =>
+    decide (b = a + (show Z4 from (negativeShort.abToCycles t).1))
+
+def negativeMathlibMatrix : List (List Bool) :=
+  representatives.map fun a => representatives.map fun b => negativeMathlibClassEq a b
+
+def negativeResult : Bool := decide (customMatrix = negativeMathlibMatrix)
+
+theorem negative_routes_differ : customMatrix ≠ negativeMathlibMatrix := by
+  native_decide
+
+def boolJson : Bool → String
+  | true => "true"
+  | false => "false"
+
+def rowJson (row : List Bool) : String :=
+  "[" ++ String.intercalate "," (row.map boolJson) ++ "]"
+
+def matrixJson (matrix : List (List Bool)) : String :=
+  "[" ++ String.intercalate "," (matrix.map rowJson) ++ "]"
+
+def renderOracle (negative : Bool) : String :=
+  let mathlibObserved := if negative then negativeMathlibMatrix else mathlibMatrix
+  let classEqual : Bool := decide (customMatrix = mathlibObserved)
+  "{" ++
+    "\"schema\":\"MATHLIB_RUNTIME_ORACLE_V1\"," ++
+    "\"witness\":\"ZMOD4_H1_BOUNDARY_TIMES_2\"," ++
+    "\"degree\":1," ++
+    "\"representatives\":[0,1,2,3]," ++
+    "\"custom_class_equality\":" ++ matrixJson customMatrix ++ "," ++
+    "\"mathlib_class_equality\":" ++ matrixJson mathlibObserved ++ "," ++
+    "\"class_equal\":" ++ boolJson classEqual ++ "," ++
+    "\"negative_control\":" ++ boolJson negative ++
+  "}"
+
+def cliMain (args : List String) : IO UInt32 := do
+  if args = [] then
+    IO.println (renderOracle false)
+    pure 0
+  else if args = ["--negative-control"] then
+    IO.println (renderOracle true)
+    pure 0
+  else
+    pure 2
+
 end RuntimeBindOracle
+
+def main (args : List String) : IO UInt32 :=
+  RuntimeBindOracle.cliMain args
