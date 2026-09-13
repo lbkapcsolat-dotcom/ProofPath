@@ -59,14 +59,15 @@ private def mathlibCycle (x : Z4) : AddMonoidHom.ker standardShort.g.hom := by
   change (ConcreteCategory.hom ((mathlibChainComplex witnessChain).d 1 0)) x = 0
   rw [mathlib_chain_d_succ_apply witnessChain 0]
   simp [witnessChain, z4Boundary]
+  rfl
 
 /-- Executable equality in mathlib's explicit `ker/range` quotient relation.
 This route uses `ShortComplex.abToCycles` directly and never calls the custom
-homology predicate. -/
+homology predicate. The carrier is normalized explicitly back to `ZMod 4`
+before decidable equality is invoked. -/
 def mathlibClassEq (a b : Z4) : Bool :=
   representatives.any fun t =>
-    decide ((mathlibCycle b).1 =
-      (mathlibCycle a).1 + (standardShort.abToCycles t).1)
+    decide (b = a + (show Z4 from (standardShort.abToCycles t).1))
 
 def mathlibMatrix : List (List Bool) :=
   representatives.map fun a => representatives.map fun b => mathlibClassEq a b
