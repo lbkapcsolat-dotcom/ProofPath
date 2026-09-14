@@ -115,6 +115,21 @@ def _criterion_reason(key: str) -> str:
     }.get(key, f"CRITERION_DENY_{key}")
 
 
+def criterion_decision(criteria: dict[str, str]) -> Tri:
+    """Apply the shared C1-C11 tri-state rule to already validated criteria.
+
+    DENY dominates, all PASS yields PASS, and every other valid combination
+    yields HOLD. Shape and value validation remain the caller's responsibility
+    so existing crosswalk error semantics are unchanged.
+    """
+    values = tuple(criteria[f"C{i}"] for i in range(1, 12))
+    if "DENY" in values:
+        return Tri.DENY
+    if all(value == "PASS" for value in values):
+        return Tri.PASS
+    return Tri.HOLD
+
+
 def _axis_mapping(axis_equivalences: list[dict]) -> tuple[int, ...] | None:
     if len(axis_equivalences) != 6:
         return None
@@ -154,14 +169,15 @@ def check_semantic_crosswalk(
     if any(criteria[key] not in {"PASS", "HOLD", "DENY"} for key in required):
         return {"status": Tri.DENY, "reason_codes": ["INVALID_CRITERION_STATE"]}
 
-    denied = [key for key in required if criteria[key] == "DENY"]
-    if denied:
+    decision = criterion_decision(criteria)
+    if decision is Tri.DENY:
+        denied = [key for key in required if criteria[key] == "DENY"]
         return {"status": Tri.DENY, "reason_codes": [_criterion_reason(denied[0])]}
 
     derived_mapping = _axis_mapping(evidence.get("axis_equivalences", []))
     if criteria["C7"] != "PASS" or derived_mapping is None:
         return {"status": Tri.HOLD, "reason_codes": ["NO_AXIS_LEVEL_EVIDENCE"]}
-    if any(criteria[key] != "PASS" for key in required):
+    if decision is not Tri.PASS:
         return {"status": Tri.HOLD, "reason_codes": ["INCOMPLETE_C1_C11_EVIDENCE"]}
 
     exact = evidence.get("exact_mapping")
