@@ -29,6 +29,15 @@ open NamespaceSafeEQ64
 #check namespace_identity_required
 #check structure_preservation_with_missing_axis_evidence_does_not_authorize_semantics
 
+/-! Lean side of the C1-C11 tri-state contract parity gate. -/
+#check AnyCriterionDeny
+#check AllCriteriaPass
+#check criterionDecision
+#check criterionDecision_eq_deny_iff
+#check criterionDecision_eq_pass_iff
+#check criterionDecision_eq_hold_iff
+#check exactSemanticAuthorized_iff_request_allowed_and_criterionDecision_pass
+
 def identityPermutation6 : Permutation6 := {
   toFun := fun i => i
   invFun := fun i => i
@@ -98,6 +107,21 @@ example :
     ¬ ExactSemanticAuthorized missingAxisCandidate :=
   structure_preservation_with_missing_axis_evidence_does_not_authorize_semantics
     missingAxisCandidate rfl
+
+example : criterionDecision evidencePass = .pass := by
+  exact (criterionDecision_eq_pass_iff evidencePass).2 ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+example : criterionDecision evidenceMissingAxis = .hold := by
+  apply (criterionDecision_eq_hold_iff evidenceMissingAxis).2
+  constructor
+  · intro h
+    rcases h with h | h | h | h | h | h | h | h | h | h | h <;> simp [evidenceMissingAxis, evidencePass] at h
+  · intro hPass
+    exact Tri.noConfusion (hPass.2.2.2.2.2.2.1)
+
+example : criterionDecision evidencePolarityConflict = .deny := by
+  apply (criterionDecision_eq_deny_iff evidencePolarityConflict).2
+  exact Or.inr (Or.inr (Or.inr (Or.inl rfl)))
 
 /-! Machine-checkable characteristic-two homology gate. -/
 #check HomologyGate.boundary_sq_zero
