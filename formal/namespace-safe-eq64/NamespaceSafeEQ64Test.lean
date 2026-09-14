@@ -27,7 +27,7 @@ open NamespaceSafeEQ64
 #check missing_axis_evidence_blocks_exact_crosswalk
 #check polarity_conflict_blocks_exact_crosswalk
 #check namespace_identity_required
-#check no_semantic_authorization_from_structure_alone
+#check structure_preservation_with_missing_axis_evidence_does_not_authorize_semantics
 
 def identityPermutation6 : Permutation6 := {
   toFun := fun i => i
@@ -86,6 +86,18 @@ example : ¬ ExactSemanticAuthorized missingAxisCandidate :=
 
 example : ¬ ExactSemanticAuthorized polarityConflictCandidate :=
   polarity_conflict_blocks_exact_crosswalk polarityConflictCandidate rfl
+
+example :
+    (∀ a b : State6,
+      applyPerm missingAxisCandidate.permutation (bMeet a b) =
+        bMeet (applyPerm missingAxisCandidate.permutation a) (applyPerm missingAxisCandidate.permutation b) ∧
+      applyPerm missingAxisCandidate.permutation (bJoin a b) =
+        bJoin (applyPerm missingAxisCandidate.permutation a) (applyPerm missingAxisCandidate.permutation b)) ∧
+    (∀ a b : State6, HammingOne a b →
+      HammingOne (applyPerm missingAxisCandidate.permutation a) (applyPerm missingAxisCandidate.permutation b)) ∧
+    ¬ ExactSemanticAuthorized missingAxisCandidate :=
+  structure_preservation_with_missing_axis_evidence_does_not_authorize_semantics
+    missingAxisCandidate rfl
 
 /-! Machine-checkable characteristic-two homology gate. -/
 #check HomologyGate.boundary_sq_zero
