@@ -1,10 +1,16 @@
+import itertools
 import pathlib
 import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference"))
-from namespace_safe_engine import Tri, check_semantic_crosswalk, load_namespace
+from namespace_safe_engine import (
+    Tri,
+    check_semantic_crosswalk,
+    criterion_decision,
+    load_namespace,
+)
 
 IDENTITY = tuple(range(6))
 PASS11 = {f"C{i}": "PASS" for i in range(1, 12)}
@@ -49,6 +55,49 @@ class SemanticGateTests(unittest.TestCase):
         evidence = {"criteria": criteria, "axis_equivalences": FULL_EQ, "exact_mapping": list(IDENTITY)}
         result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
         self.assertEqual(result["status"], Tri.DENY)
+
+    def test_each_single_hold_in_c1_c11_blocks_semantic_pass(self):
+        for index in range(1, 12):
+            with self.subTest(criterion=f"C{index}"):
+                criteria = dict(PASS11)
+                criteria[f"C{index}"] = "HOLD"
+                evidence = {
+                    "criteria": criteria,
+                    "axis_equivalences": FULL_EQ,
+                    "exact_mapping": list(IDENTITY),
+                }
+                result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
+                self.assertEqual(result["status"], Tri.HOLD)
+
+    def test_each_single_deny_in_c1_c11_denies_semantic_pass(self):
+        for index in range(1, 12):
+            with self.subTest(criterion=f"C{index}"):
+                criteria = dict(PASS11)
+                criteria[f"C{index}"] = "DENY"
+                evidence = {
+                    "criteria": criteria,
+                    "axis_equivalences": FULL_EQ,
+                    "exact_mapping": list(IDENTITY),
+                }
+                result = check_semantic_crosswalk(self.aip, self.ess, evidence, IDENTITY)
+                self.assertEqual(result["status"], Tri.DENY)
+
+    def test_python_criterion_decision_exhaustively_matches_tri_contract(self):
+        states = ("PASS", "HOLD", "DENY")
+        keys = tuple(f"C{i}" for i in range(1, 12))
+        checked = 0
+        for values in itertools.product(states, repeat=11):
+            criteria = dict(zip(keys, values))
+            expected = (
+                Tri.DENY
+                if "DENY" in values
+                else Tri.PASS
+                if all(value == "PASS" for value in values)
+                else Tri.HOLD
+            )
+            self.assertEqual(criterion_decision(criteria), expected)
+            checked += 1
+        self.assertEqual(checked, 3 ** 11)
 
     def test_bare_eq64_denies_by_policy(self):
         bare = dict(self.aip)
