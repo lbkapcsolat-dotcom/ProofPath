@@ -1,0 +1,149 @@
+name: HGraph XB18 Shadow Gate
+
+on:
+  push:
+    branches:
+      - design/hgraph-xb18-isomorphism
+    paths:
+      - 'formal/namespace-safe-eq64/hgraph_adapter/**'
+      - '.github/workflows/hgraph-xb18.yml'
+  pull_request:
+    branches:
+      - design/namespace-safe-eq64
+    paths:
+      - 'formal/namespace-safe-eq64/hgraph_adapter/**'
+      - '.github/workflows/hgraph-xb18.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hgraph-xb18-shadow:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Assert supported Python runtime
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          assert sys.version_info >= (3, 12), sys.version
+          print(sys.version)
+          PY
+
+      - name: Install pinned hgraph shadow dependency
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check -r hgraph_adapter/requirements.txt
+
+      - name: Run XB18 public wiring tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s hgraph_adapter/tests -p 'test_*.py' -v
+
+      - name: Generate persisted XB18 shadow receipt package
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/xb18-shadow-receipt
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-shadow-receipt
+          sha256sum \
+            /tmp/xb18-shadow-receipt/request.json \
+            /tmp/xb18-shadow-receipt/verdict.json \
+            /tmp/xb18-shadow-receipt/receipt.json \
+            /tmp/xb18-shadow-receipt/shadow_canary_summary.json \
+            | tee /tmp/xb18-shadow-receipt/package.sha256
+
+      - name: Independent verifier process readback
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          sha256sum -c /tmp/xb18-shadow-receipt/package.sha256
+          echo 'PASS_XB18_EXPLICIT_SEPARATE_PROCESS_READBACK'
+
+      - name: Deterministic dual-process replay equality
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/xb18-replay-a /tmp/xb18-replay-b
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-replay-a
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-a
+          python3 hgraph_adapter/run_shadow_receipt.py --output-dir /tmp/xb18-replay-b
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-replay-b
+          for name in request.json verdict.json receipt.json shadow_canary_summary.json; do
+            cmp --silent "/tmp/xb18-replay-a/$name" "/tmp/xb18-replay-b/$name"
+            sha_a=$(sha256sum "/tmp/xb18-replay-a/$name" | awk '{print $1}')
+            sha_b=$(sha256sum "/tmp/xb18-replay-b/$name" | awk '{print $1}')
+            test "$sha_a" = "$sha_b"
+            echo "PASS_XB18_REPLAY_EQUALITY_${name}=${sha_a}"
+          done
+          echo 'PASS_XB18_DUAL_PROCESS_REPLAY_EXACT_EQUALITY'
+
+      - name: Reject request semantic-content tamper
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          cp /tmp/xb18-shadow-receipt/request.json /tmp/xb18-shadow-receipt/request.original.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('/tmp/xb18-shadow-receipt/request.json')
+          value = json.loads(path.read_text(encoding='utf-8'))
+          value['policy'] = 'TAMPERED_POLICY'
+          path.write_text(json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n', encoding='utf-8')
+          PY
+          set +e
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt > /tmp/xb18-request-tamper.log 2>&1
+          status=$?
+          set -e
+          mv /tmp/xb18-shadow-receipt/request.original.json /tmp/xb18-shadow-receipt/request.json
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/xb18-request-tamper.log
+            echo 'FAIL_XB18_REQUEST_TAMPER_ACCEPTED'
+            exit 61
+          fi
+          grep -q 'DEPENDENCY_SHA256_MISMATCH:request_sha256' /tmp/xb18-request-tamper.log
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          echo 'PASS_XB18_REQUEST_CONTENT_TAMPER_REJECTED'
+
+      - name: Reject adapter dependency byte tamper and restore exact bytes
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          cp hgraph_adapter/xb18.py /tmp/xb18.py.original
+          printf '\n' >> hgraph_adapter/xb18.py
+          set +e
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt > /tmp/xb18-adapter-tamper.log 2>&1
+          status=$?
+          set -e
+          mv /tmp/xb18.py.original hgraph_adapter/xb18.py
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/xb18-adapter-tamper.log
+            echo 'FAIL_XB18_ADAPTER_TAMPER_ACCEPTED'
+            exit 62
+          fi
+          grep -q 'DEPENDENCY_SHA256_MISMATCH:adapter_sha256' /tmp/xb18-adapter-tamper.log
+          git diff --exit-code -- hgraph_adapter/xb18.py
+          python3 hgraph_adapter/verify_shadow_receipt.py --package-dir /tmp/xb18-shadow-receipt
+          echo 'PASS_XB18_ADAPTER_BYTE_TAMPER_REJECTED_AND_RESTORED'
+
+      - name: Re-run namespace-safe reference tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Assert shadow-only claim ceiling
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          grep -q 'RUNTIME_BIND = FALSE' README.md
+          ! grep -R 'GLOBAL_BIND = TRUE\|POINTER_PROMOTION = TRUE\|PRODUCTION_READINESS = TRUE' -n hgraph_adapter
+          echo 'PASS_HGRAPH_XB18_SHADOW_SCOPE_ONLY'
