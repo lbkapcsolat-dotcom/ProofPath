@@ -90,19 +90,96 @@ def SemanticRequestAllowed (c : CrosswalkCandidate) : Prop :=
   c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64
 
 
+def AllCriteriaPass (e : SemanticEvidence) : Prop :=
+  e.c1SourceIdentity = .pass ∧
+  e.c2StructuralClass = .pass ∧
+  e.c3AxisCompleteness = .pass ∧
+  e.c4Polarity = .pass ∧
+  e.c5ConflictFree = .pass ∧
+  e.c6BijectionCandidate = .pass ∧
+  e.c7AxisEvidence = .pass ∧
+  e.c8OrderSemantics = .pass ∧
+  e.c9NoPostHocSelection = .pass ∧
+  e.c10GovernanceScope = .pass ∧
+  e.c11ClaimCeiling = .pass
+
+
+def AnyCriterionDeny (e : SemanticEvidence) : Prop :=
+  e.c1SourceIdentity = .deny ∨
+  e.c2StructuralClass = .deny ∨
+  e.c3AxisCompleteness = .deny ∨
+  e.c4Polarity = .deny ∨
+  e.c5ConflictFree = .deny ∨
+  e.c6BijectionCandidate = .deny ∨
+  e.c7AxisEvidence = .deny ∨
+  e.c8OrderSemantics = .deny ∨
+  e.c9NoPostHocSelection = .deny ∨
+  e.c10GovernanceScope = .deny ∨
+  e.c11ClaimCeiling = .deny
+
+/-- Shared tri-state criterion contract: DENY dominates, all-PASS passes, otherwise HOLD. -/
+def criterionDecision (e : SemanticEvidence) : Tri :=
+  if AnyCriterionDeny e then .deny
+  else if AllCriteriaPass e then .pass
+  else .hold
+
+
 def ExactSemanticAuthorized (c : CrosswalkCandidate) : Prop :=
-  SemanticRequestAllowed c ∧
-  c.evidence.c1SourceIdentity = .pass ∧
-  c.evidence.c2StructuralClass = .pass ∧
-  c.evidence.c3AxisCompleteness = .pass ∧
-  c.evidence.c4Polarity = .pass ∧
-  c.evidence.c5ConflictFree = .pass ∧
-  c.evidence.c6BijectionCandidate = .pass ∧
-  c.evidence.c7AxisEvidence = .pass ∧
-  c.evidence.c8OrderSemantics = .pass ∧
-  c.evidence.c9NoPostHocSelection = .pass ∧
-  c.evidence.c10GovernanceScope = .pass ∧
-  c.evidence.c11ClaimCeiling = .pass
+  SemanticRequestAllowed c ∧ AllCriteriaPass c.evidence
+
+
+theorem allCriteriaPass_excludes_deny
+    (e : SemanticEvidence) (hPass : AllCriteriaPass e) :
+    ¬ AnyCriterionDeny e := by
+  rcases hPass with ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11⟩
+  simp [AnyCriterionDeny, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11]
+
+
+theorem criterionDecision_eq_deny_iff (e : SemanticEvidence) :
+    criterionDecision e = .deny ↔ AnyCriterionDeny e := by
+  constructor
+  · intro h
+    by_cases hDeny : AnyCriterionDeny e
+    · exact hDeny
+    · simp [criterionDecision, hDeny] at h
+  · intro hDeny
+    simp [criterionDecision, hDeny]
+
+
+theorem criterionDecision_eq_pass_iff (e : SemanticEvidence) :
+    criterionDecision e = .pass ↔ AllCriteriaPass e := by
+  constructor
+  · intro h
+    by_cases hDeny : AnyCriterionDeny e
+    · simp [criterionDecision, hDeny] at h
+    · by_cases hPass : AllCriteriaPass e
+      · exact hPass
+      · simp [criterionDecision, hDeny, hPass] at h
+  · intro hPass
+    have hDeny : ¬ AnyCriterionDeny e := allCriteriaPass_excludes_deny e hPass
+    simp [criterionDecision, hDeny, hPass]
+
+
+theorem criterionDecision_eq_hold_iff (e : SemanticEvidence) :
+    criterionDecision e = .hold ↔ ¬ AnyCriterionDeny e ∧ ¬ AllCriteriaPass e := by
+  constructor
+  · intro h
+    constructor
+    · intro hDeny
+      simp [criterionDecision, hDeny] at h
+    · intro hPass
+      have hDeny : ¬ AnyCriterionDeny e := allCriteriaPass_excludes_deny e hPass
+      simp [criterionDecision, hDeny, hPass] at h
+  · rintro ⟨hDeny, hPass⟩
+    simp [criterionDecision, hDeny, hPass]
+
+
+theorem exactSemanticAuthorized_iff_request_allowed_and_criterionDecision_pass
+    (c : CrosswalkCandidate) :
+    ExactSemanticAuthorized c ↔
+      SemanticRequestAllowed c ∧ criterionDecision c.evidence = .pass := by
+  rw [criterionDecision_eq_pass_iff]
+  rfl
 
 
 def bMeet (a b : State6) : State6 := fun i => a i && b i
@@ -149,14 +226,14 @@ theorem missing_axis_evidence_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
     (hMissing : c.evidence.c7AxisEvidence = .hold) :
     ¬ ExactSemanticAuthorized c := by
-  simp [ExactSemanticAuthorized, hMissing]
+  simp [ExactSemanticAuthorized, AllCriteriaPass, hMissing]
 
 
 theorem polarity_conflict_blocks_exact_crosswalk
     (c : CrosswalkCandidate)
     (hConflict : c.evidence.c4Polarity = .deny) :
     ¬ ExactSemanticAuthorized c := by
-  simp [ExactSemanticAuthorized, hConflict]
+  simp [ExactSemanticAuthorized, AllCriteriaPass, hConflict]
 
 
 theorem namespace_identity_required
@@ -165,13 +242,25 @@ theorem namespace_identity_required
     c.source ≠ .bareEq64 ∧ c.target ≠ .bareEq64 :=
   h.1
 
-
-theorem no_semantic_authorization_from_structure_alone
+/-- Structural B6/Q6 preservation plus missing axis semantics proves only structural
+    compatibility; it does not authorize an exact semantic crosswalk. -/
+theorem structure_preservation_with_missing_axis_evidence_does_not_authorize_semantics
     (c : CrosswalkCandidate)
-    (structuralIso : Prop)
-    (_hStructural : structuralIso)
-    (hNoAxisEvidence : c.evidence.c7AxisEvidence = .hold) :
-    ¬ ExactSemanticAuthorized c :=
-  missing_axis_evidence_blocks_exact_crosswalk c hNoAxisEvidence
+    (hMissing : c.evidence.c7AxisEvidence = .hold) :
+    (∀ a b : State6,
+      applyPerm c.permutation (bMeet a b) =
+        bMeet (applyPerm c.permutation a) (applyPerm c.permutation b) ∧
+      applyPerm c.permutation (bJoin a b) =
+        bJoin (applyPerm c.permutation a) (applyPerm c.permutation b)) ∧
+    (∀ a b : State6, HammingOne a b →
+      HammingOne (applyPerm c.permutation a) (applyPerm c.permutation b)) ∧
+    ¬ ExactSemanticAuthorized c := by
+  constructor
+  · intro a b
+    exact coordinate_permutation_preserves_B6_structure c.permutation a b
+  · constructor
+    · intro a b h
+      exact coordinate_permutation_preserves_Q6_hamming c.permutation a b h
+    · exact missing_axis_evidence_blocks_exact_crosswalk c hMissing
 
 end NamespaceSafeEQ64
