@@ -149,7 +149,8 @@ theorem criterionDecision_eq_deny_iff (e : SemanticEvidence) :
   · intro h
     by_cases hDeny : AnyCriterionDeny e
     · exact hDeny
-    · simp [criterionDecision, hDeny] at h
+    · by_cases hPass : AllCriteriaPass e <;>
+        simp [criterionDecision, hDeny, hPass] at h
   · intro hDeny
     simp [criterionDecision, hDeny]
 
