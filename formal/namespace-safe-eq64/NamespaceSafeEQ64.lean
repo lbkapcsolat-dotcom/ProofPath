@@ -117,6 +117,14 @@ def AnyCriterionDeny (e : SemanticEvidence) : Prop :=
   e.c10GovernanceScope = .deny ∨
   e.c11ClaimCeiling = .deny
 
+instance (e : SemanticEvidence) : Decidable (AllCriteriaPass e) := by
+  unfold AllCriteriaPass
+  infer_instance
+
+instance (e : SemanticEvidence) : Decidable (AnyCriterionDeny e) := by
+  unfold AnyCriterionDeny
+  infer_instance
+
 /-- Shared tri-state criterion contract: DENY dominates, all-PASS passes, otherwise HOLD. -/
 def criterionDecision (e : SemanticEvidence) : Tri :=
   if AnyCriterionDeny e then .deny
