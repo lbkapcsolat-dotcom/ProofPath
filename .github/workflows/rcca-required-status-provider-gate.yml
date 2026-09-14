@@ -37,15 +37,19 @@ jobs:
 
   coverage:
     needs: classify
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: RCCA coverage not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_COVERAGE__NOT_APPLICABLE'
       - name: Checkout exact PR head
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Run RCCA spec-to-Lean coverage gate
+        if: needs.classify.outputs.rcca_changed == 'true'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
@@ -53,10 +57,13 @@ jobs:
 
   proof-escape-scanner-test:
     needs: classify
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: RCCA proof escape scanner not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_PROOF_ESCAPE_SCANNER__NOT_APPLICABLE'
       - name: Verify scanner catches proof escapes without false-positive control
+        if: needs.classify.outputs.rcca_changed == 'true'
         run: |
           set -euo pipefail
           ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
@@ -72,15 +79,19 @@ jobs:
 
   build-a:
     needs: classify
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: RCCA build A not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_BUILD_A__NOT_APPLICABLE'
       - name: Checkout exact PR head
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Install pinned Lean and build RCCA
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
         with:
           lake-package-directory: formal/rcca-lean4
@@ -91,6 +102,7 @@ jobs:
           use-github-cache: false
           use-mathlib-cache: false
       - name: Compile theorem harness and reject proof escapes
+        if: needs.classify.outputs.rcca_changed == 'true'
         working-directory: formal/rcca-lean4
         run: |
           set -euo pipefail
@@ -100,6 +112,7 @@ jobs:
             exit 41
           fi
       - name: Materialize deterministic proof artifact A
+        if: needs.classify.outputs.rcca_changed == 'true'
         working-directory: formal/rcca-lean4
         run: |
           set -euo pipefail
@@ -113,6 +126,7 @@ jobs:
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean RCCATest.lean lakefile.lean lean-toolchain
           sha256sum proof-artifact.tar > proof-artifact.tar.sha256
       - name: Upload build A
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rcca-provider-gate-build-a
@@ -123,15 +137,19 @@ jobs:
 
   build-b:
     needs: classify
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: RCCA build B not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_BUILD_B__NOT_APPLICABLE'
       - name: Checkout exact PR head
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Install pinned Lean and build RCCA
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
         with:
           lake-package-directory: formal/rcca-lean4
@@ -142,6 +160,7 @@ jobs:
           use-github-cache: false
           use-mathlib-cache: false
       - name: Compile theorem harness and reject proof escapes
+        if: needs.classify.outputs.rcca_changed == 'true'
         working-directory: formal/rcca-lean4
         run: |
           set -euo pipefail
@@ -151,6 +170,7 @@ jobs:
             exit 41
           fi
       - name: Materialize deterministic proof artifact B
+        if: needs.classify.outputs.rcca_changed == 'true'
         working-directory: formal/rcca-lean4
         run: |
           set -euo pipefail
@@ -164,6 +184,7 @@ jobs:
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf proof-artifact.tar RCCA.lean RCCA.olean RCCATest.lean lakefile.lean lean-toolchain
           sha256sum proof-artifact.tar > proof-artifact.tar.sha256
       - name: Upload build B
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: rcca-provider-gate-build-b
@@ -174,15 +195,19 @@ jobs:
 
   proofpath-regression:
     needs: classify
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: ProofPath regression not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_PROOFPATH_REGRESSION__NOT_APPLICABLE'
       - name: Checkout exact PR head
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Run committed regressions
+        if: needs.classify.outputs.rcca_changed == 'true'
         run: |
           set -euo pipefail
           node tests.mjs
@@ -191,20 +216,25 @@ jobs:
 
   compare:
     needs: [classify, build-a, build-b]
-    if: needs.classify.outputs.rcca_changed == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: RCCA compare not applicable sentinel
+        if: needs.classify.outputs.rcca_changed != 'true'
+        run: echo 'PASS_RCCA_COMPARE__NOT_APPLICABLE'
       - name: Download build A
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: rcca-provider-gate-build-a
           path: build-a
       - name: Download build B
+        if: needs.classify.outputs.rcca_changed == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: rcca-provider-gate-build-b
           path: build-b
       - name: Verify exact artifact equality
+        if: needs.classify.outputs.rcca_changed == 'true'
         run: |
           set -euo pipefail
           cmp build-a/RCCA.lean build-b/RCCA.lean
@@ -218,7 +248,7 @@ jobs:
 
   required-status:
     name: rcca-required-status-provider-gate
-    if: always()
+    if: ${{ always() }}
     needs: [classify, coverage, proof-escape-scanner-test, build-a, build-b, proofpath-regression, compare]
     runs-on: ubuntu-24.04
     steps:
@@ -236,20 +266,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$CLASSIFY_RESULT" = success
-          if [ "$RCCA_CHANGED" != true ]; then
-            test "$COVERAGE_RESULT" = skipped
-            test "$SCANNER_RESULT" = skipped
-            test "$BUILD_A_RESULT" = skipped
-            test "$BUILD_B_RESULT" = skipped
-            test "$REGRESSION_RESULT" = skipped
-            test "$COMPARE_RESULT" = skipped
-            echo 'PASS_RCCA_REQUIRED_STATUS_PROVIDER_GATE__NOT_APPLICABLE'
-            exit 0
-          fi
           test "$COVERAGE_RESULT" = success
           test "$SCANNER_RESULT" = success
           test "$BUILD_A_RESULT" = success
           test "$BUILD_B_RESULT" = success
           test "$REGRESSION_RESULT" = success
           test "$COMPARE_RESULT" = success
+          if [ "$RCCA_CHANGED" != true ]; then
+            echo 'PASS_RCCA_REQUIRED_STATUS_PROVIDER_GATE__NOT_APPLICABLE'
+            exit 0
+          fi
           echo 'PASS_RCCA_REQUIRED_STATUS_PROVIDER_GATE__RCCA_CHANGED__ALL_REQUIRED_EVIDENCE_GREEN'

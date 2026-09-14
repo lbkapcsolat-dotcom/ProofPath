@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["criteria", "axis_equivalences", "exact_mapping"],
+  "properties": {
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11"],
+      "properties": {
+        "C1": {"enum": ["PASS", "HOLD", "DENY"]}, "C2": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C3": {"enum": ["PASS", "HOLD", "DENY"]}, "C4": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C5": {"enum": ["PASS", "HOLD", "DENY"]}, "C6": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C7": {"enum": ["PASS", "HOLD", "DENY"]}, "C8": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C9": {"enum": ["PASS", "HOLD", "DENY"]}, "C10": {"enum": ["PASS", "HOLD", "DENY"]},
+        "C11": {"enum": ["PASS", "HOLD", "DENY"]}
+      }
+    },
+    "axis_equivalences": {"type": "array", "minItems": 0, "maxItems": 6},
+    "exact_mapping": {"type": ["array", "null"]}
+  }
+}

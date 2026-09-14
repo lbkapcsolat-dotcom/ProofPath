@@ -1,0 +1,72 @@
+name: Namespace-Safe EQ64 Formal Reference Gate
+
+on:
+  push:
+    branches:
+      - design/namespace-safe-eq64
+    paths:
+      - 'formal/namespace-safe-eq64/**'
+      - '.github/workflows/namespace-safe-eq64.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'formal/namespace-safe-eq64/**'
+      - '.github/workflows/namespace-safe-eq64.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  formal-reference-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Lean and build package
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9
+        with:
+          lake-package-directory: formal/namespace-safe-eq64
+          auto-config: false
+          build: true
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: true
+
+      - name: Verify pinned mathlib revision
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          EXPECTED_MATHLIB_REV='0df444a360eaa60ab8c11dca51a86af692955474'
+          ACTUAL_MATHLIB_REV="$(git -C .lake/packages/mathlib rev-parse HEAD)"
+          test "$ACTUAL_MATHLIB_REV" = "$EXPECTED_MATHLIB_REV"
+          echo "PASS_MATHLIB_PIN=$ACTUAL_MATHLIB_REV"
+
+      - name: Compile theorem harness and reject proof escapes
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          ~/.elan/bin/lake env lean NamespaceSafeEQ64Test.lean
+          ESCAPE_RE='(^|[^[:alnum:]_])(sorry|admit)([^[:alnum:]_]|$)|^[[:space:]]*((private|protected|noncomputable)[[:space:]]+)*(axiom|unsafe)([[:space:]]|$)'
+          if grep -nE "$ESCAPE_RE" NamespaceSafeEQ64.lean HomologyGate.lean AbelianHomologyGate.lean NatIndexedHomologyGate.lean CrossUniverseHomologyGate.lean MathlibHomologicalComplexBridge.lean NamespaceSafeEQ64Test.lean; then
+            echo 'FAIL_PROOF_ESCAPE_TOKEN'
+            exit 41
+          fi
+
+      - name: Run Python formal-reference tests
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Assert non-actuating scope markers
+        working-directory: formal/namespace-safe-eq64
+        run: |
+          set -euo pipefail
+          grep -q 'RUNTIME_BIND = FALSE' README.md
+          ! grep -R 'GLOBAL_BIND = TRUE\|POINTER_PROMOTION = TRUE\|PRODUCTION_READINESS = TRUE' -n .
+          echo 'PASS_REFERENCE_FORMAL_SCOPE_ONLY'
