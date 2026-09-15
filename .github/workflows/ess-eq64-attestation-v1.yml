@@ -1,0 +1,180 @@
+name: ESS EQ64 Provenance Attestation Canary V1
+
+on:
+  push:
+    branches:
+      - ess-eq64-attestation-v1
+    paths:
+      - .github/workflows/ess-eq64-attestation-v1.yml
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  provenance-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_REPOSITORY: lbkapcsolat-dotcom/ProofPath
+      EXPECTED_REPOSITORY_ID: "1346127475"
+      EXPECTED_OWNER_ID: "249759733"
+      EXPECTED_BASE_MAIN_SHA: a9d2298ba2f820c1a1d31baca3c085a5b1676e65
+      EXPECTED_REF: refs/heads/ess-eq64-attestation-v1
+      AUTHORITY_STATEMENT_SHA256: 706e6e196731a05b772756abaa74d6f460fb5358842877a608da3dcc46aaa1a0
+      EQ64_SOURCE_SHA256: c8735c8cf0e1a149a0096172a5b4bfacc8121b2c3b8a1db620ac3d3c263878a5
+      CLAIM_CEILING: FORMAL_EQ64_MODEL_ONLY
+      CLONE_NEGATIVE_REPOSITORY: lbkapcsolat-dotcom/tensor-cube-frozen40-benchmark
+
+    steps:
+      - name: Verify immutable GitHub context
+        shell: bash
+        env:
+          ACTUAL_REPOSITORY_ID: ${{ github.repository_id }}
+          ACTUAL_OWNER_ID: ${{ github.repository_owner_id }}
+          ACTUAL_EVENT_BEFORE: ${{ github.event.before }}
+          ACTUAL_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$EXPECTED_REPOSITORY"
+          test "$ACTUAL_REPOSITORY_ID" = "$EXPECTED_REPOSITORY_ID"
+          test "$ACTUAL_OWNER_ID" = "$EXPECTED_OWNER_ID"
+          test "$GITHUB_REF" = "$EXPECTED_REF"
+          test "$ACTUAL_EVENT" = "push"
+          test "$ACTUAL_EVENT_BEFORE" = "$EXPECTED_BASE_MAIN_SHA"
+
+      - name: Build canonical provenance subject manifest
+        id: subject
+        shell: bash
+        env:
+          GH_REPOSITORY_ID: ${{ github.repository_id }}
+          GH_OWNER_ID: ${{ github.repository_owner_id }}
+          GH_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          obj = {
+              "schema": "ESS_EQ64_GITHUB_PROVENANCE_SUBJECT_V1",
+              "authority_context": {
+                  "authority_statement_sha256": "sha256:" + os.environ["AUTHORITY_STATEMENT_SHA256"],
+                  "authority_statement_status": "PASS_DESIGN_AND_CRYPTO_CANARY__HOLD_CANONICAL_ROOT_AUTHORITY",
+                  "claim_ceiling": os.environ["CLAIM_CEILING"],
+                  "global_bind": False,
+                  "runtime_authority": False
+              },
+              "eq64": {
+                  "model_id": "EQ64_BOOLEAN_LATTICE_V1",
+                  "source_sha256": "sha256:" + os.environ["EQ64_SOURCE_SHA256"]
+              },
+              "provenance_context": {
+                  "base_main_sha": os.environ["EXPECTED_BASE_MAIN_SHA"],
+                  "commit_sha": os.environ["GITHUB_SHA"],
+                  "event_name": os.environ["GH_EVENT_NAME"],
+                  "ref": os.environ["GITHUB_REF"],
+                  "repository": os.environ["GITHUB_REPOSITORY"],
+                  "repository_id": os.environ["GH_REPOSITORY_ID"],
+                  "repository_owner_id": os.environ["GH_OWNER_ID"],
+                  "workflow_ref": os.environ["GH_WORKFLOW_REF"]
+              }
+          }
+          raw = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+          open("ESS_EQ64_PROVENANCE_SUBJECT_V1.json", "wb").write(raw)
+          digest = hashlib.sha256(raw).hexdigest()
+          print(raw.decode())
+          print("SUBJECT_SHA256=" + digest)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("sha256=" + digest + "\n")
+          PY
+
+      - name: Generate GitHub OIDC Sigstore provenance attestation
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ESS_EQ64_PROVENANCE_SUBJECT_V1.json
+          create-storage-record: false
+          show-summary: true
+
+      - name: Verify official repository attestation
+        id: verify_positive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify ESS_EQ64_PROVENANCE_SUBJECT_V1.json -R "$EXPECTED_REPOSITORY" | tee positive_verify.txt
+
+      - name: Clone attestation negative control
+        id: verify_negative
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          set +e
+          gh attestation verify ESS_EQ64_PROVENANCE_SUBJECT_V1.json -R "$CLONE_NEGATIVE_REPOSITORY" > negative_verify.txt 2>&1
+          rc=$?
+          set -e
+          cat negative_verify.txt
+          test "$rc" -ne 0
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+      - name: Build authority cross-bind candidate and receipt
+        id: receipt
+        shell: bash
+        env:
+          ATTESTATION_ID: ${{ steps.attest.outputs.attestation-id }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          SUBJECT_SHA256: ${{ steps.subject.outputs.sha256 }}
+          NEGATIVE_EXIT_CODE: ${{ steps.verify_negative.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          test -f "$BUNDLE_PATH"
+          BUNDLE_SHA256="$(sha256sum "$BUNDLE_PATH" | cut -d' ' -f1)"
+          export BUNDLE_SHA256
+          python3 - <<'PY'
+          import hashlib, json, os
+          cross = {
+              "schema": "ESS_EQ64_AUTHORITY_ATTESTATION_CROSS_BIND_CANDIDATE_V1",
+              "authority_statement_sha256": "sha256:" + os.environ["AUTHORITY_STATEMENT_SHA256"],
+              "github_attestation_bundle_sha256": "sha256:" + os.environ["BUNDLE_SHA256"],
+              "github_attestation_id": os.environ["ATTESTATION_ID"],
+              "github_attestation_url": os.environ["ATTESTATION_URL"],
+              "provenance_subject_sha256": "sha256:" + os.environ["SUBJECT_SHA256"],
+              "repository": os.environ["EXPECTED_REPOSITORY"],
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "claim_ceiling": os.environ["CLAIM_CEILING"],
+              "canonical_root_signature_present": False,
+              "status": "READY_FOR_OFFLINE_ROOT_SIGNING__NOT_CANONICAL_AUTHORITY"
+          }
+          cross_raw = json.dumps(cross, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+          cross_sha = hashlib.sha256(cross_raw).hexdigest()
+          open("ESS_EQ64_AUTHORITY_ATTESTATION_CROSS_BIND_CANDIDATE_V1.json", "wb").write(cross_raw)
+          receipt = {
+              "schema": "ESS_EQ64_GITHUB_OIDC_ATTESTATION_RECEIPT_V1",
+              "official_repository_identity": "PASS",
+              "commit_pin": "PASS",
+              "artifact_digest_bind": "PASS",
+              "github_oidc_artifact_attestation": "PASS",
+              "sigstore_verify": "PASS",
+              "clone_attestation_negative": "PASS",
+              "clone_negative_exit_code": int(os.environ["NEGATIVE_EXIT_CODE"]),
+              "provenance_binds_authority_statement_sha": "PASS",
+              "authority_statement_binds_this_attestation": "HOLD_ROOT_RESIGN_REQUIRED",
+              "mutual_authority_cross_bind": "HOLD_ROOT_RESIGN_REQUIRED",
+              "authority_cross_bind_candidate_sha256": "sha256:" + cross_sha,
+              "attestation_bundle_sha256": "sha256:" + os.environ["BUNDLE_SHA256"],
+              "attestation_id": os.environ["ATTESTATION_ID"],
+              "attestation_url": os.environ["ATTESTATION_URL"],
+              "subject_sha256": "sha256:" + os.environ["SUBJECT_SHA256"],
+              "runtime_authority": False,
+              "global_bind": False,
+              "verdict": "PASS_GITHUB_PROVENANCE_SIDE__HOLD_CANONICAL_TWO_WAY_AUTHORITY_BIND"
+          }
+          print("CROSS_BIND_CANDIDATE=" + cross_raw.decode())
+          print("RECEIPT=" + json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+          PY
