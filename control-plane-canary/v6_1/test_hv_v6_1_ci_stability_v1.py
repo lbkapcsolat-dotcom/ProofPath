@@ -38,14 +38,38 @@ def build_context(root: Path, nonce: str) -> Path:
     return path
 
 
+def run_json(cmd: list[str]):
+    cp = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    line = cp.stdout.strip().splitlines()[-1] if cp.stdout.strip() else "{}"
+    try:
+        out = json.loads(line)
+    except json.JSONDecodeError:
+        out = {}
+    return cp, out
+
+
 class RuntimeCIStabilityV1(unittest.TestCase):
-    def test_repeated_cold_start_double_spend_exactly_one_winner(self):
+    def test_repeated_initialized_runtime_double_spend_exactly_one_winner(self):
         failures = []
         for i in range(ROUNDS):
             with tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 db = root / "hv_runtime.sqlite3"
                 ctx = build_context(root, f"ci-stability-{i}")
+
+                init_cmd = [sys.executable, str(WORKER), "snapshot", "--db", str(db)]
+                init_cp, init_out = run_json(init_cmd)
+                if init_cp.returncode != 0 or init_out.get("integrity_check") != "ok":
+                    failures.append({
+                        "round": i,
+                        "phase": "bootstrap",
+                        "returncode": init_cp.returncode,
+                        "stdout": init_cp.stdout,
+                        "stderr": init_cp.stderr,
+                        "result": init_out,
+                    })
+                    continue
+
                 base = [sys.executable, str(WORKER), "resolve", "--db", str(db), "--context", str(ctx)]
                 p1 = subprocess.Popen(base + ["--candidate", f"race-{i}-1"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 p2 = subprocess.Popen(base + ["--candidate", f"race-{i}-2"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -65,6 +89,7 @@ class RuntimeCIStabilityV1(unittest.TestCase):
                 if not ok:
                     failures.append({
                         "round": i,
+                        "phase": "double_spend",
                         "p1_returncode": p1.returncode,
                         "p2_returncode": p2.returncode,
                         "p1_stdout": o1,
