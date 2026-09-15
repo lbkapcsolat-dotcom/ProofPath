@@ -87,6 +87,9 @@ class RestartDurabilityConformanceV1(unittest.TestCase):
 
     def test_05_concurrent_double_spend_exactly_one_executes(self):
         ctx = self.context_file("race-nonce")
+        init_cp, snap = self.run_worker("snapshot")
+        self.assertEqual(init_cp.returncode, 0)
+        self.assertEqual(snap["integrity_check"], "ok")
         base = [sys.executable, str(WORKER), "resolve", "--db", str(self.db), "--context", str(ctx)]
         p1 = subprocess.Popen(base + ["--candidate", "race-1"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p2 = subprocess.Popen(base + ["--candidate", "race-2"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
