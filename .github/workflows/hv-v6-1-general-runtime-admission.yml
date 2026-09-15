@@ -1,0 +1,84 @@
+name: HV V6.1 General Runtime Admission V1
+
+on:
+  push:
+    branches:
+      - ess-v6-1-real-repository-control-plane-canary-v1
+    paths:
+      - 'control-plane-canary/v6_1/**'
+      - '.github/workflows/hv-v6-1-general-runtime-admission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  general-runtime-admission:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact provider commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pinned cryptography dependency
+        run: python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+
+      - name: Record provider identity
+        run: |
+          python --version
+          git rev-parse HEAD
+          echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+          echo "GITHUB_RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+
+      - name: Run general runtime admission gate
+        working-directory: control-plane-canary/v6_1
+        run: |
+          mkdir -p out
+          python -m py_compile test_hv_v6_1_general_runtime_admission_v1.py run_hv_v6_1_general_runtime_admission_v1.py
+          python run_hv_v6_1_general_runtime_admission_v1.py > out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json')
+          r = json.loads(p.read_text(encoding='utf-8'))
+          assert r['tests_total'] == 5
+          assert r['tests_passed'] == 5
+          assert r['persistence_rehydration_guard'] is True
+          assert r['obligation_coverage'] == '18_OF_18'
+          assert r['negative_controls'] == '6_OF_6'
+          assert r['claims']['general_runtime_admission'] is True
+          assert r['claims']['production_readiness'] is False
+          assert r['claims']['global_bind'] is False
+          assert r['claims']['pointer_promotion'] is False
+          assert r['claims']['main_merge'] is False
+          assert r['verdict'] == 'PASS_HV_V6_1_GENERAL_RUNTIME_ADMISSION_V1'
+          PY
+          sha256sum out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json > out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json.sha256
+
+      - name: Re-run inert persistence rehydration guard
+        working-directory: control-plane-canary/v6_1
+        run: python test_hv_v6_1_inert_artifact_e2e_v1.py
+
+      - name: Re-run obligation coverage
+        working-directory: control-plane-canary/v6_1
+        run: python test_hv_v6_1_runtime_enforcement_v1.py
+
+      - name: Re-run restart durability negative controls
+        working-directory: control-plane-canary/v6_1
+        run: python test_hv_v6_1_restart_durability_v1.py
+
+      - name: Upload provider-native runtime admission receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: hv-v6-1-general-runtime-admission-${{ github.run_id }}
+          path: |
+            control-plane-canary/v6_1/out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json
+            control-plane-canary/v6_1/out/HV_V6_1_GENERAL_RUNTIME_ADMISSION_RECEIPT_V1.json.sha256
+          if-no-files-found: error
+          retention-days: 7
