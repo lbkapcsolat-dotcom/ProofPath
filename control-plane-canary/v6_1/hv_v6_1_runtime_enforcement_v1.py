@@ -278,6 +278,15 @@ OBLIGATION_TO_HOOK = {
     "OBL-18": "support_only branch plus support_mutations all false",
 }
 
+REQUIRED_GENERAL_RUNTIME_NEGATIVE_CONTROLS = (
+    "h_to_v_mint_rejected",
+    "pass_without_v_rejected",
+    "unknown_evidence_hold",
+    "invalid_v_rejected",
+    "replay_rejected",
+    "revocation_dominates",
+)
+
 
 def support_mutations() -> dict[str, bool]:
     return {
@@ -299,6 +308,38 @@ def k_from_evidence(evidence_state: str) -> str:
 
 def attempt_horizontal_mint_v(_horizontal_material: Mapping[str, Any]) -> bool:
     raise PermissionError("H_ONLY_CANNOT_MINT_V")
+
+
+def admit_general_runtime_v1(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    base = {
+        "scope": "HV_V6_1_CONTROL_PLANE_RUNTIME",
+        "general_runtime_admission": False,
+        "production_readiness": False,
+        "global_bind": False,
+        "pointer_promotion": False,
+        "main_merge": False,
+    }
+    if evidence.get("persistence_rehydration_guard") != "PASS_HV_V6_1_INERT_ARTIFACT_FRESH_PROCESS_H_TO_V_REJECTION_3_OF_3":
+        return {**base, "verdict": "HOLD_PERSISTENCE_REHYDRATION_GUARD"}
+
+    observed = set(evidence.get("obligations_passed") or ())
+    required = set(OBLIGATION_TO_HOOK)
+    missing = sorted(required - observed)
+    if missing:
+        return {**base, "verdict": "HOLD_OBLIGATION_COVERAGE", "missing_obligations": missing}
+
+    controls = evidence.get("negative_controls")
+    if not isinstance(controls, Mapping):
+        controls = {}
+    failed = sorted(name for name in REQUIRED_GENERAL_RUNTIME_NEGATIVE_CONTROLS if controls.get(name) is not True)
+    if failed:
+        return {**base, "verdict": "HOLD_NEGATIVE_CONTROL", "failed_negative_controls": failed}
+
+    return {
+        **base,
+        "general_runtime_admission": True,
+        "verdict": "PASS_GENERAL_RUNTIME_ADMISSION_V1",
+    }
 
 
 def _hold(obligation: str, verdict: str, reason: str, *, k_state: str = "HOLD", core_verdict: str = "") -> RuntimeDecision:
